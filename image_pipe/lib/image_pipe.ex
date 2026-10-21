@@ -74,8 +74,10 @@ defmodule ImagePipe do
   which belong to a mount, a source, or a request.
 
   `keys` and `source_encryption_keys` set which URLs an `ImagePipe.Plug`
-  mount accepts. `base_url`, `encrypt_source`, and `iv_mode` only affect URLs
-  built from the configuration with `url_config/1`.
+  mount accepts. Without `keys`, a mount raises `ArgumentError` on every
+  request unless `allow_unsigned` is `true`. `base_url`, `encrypt_source`,
+  and `iv_mode` only affect URLs built from the configuration with
+  `url_config/1`.
 
   ## Options
 
@@ -228,17 +230,13 @@ defmodule ImagePipe do
       `ImagePipe.Plan.Spec.Issue`.
     * `:expired` - the plan's `expires` time has passed.
     * `{:invalid_output, reason}` - the output options can't be combined,
-      such as `color_profile: {:convert, :srgb}` with `hdr: :preserve`, or
-      they ask for more encoder effort than `:max_effort` allows. A
-      configured default counts too.
+      such as `color_profile: {:convert, :srgb}` with `hdr: :preserve`.
     * `{:unsupported_output_format, format}` - no encoder for the format.
     * `{:detector, reason}` - detection is required and `reason` is
       `:unavailable` or `:not_ready`, or the plan names detection classes
       the detector lacks (`{:unknown_classes, names}`).
     * `{:preset, reason}` - the configuration's preset lookup failed:
-      `:too_many_presets` when the plan names more presets to look up than
-      `:max_preset_lookups` allows, `:lookup_unavailable`, or
-      `:invalid_definition`.
+      `:lookup_unavailable` or `:invalid_definition`.
     * `{:invalid_source, reason}` - the input isn't one of the tuples above,
       the source isn't valid UTF-8, or the source or a `watermark_source` in
       the plan can't be parsed.

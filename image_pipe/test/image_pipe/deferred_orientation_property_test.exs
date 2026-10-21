@@ -248,7 +248,7 @@ defmodule ImagePipe.DeferredOrientationPropertyTest do
   defp request(path, opts) do
     :get
     |> conn(path)
-    |> ImagePipe.Plug.call(ImagePipe.Plug.init(opts))
+    |> ImagePipe.Plug.call(ImagePipe.Plug.init(Keyword.put_new(opts, :allow_unsigned, true)))
   end
 
   defp decoded(%Plug.Conn{status: 200} = conn),

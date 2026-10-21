@@ -14,7 +14,7 @@ defmodule ImagePipeFiddleWeb.Router do
     plug :accepts, ["json"]
   end
 
-  @image_mount [allow_origin: "*", allow_debug_headers: true]
+  @image_mount [allow_origin: "*"]
 
   forward "/image", ImagePipe.Plug, [instance: ImagePipeFiddle.Images] ++ @image_mount
 

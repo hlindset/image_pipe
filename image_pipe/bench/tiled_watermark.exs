@@ -51,6 +51,7 @@ defmodule TiledWatermarkBench do
 
     config =
       ImagePipe.Plug.init(
+        allow_unsigned: true,
         sources: [
           path: [
             adapter: ImagePipe.Source.File,

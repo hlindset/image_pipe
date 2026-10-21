@@ -20,14 +20,6 @@ defmodule ImagePipe.Plug.Config do
                       CORS headers.
                       """
                     ],
-                    allow_debug_headers: [
-                      type: :boolean,
-                      default: false,
-                      doc: """
-                      Lets a request's `debug` option add diagnostic headers to the response. \
-                      See [debug headers](debug_headers.md).
-                      """
-                    ],
                     http_cache: [
                       type: {:in, [:validators, :auto, :public, :private]},
                       default: :validators,

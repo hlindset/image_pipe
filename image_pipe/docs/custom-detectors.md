@@ -92,6 +92,7 @@ Set the `detector` option to your module:
 ```elixir
 # lib/my_app_web/router.ex
 forward "/images", ImagePipe.Plug,
+  allow_unsigned: true,
   sources: [
     media: [
       adapter: ImagePipe.Source.File,

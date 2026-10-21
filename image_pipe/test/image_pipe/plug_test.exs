@@ -206,7 +206,10 @@ defmodule ImagePipe.PlugTest do
       |> translate_origin_test_opts()
       |> Keyword.split(@post_init_config_keys)
 
-    Keyword.merge(ImagePipe.Plug.init(mount_opts), post_init)
+    Keyword.merge(
+      ImagePipe.Plug.init(Keyword.put_new(mount_opts, :allow_unsigned, true)),
+      post_init
+    )
   end
 
   # Options with an observed cache. A cache runs only on an instance, so this

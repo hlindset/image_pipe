@@ -31,6 +31,7 @@ defmodule WarmRequestsBench do
         [
           {ImagePipe,
            name: WarmRequestsBench.Instance,
+           allow_unsigned: true,
            max_body_bytes: 100_000_000,
            max_input_pixels: 60_000_000,
            sources: [

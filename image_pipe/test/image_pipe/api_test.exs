@@ -9,7 +9,7 @@ defmodule ImagePipe.APITest do
 
   describe "init/1" do
     test "returns validated config for an empty option list" do
-      opts = ImagePipe.Plug.init([])
+      opts = ImagePipe.Plug.init(allow_unsigned: true)
 
       assert Signature.verify(nil, "/src/a.jpg", opts) == {:ok, nil}
       assert Keyword.fetch!(opts, :presets) == %{}
@@ -20,7 +20,7 @@ defmodule ImagePipe.APITest do
 
     test "raises on an unknown option" do
       assert_raise ArgumentError, fn ->
-        ImagePipe.Plug.init(bogus_option: true)
+        ImagePipe.Plug.init(allow_unsigned: true, bogus_option: true)
       end
     end
 
@@ -41,6 +41,7 @@ defmodule ImagePipe.APITest do
     test "compiles preset options at initialization" do
       opts =
         ImagePipe.Plug.init(
+          allow_unsigned: true,
           presets: %{"card" => "w=300/h=200/fit=cover"},
           request_defaults: "q=80"
         )
@@ -63,9 +64,15 @@ defmodule ImagePipe.APITest do
         ImagePipe.URL.new()
         |> ImagePipe.URL.group(resize: [width: 300, height: 200, fit: :cover])
 
-      assert Keyword.fetch!(ImagePipe.Plug.init(presets: %{"card" => card}), :presets) ==
+      assert Keyword.fetch!(
+               ImagePipe.Plug.init(allow_unsigned: true, presets: %{"card" => card}),
+               :presets
+             ) ==
                Keyword.fetch!(
-                 ImagePipe.Plug.init(presets: %{"card" => "w=300/h=200/fit=cover"}),
+                 ImagePipe.Plug.init(
+                   allow_unsigned: true,
+                   presets: %{"card" => "w=300/h=200/fit=cover"}
+                 ),
                  :presets
                )
     end
@@ -75,25 +82,27 @@ defmodule ImagePipe.APITest do
             [request_defaults: "w=10/-/blur=1"],
             [request_defaults: "preset=card", presets: %{"card" => "w=10"}]
           ] do
-        assert_raise ArgumentError, ~r/request_defaults/, fn -> ImagePipe.Plug.init(options) end
+        assert_raise ArgumentError, ~r/request_defaults/, fn ->
+          ImagePipe.Plug.init(Keyword.put_new(options, :allow_unsigned, true))
+        end
       end
     end
 
     test "rejects validate_against, which the configuration fills in itself" do
       assert_raise ArgumentError, ~r/validate_against/, fn ->
-        ImagePipe.Plug.init(validate_against: [])
+        ImagePipe.Plug.init(allow_unsigned: true, validate_against: [])
       end
     end
 
     test "raises on a preset fragment with an unknown option" do
       assert_raise ArgumentError, fn ->
-        ImagePipe.Plug.init(presets: %{"bad" => "bogus=1"})
+        ImagePipe.Plug.init(allow_unsigned: true, presets: %{"bad" => "bogus=1"})
       end
     end
 
     test "raises on a presets value that is neither a fragment nor a builder" do
       assert_raise ArgumentError, fn ->
-        ImagePipe.Plug.init(presets: %{"bad" => 123})
+        ImagePipe.Plug.init(allow_unsigned: true, presets: %{"bad" => 123})
       end
     end
   end
@@ -110,6 +119,7 @@ defmodule ImagePipe.APITest do
 
       config =
         ImagePipe.Plug.init(
+          allow_unsigned: true,
           sources: [
             path: [
               adapter: RootHTTPAdapter,

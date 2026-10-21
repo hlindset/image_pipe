@@ -4,8 +4,7 @@ defmodule ImagePipe.Presets do
   # level and compiled over the static presets they may reference.
   #
   # A requested name the lookup omits stays absent, so expansion reports it as
-  # unknown (400). A request naming more than `:max_preset_lookups` is
-  # `:too_many_presets` (400). An unavailable backend is `:lookup_unavailable`
+  # unknown (400). An unavailable backend is `:lookup_unavailable`
   # (503); a broken stored definition is `:invalid_definition` (500), the
   # host's fault.
   @moduledoc false
@@ -15,7 +14,7 @@ defmodule ImagePipe.Presets do
   alias ImagePipe.API.Presets
   alias ImagePipe.Telemetry
 
-  @type error :: {:preset, :too_many_presets | :lookup_unavailable | :invalid_definition}
+  @type error :: {:preset, :lookup_unavailable | :invalid_definition}
 
   @spec for_request([String.t()], keyword()) :: {:ok, map()} | {:error, error()}
   def for_request(names, config) do
@@ -30,12 +29,7 @@ defmodule ImagePipe.Presets do
         {:ok, static}
 
       {{module, options}, pending} ->
-        lookup = %{
-          module: module,
-          options: options,
-          static: static,
-          max: Keyword.fetch!(config, :max_preset_lookups)
-        }
+        lookup = %{module: module, options: options, static: static}
 
         Telemetry.span(
           config,
@@ -70,8 +64,7 @@ defmodule ImagePipe.Presets do
     asked = state.asked ++ names
     state = %{state | asked: asked, batches: state.batches + 1}
 
-    with :ok <- within_limit(asked, lookup.max, state.batches),
-         {:ok, fragments} <- fetch(lookup, names),
+    with {:ok, fragments} <- fetch(lookup, names),
          {:ok, parsed} <- parse(fragments) do
       state = %{state | parsed: Map.merge(state.parsed, parsed)}
 
@@ -84,12 +77,6 @@ defmodule ImagePipe.Presets do
       {:error, reason} -> {:error, reason, state}
     end
   end
-
-  defp within_limit(asked, max, _batch) when length(asked) <= max, do: :ok
-  # The first batch holds the request's own names, so exceeding the cap there
-  # is the client's mistake; later batches come from stored definitions.
-  defp within_limit(_asked, _max, 1), do: {:error, {:preset, :too_many_presets}}
-  defp within_limit(_asked, _max, _batch), do: {:error, {:preset, :invalid_definition}}
 
   defp fetch(lookup, names) do
     case lookup.module.fetch(names, lookup.options) do

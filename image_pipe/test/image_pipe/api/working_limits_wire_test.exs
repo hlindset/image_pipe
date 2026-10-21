@@ -194,6 +194,7 @@ defmodule ImagePipe.API.WorkingLimitsWireTest do
   defp options(extra) do
     Keyword.merge(
       [
+        allow_unsigned: true,
         max_intermediate_pixels: 100_000,
         sources: [
           path: [

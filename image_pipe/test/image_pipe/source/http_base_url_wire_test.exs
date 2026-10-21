@@ -21,6 +21,7 @@ defmodule ImagePipe.Source.HTTPBaseURLWireTest do
 
     mount =
       ImagePipe.Plug.init(
+        allow_unsigned: true,
         sources: [
           path: [
             adapter: HTTP,
@@ -61,6 +62,7 @@ defmodule ImagePipe.Source.HTTPBaseURLWireTest do
     for match <- [:path, [prefix: "img"]] do
       assert_raise ArgumentError, ~r/match needs/, fn ->
         ImagePipe.Plug.init(
+          allow_unsigned: true,
           sources: [
             path: [adapter: HTTP, match: match, options: [allowed_hosts: ["images.example.com"]]]
           ]

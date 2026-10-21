@@ -785,7 +785,9 @@ defmodule ImagePipe.TelemetryTest do
   end
 
   test "validates telemetry prefix option at init" do
-    assert ImagePipe.Plug.init(opts(telemetry_prefix: @custom_prefix))[:telemetry_prefix] ==
+    assert ImagePipe.Plug.init(
+             Keyword.put_new(opts(telemetry_prefix: @custom_prefix), :allow_unsigned, true)
+           )[:telemetry_prefix] ==
              @custom_prefix
 
     for prefix <- ["image_pipe", [:image_pipe, "request"], [], [:image_pipe, 1]] do
@@ -805,11 +807,8 @@ defmodule ImagePipe.TelemetryTest do
                :source_error
     end
 
-    test "maps an invalid source and too many presets to a parser error" do
+    test "maps an invalid source to a parser error" do
       assert ImagePipe.Telemetry.request_result({:error, {:invalid_source, :nul_byte}}) ==
-               :parser_error
-
-      assert ImagePipe.Telemetry.request_result({:error, {:preset, :too_many_presets}}) ==
                :parser_error
     end
 
@@ -858,7 +857,7 @@ defmodule ImagePipe.TelemetryTest do
 
   defp init_opts(overrides) do
     {post_init, known} = overrides |> opts() |> Keyword.split(@post_init_keys)
-    Keyword.merge(ImagePipe.Plug.init(known), post_init)
+    Keyword.merge(ImagePipe.Plug.init(Keyword.put_new(known, :allow_unsigned, true)), post_init)
   end
 
   defp require_tiff_support! do

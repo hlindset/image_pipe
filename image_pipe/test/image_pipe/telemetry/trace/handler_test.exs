@@ -276,6 +276,7 @@ defmodule ImagePipe.Telemetry.Trace.HandlerTest do
 
     config =
       ImagePipe.Plug.init(
+        allow_unsigned: true,
         sources: [
           # Immutable, so the asset is opened after preparation rather than
           # staged during it, and both phases run.

@@ -467,18 +467,12 @@ defmodule ImagePipe.API.Parser do
 
   # -- semantic validation and URL diagnostics -----------------------------
 
-  # Hosts that configure watermarks name their assets and gate request-supplied
-  # sources; parsing rejects other references before any source access.
+  # Hosts that configure watermarks name their assets; parsing rejects other
+  # names before any source access.
   defp watermark_context(config) do
     case Keyword.fetch(config, :watermarks) do
-      {:ok, watermarks} ->
-        %{
-          names: Map.keys(watermarks),
-          request_sources?: Keyword.get(config, :request_watermarks, false)
-        }
-
-      :error ->
-        nil
+      {:ok, watermarks} -> Map.keys(watermarks)
+      :error -> nil
     end
   end
 
@@ -542,9 +536,6 @@ defmodule ImagePipe.API.Parser do
     do: "auto dimension has no concrete partner"
 
   defp semantic_message(%{detail: :unknown_watermark}), do: message_for(:unknown_watermark)
-
-  defp semantic_message(%{detail: :watermark_source_disabled}),
-    do: message_for(:watermark_source_disabled)
 
   defp semantic_message(%{detail: {:requires, requirement}, locations: [location]}),
     do: "#{location_key(location)} requires #{requirement_message(requirement)}"
@@ -676,9 +667,6 @@ defmodule ImagePipe.API.Parser do
     do: "invalid value: expected an x,y pair of px or pct, each from 0 to 2147483647"
 
   defp message_for(:unknown_watermark), do: "unknown watermark"
-
-  defp message_for(:watermark_source_disabled),
-    do: "request watermark sources are not enabled"
 
   defp message_for(:invalid_rotation), do: "invalid value: expected degrees"
   defp message_for(:invalid_flip), do: "invalid value: expected h, v, or hv"

@@ -28,7 +28,7 @@ defmodule ImagePipe.RunWireTest do
     path =
       "w=40/h=30/fit=cover/anchor=top-left/dpr=2/-/region=5,3,20,15/brightness=20/pad=2/bg=white/format=png/profile=srgb"
 
-    config = IP.Plug.init(@source_config)
+    config = IP.Plug.init(Keyword.put_new(@source_config, :allow_unsigned, true))
 
     for name <- ["exif_6.jpg", "alpha.png"] do
       input = Path.join(@root, name)
@@ -46,7 +46,7 @@ defmodule ImagePipe.RunWireTest do
   end
 
   test "orientation policy and effects work without geometry through both entry points" do
-    config = IP.Plug.init(@source_config)
+    config = IP.Plug.init(Keyword.put_new(@source_config, :allow_unsigned, true))
     source = {:file, Path.join(@root, "exif_6.jpg")}
 
     for orient <- [:auto, :none] do
@@ -73,7 +73,7 @@ defmodule ImagePipe.RunWireTest do
   end
 
   test "info and placeholder terminal values match HTTP" do
-    config = IP.Plug.init(@source_config)
+    config = IP.Plug.init(Keyword.put_new(@source_config, :allow_unsigned, true))
 
     for {terminal, token} <- [info: "info", blurhash: "blurhash", lqip_css: "lqip-css"] do
       plan = IP.URL.new() |> IP.URL.output(terminal: terminal)
@@ -90,7 +90,7 @@ defmodule ImagePipe.RunWireTest do
 
   test "matching host defaults, negotiation and result limits produce matching output" do
     options = @source_config ++ [quality: 65, max_result_width: 30, max_result_height: 30]
-    config = IP.Plug.init(options)
+    config = IP.Plug.init(Keyword.put_new(options, :allow_unsigned, true))
     plan = IP.URL.new() |> IP.URL.group(resize: [width: 200])
 
     assert {:ok, result} =

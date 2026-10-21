@@ -89,33 +89,20 @@ defmodule ImagePipe.API.QualityWireTest do
     assert_image(response, "image/avif", {128, 85})
   end
 
-  test "a request can't ask for more encoder effort than the host allows" do
-    config = observed_mount([])
-
-    for options <- ["format=avif/avif-options=effort:4", "format=webp/webp-options=effort:5"] do
-      assert response("w=128/#{options}", config).status == 400
-      refute_received :origin_fetch
-      refute_received {:cache_lookup, _, _key}
-    end
-
-    assert response("w=128/format=avif/avif-options=effort:3", config).status == 200
-    assert response("w=128/format=jpeg/avif-options=effort:9", config).status == 200
-    assert response("w=128/avif-options=effort:9", config).status == 400
-    assert response("w=128/format=webp/webp-options=effort:4", config).status == 200
-
-    raised = mount(max_effort: [avif: 5, webp: 6])
+  test "a request may ask for any encoder effort" do
+    config = mount()
 
     assert_image(
-      response("w=128/format=avif/avif-options=effort:5", raised),
+      response("w=128/format=avif/avif-options=effort:9", config),
       "image/avif",
       {128, 85}
     )
 
-    assert response("w=128/format=webp/webp-options=effort:6", raised).status == 200
-    assert response("w=128/format=avif/avif-options=effort:6", raised).status == 400
-
-    configured = mount(avif_options: [effort: 6])
-    assert response("w=128/format=avif/avif-options=effort:6", configured).status == 200
+    assert_image(
+      response("w=128/format=webp/webp-options=effort:6", config),
+      "image/webp",
+      {128, 85}
+    )
   end
 
   test "AVIF encodes full-resolution color unless chroma subsampling is requested" do
@@ -158,7 +145,6 @@ defmodule ImagePipe.API.QualityWireTest do
   test "negotiated lossless WebP and inherited search defaults encode without search" do
     config =
       mount(
-        allow_debug_headers: true,
         webp_options: [lossless: true, effort: 0],
         autoquality: true
       )
@@ -177,7 +163,7 @@ defmodule ImagePipe.API.QualityWireTest do
   end
 
   test "max-bytes reduces output and returns the quality floor when it cannot fit" do
-    config = mount(allow_debug_headers: true)
+    config = mount()
     baseline = response("w=400/format=jpeg", config)
     capped = response("w=400/format=jpeg/max-bytes=8000/debug", config)
     assert baseline.status == 200
@@ -192,7 +178,7 @@ defmodule ImagePipe.API.QualityWireTest do
   end
 
   test "a byte budget never raises an explicit quality below the usual floor" do
-    config = mount(allow_debug_headers: true)
+    config = mount()
     baseline = response("w=400/format=jpeg/q=5", config)
     capped = response("w=400/format=jpeg/q=5/max-bytes=1/debug", config)
 
@@ -202,7 +188,7 @@ defmodule ImagePipe.API.QualityWireTest do
   end
 
   test "SSIMULACRA2 search produces a response near the requested target" do
-    config = mount(allow_debug_headers: true)
+    config = mount()
     png = response("w=400/format=png", config)
     assert png.status == 200
     {:ok, reference} = Ssim2Metric.reference(Image.from_binary!(png.resp_body))
@@ -221,7 +207,7 @@ defmodule ImagePipe.API.QualityWireTest do
   end
 
   test "explicit q and autoquality=false disable inherited quality search" do
-    config = mount(allow_debug_headers: true, autoquality: true, autoquality_target: 80)
+    config = mount(autoquality: true, autoquality_target: 80)
 
     explicit = response("w=128/format=jpeg/q=45/debug", config)
     assert explicit.status == 200
@@ -238,10 +224,8 @@ defmodule ImagePipe.API.QualityWireTest do
     explicit = response("w=128/format=webp/q=35", mount()).resp_body
 
     for {options, config} <- [
-          {"w=128/format=webp/format-q=webp:35/debug",
-           mount(allow_debug_headers: true, autoquality: true)},
-          {"w=128/format=webp/autoquality=80/format-q=webp:35/debug",
-           mount(allow_debug_headers: true)}
+          {"w=128/format=webp/format-q=webp:35/debug", mount(autoquality: true)},
+          {"w=128/format=webp/autoquality=80/format-q=webp:35/debug", mount()}
         ] do
       fixed = response(options, config)
       assert fixed.status == 200
@@ -252,7 +236,7 @@ defmodule ImagePipe.API.QualityWireTest do
     unlisted =
       response(
         "w=128/format=jpeg/format-q=webp:35/debug",
-        mount(allow_debug_headers: true, autoquality: true)
+        mount(autoquality: true)
       )
 
     assert get_resp_header(unlisted, "x-imagepipe-aq-target") == ["75.0"]
@@ -260,7 +244,7 @@ defmodule ImagePipe.API.QualityWireTest do
     host_quality =
       response(
         "w=128/format=webp/debug",
-        mount(allow_debug_headers: true, autoquality: true, format_quality: %{webp: 35})
+        mount(autoquality: true, format_quality: %{webp: 35})
       )
 
     assert get_resp_header(host_quality, "x-imagepipe-aq-target") == ["75.0"]
@@ -269,8 +253,8 @@ defmodule ImagePipe.API.QualityWireTest do
   test "max_search_pixels stops the search after the encodes it allows" do
     frame = 400 * 267
     options = "w=400/format=jpeg/autoquality=95/max-bytes=8000/debug"
-    unlimited = response(options, mount(allow_debug_headers: true))
-    limited = response(options, mount(allow_debug_headers: true, max_search_pixels: 2 * frame))
+    unlimited = response(options, mount())
+    limited = response(options, mount(max_search_pixels: 2 * frame))
 
     assert [full] = get_resp_header(unlimited, "x-imagepipe-aq-iterations")
     assert String.to_integer(full) > 3
@@ -395,7 +379,8 @@ defmodule ImagePipe.API.QualityWireTest do
   defp pixels(response),
     do: response.resp_body |> Image.from_binary!() |> VipsImage.write_to_binary()
 
-  defp mount(overrides \\ []), do: overrides |> options() |> ImagePipe.Plug.init()
+  defp mount(overrides \\ []),
+    do: overrides |> options() |> Keyword.put_new(:allow_unsigned, true) |> ImagePipe.Plug.init()
 
   defp observed_mount(overrides),
     do: overrides |> options() |> CacheObserver.observe() |> Caches.plug()

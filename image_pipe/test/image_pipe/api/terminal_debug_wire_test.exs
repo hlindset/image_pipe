@@ -22,7 +22,7 @@ defmodule ImagePipe.API.TerminalDebugWireTest do
   test "complete-body debug miss reports cache and terminal timing without invented dimensions",
        %{body: body} do
     for terminal <- @terminals do
-      config = body |> observed() |> mount(true)
+      config = body |> observed() |> mount()
       response = request("#{terminal}/debug", config)
 
       assert response.status == 200, terminal
@@ -46,7 +46,7 @@ defmodule ImagePipe.API.TerminalDebugWireTest do
   test "plain and debug requests share a complete-body entry while current request controls headers",
        %{body: body} do
     for terminal <- @terminals do
-      config = body |> observed() |> mount(true)
+      config = body |> observed() |> mount()
 
       plain = request(terminal, config)
       assert plain.status == 200, terminal
@@ -71,36 +71,13 @@ defmodule ImagePipe.API.TerminalDebugWireTest do
     end
   end
 
-  test "the current host policy can reveal facts stored while debug headers were denied", %{
-    body: body
-  } do
-    for terminal <- @terminals do
-      opts = observed(body)
-      denied_config = mount(opts, false)
-
-      denied = request("#{terminal}/debug", denied_config)
-      assert denied.status == 200, terminal
-      assert debug_headers(denied) == [], terminal
-      assert header(denied, "server-timing") == nil, terminal
-      assert_receive :origin_fetch
-
-      allowed_config = mount(opts, true)
-      allowed = request("#{terminal}/debug", allowed_config)
-
-      assert allowed.resp_body == denied.resp_body, terminal
-      assert header(allowed, "x-imagepipe-cache") == "hit", terminal
-      assert header(allowed, "server-timing") =~ "cache;dur=", terminal
-      refute_receive :origin_fetch
-    end
-  end
-
   defp request(options, config) do
     conn(:get, "/#{options}/src/source.jpg")
     |> ImagePipe.Plug.call(config)
   end
 
-  defp mount(opts, allow_debug_headers) do
-    Caches.plug(opts ++ [allow_debug_headers: allow_debug_headers])
+  defp mount(opts) do
+    Caches.plug(opts)
   end
 
   defp observed(body) do

@@ -198,7 +198,7 @@ defmodule ImagePipe.API.DetectionStrictnessWireTest do
 
     test "is reported on in-process results" do
       FlakyDetector.set(:fail?, true)
-      config = ImagePipe.config(detector: FlakyDetector)
+      config = ImagePipe.config(allow_unsigned: true, detector: FlakyDetector)
       bytes = File.read!("priv/static/images/beach.jpg")
 
       plan =
@@ -269,7 +269,8 @@ defmodule ImagePipe.API.DetectionStrictnessWireTest do
 
   defp pixels(image), do: VipsImage.write_to_binary(image)
 
-  defp mount(overrides), do: overrides |> options() |> ImagePipe.Plug.init()
+  defp mount(overrides),
+    do: overrides |> options() |> Keyword.put_new(:allow_unsigned, true) |> ImagePipe.Plug.init()
 
   defp options(overrides) do
     [

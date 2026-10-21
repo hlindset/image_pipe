@@ -69,11 +69,8 @@ server's encryption key, so they are created server-side, for example by the
 application that builds your URLs. Default: no watermark.
 
 Draws the image at that path, from the same image sources as the main image.
-Both options work only when the server's configuration allows watermarks
-named by the request. Otherwise they fail with `400` and
-`request watermark sources are not enabled`. A `wm-enc` token that no server
-key decrypts answers `404`. A server without source encryption keys answers
-`400` for every `wm-enc`.
+A `wm-enc` token that no server key decrypts answers `404`. A server without
+source encryption keys answers `400` for every `wm-enc`.
 
 A group takes one watermark: `wm`, `wm-src64`, and `wm-enc` can't be combined,
 and using two fails with `400`, such as `wm and wm-src64 are mutually exclusive`.

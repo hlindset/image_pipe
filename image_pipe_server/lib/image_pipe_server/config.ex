@@ -19,9 +19,9 @@ defmodule ImagePipeServer.Config do
     * `[cache]` - `output` and `input` file system caches, and
       `storage_inputs` as `[{ header = "..." }, { cookie = "..." }]`.
     * `[processing]` - the processing options of `ImagePipe.config/1`,
-      including `watermarks.<name>` asset tables, `request_watermarks`,
-      `presets.<name>` option fragments, `request_defaults`, and
-      `detector_warmup`, the instance option of `ImagePipe`.
+      including `watermarks.<name>` asset tables, `presets.<name>` option
+      fragments, `request_defaults`, and `detector_warmup`, the instance
+      option of `ImagePipe`.
     * `[pool]` - `ImagePipe.ProcessingPool` options. `max_concurrency`
       defaults to the VM's online schedulers.
     * `[http]` - the delivery options of `ImagePipe.Plug.init/1`.
@@ -210,6 +210,15 @@ defmodule ImagePipeServer.Config do
       source_encryption_keys: [
         type: {:list, {:convert, &encryption_key/2, "hex strings, each a 32-byte key"}},
         default: []
+      ],
+      allow_unsigned: [
+        type: :boolean,
+        default: false,
+        doc: """
+        Serve unsigned URLs when `keys` is empty. Without `keys`, the server \
+        doesn't start unless this is `true`. Set it only for a server that \
+        nothing outside a private network can reach.
+        """
       ]
     )
   end
@@ -281,7 +290,7 @@ defmodule ImagePipeServer.Config do
   defp processing_schema do
     ImagePipe.Config.processing_schema()
     |> Keyword.drop([:sources, :processing_pool])
-    |> elixir_only([:clock, :telemetry_prefix, :preset_lookup, :max_preset_lookups])
+    |> elixir_only([:clock, :telemetry_prefix, :preset_lookup])
     |> put_type(:format_quality, {:map, :atom, :pos_integer})
     |> put_type(:autoquality_target, {:or, [:integer, :float]})
     |> Keyword.merge(
@@ -292,7 +301,6 @@ defmodule ImagePipeServer.Config do
       webp_options: [type: Convert.table(WebpOptions.schema())],
       avif_options: [type: Convert.table(AvifOptions.schema())],
       watermarks: [type: {:map, :string, Convert.table(@watermark_schema)}],
-      request_watermarks: [type: :boolean, default: false],
       presets: [type: {:map, :string, :string}],
       request_defaults: [type: :string],
       detector_warmup: [
@@ -335,6 +343,7 @@ defmodule ImagePipeServer.Config do
 
     image_pipe = image_pipe!(Keyword.put(sections, :processing, processing), pool)
     instance!(image_pipe, detector_warmup)
+    signed!(Keyword.get(sections, :url, []))
 
     %{log_level: log_level, log_format: log_format, log_colors: log_colors} =
       logging(Keyword.get(sections, :telemetry, []))
@@ -435,6 +444,15 @@ defmodule ImagePipeServer.Config do
         ConfigError,
         "invalid configuration: server.mount_path: expected a path starting with /"
       )
+
+  defp signed!(url) do
+    if Keyword.get(url, :keys, []) == [] and not Keyword.get(url, :allow_unsigned, false) do
+      raise ConfigError,
+            "invalid configuration: url.keys: the server needs signing keys. " <>
+              "Set url.keys, or set url.allow_unsigned = true for a server that " <>
+              "only a private network can reach"
+    end
+  end
 
   defp image_pipe!(sections, pool) do
     sources = Keyword.get(sections, :sources) || []

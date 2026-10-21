@@ -146,6 +146,7 @@ defmodule ImagePipe.ShrinkOnLoadPropertyTest do
 
   defp opts(body) do
     ImagePipe.Plug.init(
+      allow_unsigned: true,
       sources: [
         path: [
           adapter: RootHTTPAdapter,

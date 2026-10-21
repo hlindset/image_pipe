@@ -36,7 +36,7 @@ defmodule ImagePipe.API.ErrorStatusWireTest do
   end
 
   test "a path without src/ points past its end and names the marker" do
-    config = ImagePipe.Plug.init([])
+    config = ImagePipe.Plug.init(allow_unsigned: true)
 
     for path <- ["/w=400/photo.jpg", "/photo.jpg"] do
       conn = conn(:get, path) |> ImagePipe.Plug.call(config)
@@ -61,6 +61,7 @@ defmodule ImagePipe.API.ErrorStatusWireTest do
 
       config =
         ImagePipe.Plug.init(
+          allow_unsigned: true,
           sources: [
             path: [
               adapter: ImagePipe.Source.File,
@@ -109,6 +110,7 @@ defmodule ImagePipe.API.ErrorStatusWireTest do
       test "origin #{origin_status} answers #{status} without revealing the origin status" do
         config =
           ImagePipe.Plug.init(
+            allow_unsigned: true,
             sources: [
               path: [
                 adapter: RootHTTPAdapter,
@@ -139,6 +141,7 @@ defmodule ImagePipe.API.ErrorStatusWireTest do
           ] do
         config =
           ImagePipe.Plug.init(
+            allow_unsigned: true,
             detector: ColdDetector,
             detector_required: true,
             sources: [

@@ -228,7 +228,11 @@ defmodule ImagePipe.Plug.StreamAbortWireTest do
 
   defp config(extra) do
     {seams, known} = Keyword.split(extra, [:image_module])
-    Keyword.merge(ImagePipe.Plug.init([sources: @sources] ++ known), seams)
+
+    Keyword.merge(
+      ImagePipe.Plug.init(Keyword.put_new([sources: @sources] ++ known, :allow_unsigned, true)),
+      seams
+    )
   end
 
   # A cached config runs on its instance, so it mounts the instance.

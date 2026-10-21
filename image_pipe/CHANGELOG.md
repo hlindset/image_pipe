@@ -37,9 +37,6 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   for another request's download of a new original: `:coalesced` when it
   waited until the other request had the original, `:bypass` when it stopped
   waiting for any other reason.
-- `max_effort` sets the highest AVIF and WebP encoder effort a request may
-  ask for, such as `max_effort: [avif: 6]`. It defaults to the effort in
-  `:avif_options` and `:webp_options`.
 - `ImagePipe.Source.HTTP` and `ImagePipe.Source.S3` take `pool_size`, the
   maximum number of open connections to each origin address or S3 endpoint.
   It defaults to `50`, the limit that applied before. Over HTTP/1.1, raise it
@@ -57,6 +54,13 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Breaking:** An `ImagePipe.Plug` mount without `:keys` raises
+  `ArgumentError` on every request unless its configuration sets
+  `allow_unsigned: true`. Serve public traffic with signed URLs, and set
+  `allow_unsigned: true` only for a mount that nothing outside a private
+  network can reach. An instance with `allow_unsigned: true` and no `:keys`
+  logs a warning when it starts. Running a plan with `ImagePipe.run/4` or
+  `ImagePipe.write/5` needs neither. See [Signing URLs](docs/signing-urls.md).
 - **Breaking:** The `[:request]` event's `:path`, the request summary's
   path, and the `url.path` trace attribute end at the source: the first
   `src`, `src64`, or `enc` segment is followed by `REDACTED`, and the rest
@@ -76,13 +80,6 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   copies of such requests miss once after an upgrade.
 - Requests that use `autoquality` or `max-bytes` have new cache keys and
   ETags, so their cached copies miss once after upgrading.
-- **Breaking:** A request that asks for more `avif-options` or
-  `webp-options` effort than `:avif_options` or `:webp_options` sets (by
-  default `3` for AVIF and `4` for WebP) fails with `400`. A preset in
-  `:presets` or `:request_defaults` above the limit raises `ArgumentError`
-  when ImagePipe starts. Set `max_effort` to allow
-  higher effort. Each `autoquality` or `max-bytes` attempt encodes at the
-  requested effort, so one request could take minutes of CPU.
 - **Breaking:** `:max_blur_work` limits the total work of all `blur`,
   `progressive-blur`, and `sharpen` steps in a request, across all its
   groups, instead of each blur on its own. Each step counts the pixels of
@@ -234,6 +231,17 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Removed
 
+- **Breaking:** The `ImagePipe.Plug` option `allow_debug_headers`. A
+  request's `debug` option always adds the debug headers. Remove the option
+  from your configuration. With signed URLs, only your app can add `debug`.
+- **Breaking:** The `ImagePipe.config/1` option `request_watermarks`.
+  Requests may always name their own watermark with `wm-src64` or `wm-enc`,
+  and its image still has to come from a configured source, like the main
+  image. Remove the option from your configuration.
+- **Breaking:** `max_preset_lookups`. A request may look up any number of
+  presets. Remove the option from your configuration. `ImagePipe.run/4`
+  no longer returns `{:preset, :too_many_presets}`, and `[:preset, :lookup]`
+  no longer reports that reason.
 - **Breaking:** The instance option `mounts:`, and `mount:` on
   `ImagePipe.Plug` and `ImagePipe.url_config/2`, which is now
   `ImagePipe.url_config/1`. An instance checks URLs against its own URL
@@ -416,10 +424,10 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the image, which the cache uses to choose what to evict and reports as
   `:estimated_cost_us` on `[:cache, :write]`.
 - The default Logger logs every `4xx` request line at `:warning`. Before, a
-  `4xx` for a failed decode, an input limit, a transform, an invalid
-  source, or too many presets logged at `:error`.
-- A request with an invalid source or too many presets has the result
-  `:parser_error`, not `:processing_error`. Like other parser errors, its
+  `4xx` for a failed decode, an input limit, a transform, or an invalid
+  source logged at `:error`.
+- A request with an invalid source has the result `:parser_error`, not
+  `:processing_error`. Like other parser errors, its
   `[:request]` stop from `ImagePipe.run/4` has no `:error`.
 - The request line for an invalid source or invalid output gives the
   reason: `reason="invalid source"` or `reason="invalid output"`.

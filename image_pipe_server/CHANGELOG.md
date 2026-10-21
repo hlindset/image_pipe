@@ -30,6 +30,11 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Breaking:** Without `[url] keys`, the server doesn't start unless
+  `[url] allow_unsigned = true`, and with that setting it logs a warning at
+  startup. Serve public traffic with signed URLs, and set `allow_unsigned`
+  only for a server that nothing outside a private network can reach. See
+  [`[url]`](docs/server-configuration.md#url).
 - The hash of each local file and the cache headers of each origin image
   are kept in memory instead of in the `output` cache, so they no longer
   take its space. After a restart, a local file is hashed again, and an
@@ -44,6 +49,16 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `text` log lines are no longer colored when the container runs on a
   terminal, such as with `docker run -t`. Set `[telemetry] log_colors = true`
   to color them by level.
+
+### Removed
+
+- **Breaking:** `[http] allow_debug_headers`. A request's `debug` option
+  always adds the debug headers. Remove the setting from `config.toml`. With
+  signed URLs, only your app can add `debug`.
+- **Breaking:** `[processing] request_watermarks`. Requests may always name
+  their own watermark with `wm-src64` or `wm-enc`, and its image still has to
+  come from a configured source, like the main image. Remove the setting from
+  `config.toml`.
 
 ### Fixed
 

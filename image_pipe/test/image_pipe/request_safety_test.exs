@@ -125,7 +125,10 @@ defmodule ImagePipe.RequestSafetyTest do
     conn =
       ImagePipe.Plug.call(
         conn(:get, "/rotate=abc/format=jpeg/src/images/cat.jpg"),
-        ImagePipe.Plug.init(sources: [path: [adapter: ValidAdapter, match: :path, options: []]])
+        ImagePipe.Plug.init(
+          allow_unsigned: true,
+          sources: [path: [adapter: ValidAdapter, match: :path, options: []]]
+        )
       )
 
     assert conn.status == 400
@@ -134,6 +137,7 @@ defmodule ImagePipe.RequestSafetyTest do
   test "a NUL byte in the source fails as an invalid source before any adapter sees it" do
     config =
       ImagePipe.Plug.init(
+        allow_unsigned: true,
         sources: [path: [adapter: DenyingSourceAdapter, match: :path, options: []]]
       )
 

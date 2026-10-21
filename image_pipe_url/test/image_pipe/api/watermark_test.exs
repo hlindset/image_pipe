@@ -10,7 +10,7 @@ defmodule ImagePipe.API.WatermarkTest do
 
   @signing_key Base.encode16(:binary.copy(<<31>>, 32))
   @source_key String.duplicate("2a", 32)
-  @hosted [watermarks: %{"logo" => [], "badge" => []}, request_watermarks: true]
+  @hosted [watermarks: %{"logo" => [], "badge" => []}]
 
   defp parse(segments, config \\ @hosted) do
     lexed = %{
@@ -133,15 +133,10 @@ defmodule ImagePipe.API.WatermarkTest do
     end
   end
 
-  test "host configuration rejects unknown names and disabled request sources" do
+  test "host configuration rejects unknown names and accepts request sources" do
     assert :unknown_watermark in reasons(parse(["wm=other"]))
-
-    gated = Keyword.put(@hosted, :request_watermarks, false)
-    assert {:ok, _request} = parse(["wm=logo"], gated)
-
-    for segment <- ["wm-src64=#{source64("mark.png")}", "wm-enc=AQIDBA"] do
-      assert :watermark_source_disabled in reasons(parse([segment], gated))
-    end
+    assert {:ok, _request} = parse(["wm=logo"])
+    assert {:ok, _request} = parse(["wm-src64=#{source64("mark.png")}"])
   end
 
   test "diagnostic paths mask concealed watermark tokens" do

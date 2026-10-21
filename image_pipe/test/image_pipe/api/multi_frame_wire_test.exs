@@ -95,6 +95,7 @@ defmodule ImagePipe.API.MultiFrameWireTest do
 
     config =
       ImagePipe.Plug.init(
+        allow_unsigned: true,
         sources: [
           path: [
             adapter: ImagePipe.Source.File,
@@ -199,7 +200,8 @@ defmodule ImagePipe.API.MultiFrameWireTest do
   defp request(options, config),
     do: conn(:get, "/#{options}/src/source") |> ImagePipe.Plug.call(config)
 
-  defp mount(body, extra \\ []), do: body |> options(extra) |> ImagePipe.Plug.init()
+  defp mount(body, extra \\ []),
+    do: body |> options(extra) |> Keyword.put_new(:allow_unsigned, true) |> ImagePipe.Plug.init()
 
   defp options(body, extra) do
     pid = self()

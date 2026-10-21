@@ -31,7 +31,7 @@ defmodule ImagePipe.Plug.SourceEncryptionTest do
   end
 
   test "an unsigned request leaves the signing key out of the parse metadata" do
-    config = Config.validate!([])
+    config = Config.validate!(allow_unsigned: true)
     conn = Plug.Test.conn(:get, "/w=12/src/a.jpg")
 
     assert {{:ok, _request, _source}, metadata} = ParsedRequest.parse(conn, config)

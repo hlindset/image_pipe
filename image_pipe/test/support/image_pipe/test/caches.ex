@@ -18,13 +18,20 @@ defmodule ImagePipe.Test.Caches do
   @doc """
   Starts an instance with the shared options in `options`, and returns
   `options` with the caps added. Mount-only options, such as
-  `allow_debug_headers`, are left for `plug/1`.
+  `allow_origin`, are left for `plug/1`.
   """
   def start!(options) when is_list(options) do
     options = cap(options)
     name = instance(options)
     {_mount, shared} = Keyword.split(options, mount_keys())
-    start_supervised!(Supervisor.child_spec({ImagePipe, [name: name] ++ shared}, id: name))
+
+    start_supervised!(
+      Supervisor.child_spec(
+        {ImagePipe, Keyword.put_new([name: name] ++ shared, :allow_unsigned, true)},
+        id: name
+      )
+    )
+
     options
   end
 

@@ -29,6 +29,7 @@ defmodule ImagePipe.API.UncachedOriginFreshnessWireTest do
 
     shared =
       IP.config(
+        allow_unsigned: true,
         sources: [
           url: [
             adapter: ImagePipe.Source.HTTP,

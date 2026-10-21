@@ -7,7 +7,7 @@ defmodule ImagePipe.API.InputIdentityTest do
   alias ImagePipe.Representation
 
   defp identity(path, headers \\ []) do
-    config = ImagePipe.Plug.init(storage_inputs: [{:header, "x-tenant"}])
+    config = ImagePipe.Plug.init(allow_unsigned: true, storage_inputs: [{:header, "x-tenant"}])
 
     conn =
       Enum.reduce(headers, Plug.Test.conn(:get, path), fn {key, value}, conn ->

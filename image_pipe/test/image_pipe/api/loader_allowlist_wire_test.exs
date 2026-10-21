@@ -92,6 +92,7 @@ defmodule ImagePipe.API.LoaderAllowlistWireTest do
 
     config =
       ImagePipe.Plug.init(
+        allow_unsigned: true,
         sources: [
           path: [
             adapter: ImagePipe.Source.File,
@@ -178,6 +179,7 @@ defmodule ImagePipe.API.LoaderAllowlistWireTest do
     end
 
     ImagePipe.Plug.init(
+      allow_unsigned: true,
       sources: [
         path: [
           adapter: RootHTTPAdapter,

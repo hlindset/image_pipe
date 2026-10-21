@@ -70,7 +70,7 @@ and `[:cache, :refresh]`:
 - `:not_modified`: a conditional request answered with `304`.
 - `:method_not_allowed`: a method other than `GET`, `HEAD`, or `OPTIONS`.
 - `:parser_error`: the URL, signature, source, or encrypted source was
-  invalid, or the URL named too many presets.
+  invalid.
 - `:plan_error`: the options can't be served, such as an unavailable detector.
 - `:source_error`: the original couldn't be fetched.
 - `:processing_error`: decoding, processing, encoding, or streaming failed.
@@ -243,8 +243,8 @@ define, so `ImagePipe.PresetLookup` is called. Nested in `[:parse]`, or in
   - `:result` (atom): `:ok` or `:error`.
   - `:fetched` (integer): definitions the lookup returned.
   - `:batches` (integer): calls to `fetch/2`.
-  - `:reason` (atom): `:too_many_presets`, `:lookup_unavailable`, or
-    `:invalid_definition`, on failure.
+  - `:reason` (atom): `:lookup_unavailable` or `:invalid_definition`, on
+    failure.
 
 ### `[:processing, :admission]`
 
@@ -1017,7 +1017,7 @@ One-shot. Emitted when an output-cache hit is sent.
 
 One-shot. Emitted when reading the original's details for
 [debug headers](debug_headers.md) fails. The details are collected on every
-generation, whether or not debug headers are on. The request continues
+generation, whether or not the request has `debug`. The request continues
 without them.
 
 - Metadata: `:error` (atom), the error category.

@@ -6,7 +6,7 @@ defmodule ImagePipe.Plug.RequestTest do
   alias ImagePipe.Plug.Request
 
   setup do
-    %{config: ImagePipe.Plug.init([])}
+    %{config: ImagePipe.Plug.init(allow_unsigned: true)}
   end
 
   defp mounted(path, script_name), do: %{conn(:get, path) | script_name: script_name}

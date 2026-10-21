@@ -44,6 +44,9 @@ adapter = "file"
 match = "path"
 root = "/data/images"
 root_id = "photos"
+
+[url]
+allow_unsigned = true
 ```
 
 This defines one source named `photos`. A source is a place the server reads
@@ -54,6 +57,9 @@ originals from:
 - `root` is that directory, as the server sees it inside the container. We
   mount our `images` folder there in the next step.
 - `root_id` is a stable name for this directory.
+
+The `[url]` table lets the server answer URLs without a signature, which is
+fine while it runs on our own machine.
 
 ## Starting the server
 
@@ -212,6 +218,7 @@ cropped, and converted copies by URL. From here:
   filesystem, health checks, Docker Compose, and Kubernetes.
 
 Before exposing the server, set up URL signing with the
-[`[url]` keys](server-configuration.md#url) setting.
+[`[url]` keys](server-configuration.md#url) setting and remove
+`allow_unsigned`.
 [Building URLs for the server](../../image_pipe/docs/building-server-urls.md)
 shows the application side, which signs the URLs.

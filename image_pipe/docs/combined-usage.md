@@ -19,6 +19,7 @@ children = [
   {ImagePipe,
    name: MyApp.Images,
    base_url: "/images",
+   keys: [System.fetch_env!("IMAGE_PIPE_SIGNING_KEY")],
    sources: [
      media: [
        adapter: ImagePipe.Source.File,
@@ -32,7 +33,8 @@ children = [
 ```
 
 `base_url` is the path where the router mounts the instance, so URLs built
-from this configuration point at it.
+from this configuration point at it. With `keys`, they are signed (see
+[Signing URLs](signing-urls.md)).
 
 Mount it in the router:
 

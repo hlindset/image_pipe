@@ -164,7 +164,6 @@ defmodule ImagePipe.Telemetry.SourceURLWireTest do
       telemetry_prefix: prefix,
       keys: [String.duplicate("a1", 32)],
       source_encryption_keys: [String.duplicate("2a49", 16)],
-      request_watermarks: true,
       sources: [
         http: [
           adapter: ImagePipe.Source.HTTP,

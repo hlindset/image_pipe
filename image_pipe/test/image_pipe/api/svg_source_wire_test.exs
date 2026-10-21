@@ -364,7 +364,8 @@ defmodule ImagePipe.API.SVGSourceWireTest do
   defp request(options, config),
     do: conn(:get, "/#{options}/src/source.svg") |> ImagePipe.Plug.call(config)
 
-  defp mount(body, options \\ []), do: ImagePipe.Plug.init(options(body, options))
+  defp mount(body, options \\ []),
+    do: ImagePipe.Plug.init(Keyword.put_new(options(body, options), :allow_unsigned, true))
 
   defp cached_mount(body, options),
     do: body |> options(options) |> Caches.start!() |> Caches.plug()

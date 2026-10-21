@@ -60,7 +60,9 @@ defmodule ImagePipe.APIWireTest do
     ]
   end
 
-  defp opts(extra), do: ImagePipe.Plug.init(Keyword.merge([sources: @default_sources], extra))
+  defp opts(extra),
+    do:
+      ImagePipe.Plug.init(Keyword.merge([allow_unsigned: true, sources: @default_sources], extra))
 
   defp opts, do: opts([])
 
@@ -170,7 +172,7 @@ defmodule ImagePipe.APIWireTest do
   describe "API mount configuration" do
     test "rejects unknown and malformed API options at initialization" do
       assert_raise ArgumentError, fn ->
-        ImagePipe.Plug.init(sources: @default_sources, unknown_option: true)
+        ImagePipe.Plug.init(allow_unsigned: true, sources: @default_sources, unknown_option: true)
       end
 
       assert_raise ArgumentError, fn ->

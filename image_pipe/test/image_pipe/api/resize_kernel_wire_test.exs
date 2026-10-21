@@ -120,6 +120,7 @@ defmodule ImagePipe.API.ResizeKernelWireTest do
 
   defp config(origin) do
     ImagePipe.Plug.init(
+      allow_unsigned: true,
       sources: [
         path: [
           adapter: RootHTTPAdapter,

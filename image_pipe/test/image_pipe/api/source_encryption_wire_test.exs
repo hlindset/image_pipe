@@ -140,7 +140,7 @@ defmodule ImagePipe.API.SourceEncryptionWireTest do
   end
 
   test "diagnostics and debug headers do not reveal concealed source material, nor telemetry keys" do
-    config = mount(allow_debug_headers: true)
+    config = mount()
     token = encrypt_source(@source, config)
     pid = self()
     handler = {__MODULE__, make_ref()}

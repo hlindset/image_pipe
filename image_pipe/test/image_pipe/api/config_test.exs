@@ -37,19 +37,6 @@ defmodule ImagePipe.Plug.ConfigTest do
     assert Config.validate!(detector: nil)[:detector] == nil
   end
 
-  test "a preset or request default above max_effort raises at startup" do
-    for options <- [
-          [presets: %{"slow" => "avif-options=effort:6"}],
-          [request_defaults: "webp-options=effort:6"],
-          [presets: %{"slow" => "avif-options=effort:6"}, max_effort: [avif: 5]]
-        ] do
-      error = assert_raise ArgumentError, fn -> Config.validate!(options) end
-      assert error.message =~ "max_effort", inspect(options)
-    end
-
-    assert Config.validate!(presets: %{"slow" => "avif-options=effort:6"}, max_effort: [avif: 6])
-  end
-
   test "presets that aren't a map of names raise a configuration error" do
     for presets <- ["card", nil, [{"card", "w=400"}], %{card: "w=400"}] do
       error = assert_raise ArgumentError, fn -> Config.validate!(presets: presets) end
@@ -62,19 +49,6 @@ defmodule ImagePipe.Plug.ConfigTest do
 
       assert error.message =~ "presets"
     end
-  end
-
-  test "max_effort defaults to the configured effort and can't go below it" do
-    assert Config.validate!([])[:max_effort] == [avif: 3, webp: 4]
-    assert Config.validate!(avif_options: [effort: 6])[:max_effort] == [avif: 6, webp: 4]
-    assert Config.validate!(max_effort: [webp: 6])[:max_effort] == [avif: 3, webp: 6]
-
-    error =
-      assert_raise ArgumentError, fn ->
-        Config.validate!(avif_options: [effort: 6], max_effort: [avif: 5])
-      end
-
-    assert error.message =~ "max_effort: avif"
   end
 
   test "a detector module must implement the detector behaviour" do
@@ -168,7 +142,6 @@ defmodule ImagePipe.Plug.ConfigTest do
     assert config[:max_result_pixels] == 40_000_000
     assert config[:auto_avif] == true
     assert config[:auto_webp] == true
-    assert config[:allow_debug_headers] == false
     assert config[:quality] == 80
     assert config[:preserve_hdr] == false
     assert config[:format_quality] == %{webp: 79, avif: 56}
@@ -240,18 +213,16 @@ defmodule ImagePipe.Plug.ConfigTest do
     end
   end
 
-  test "validates telemetry, CORS, debug-header, and storage-vary controls" do
+  test "validates telemetry, CORS, and storage-vary controls" do
     config =
       Config.validate!(
         telemetry_prefix: [:private, :image_pipe],
         allow_origin: "https://images.example",
-        allow_debug_headers: true,
         storage_inputs: [{:header, "accept-language"}, {:cookie, "variant"}]
       )
 
     assert config[:telemetry_prefix] == [:private, :image_pipe]
     assert config[:allow_origin] == "https://images.example"
-    assert config[:allow_debug_headers] == true
 
     assert config[:storage_inputs] == [
              {:header, "accept-language"},
@@ -268,10 +239,6 @@ defmodule ImagePipe.Plug.ConfigTest do
       assert_raise ArgumentError, ~r/allow_origin/, fn ->
         Config.validate!(allow_origin: invalid)
       end
-    end
-
-    assert_raise ArgumentError, ~r/allow_debug_headers/, fn ->
-      Config.validate!(allow_debug_headers: "yes")
     end
 
     assert_raise ArgumentError, ~r/storage_inputs/, fn ->
@@ -354,9 +321,7 @@ defmodule ImagePipe.Plug.ConfigTest do
                "badge" => %{opacity: 1.0}
              } = config[:watermarks]
 
-      assert config[:request_watermarks] == false
       assert Config.validate!([])[:watermarks] == %{}
-      assert Config.validate!(request_watermarks: true)[:request_watermarks] == true
     end
 
     test "rejects malformed entries" do
@@ -374,8 +339,6 @@ defmodule ImagePipe.Plug.ConfigTest do
           Config.validate!(@mounts ++ [watermarks: watermarks])
         end
       end
-
-      assert_raise ArgumentError, fn -> Config.validate!(request_watermarks: :yes) end
     end
   end
 
@@ -432,7 +395,6 @@ defmodule ImagePipe.Plug.ConfigTest do
           {[presets: %{"wm" => "wm-enc=AQID"}], ~s(preset "wm")},
           {[request_defaults: "wm-enc=AQID"], "request_defaults"}
         ] do
-      options = [request_watermarks: true] ++ options
       error = assert_raise ArgumentError, fn -> ImagePipe.config(options) end
       assert error.message =~ "#{owner} uses wm-enc, which needs source_encryption_keys"
     end
@@ -440,7 +402,7 @@ defmodule ImagePipe.Plug.ConfigTest do
 
   test "accepts a static wm-enc=unset without source encryption keys" do
     for options <- [[presets: %{"wm" => "wm-enc=unset"}], [request_defaults: "wm-enc=unset"]] do
-      assert %ImagePipe.Config{} = ImagePipe.config([request_watermarks: true] ++ options)
+      assert %ImagePipe.Config{} = ImagePipe.config(options)
     end
   end
 
@@ -452,9 +414,7 @@ defmodule ImagePipe.Plug.ConfigTest do
           {[presets: %{"wm" => "wm-enc=" <> token}], ~s(preset "wm")},
           {[request_defaults: "wm-enc=" <> token], "request_defaults"}
         ] do
-      options =
-        [keys: [@signing_key], source_encryption_keys: [@source_key], request_watermarks: true] ++
-          options
+      options = [keys: [@signing_key], source_encryption_keys: [@source_key]] ++ options
 
       error = assert_raise ArgumentError, fn -> ImagePipe.config(options) end
 
@@ -468,9 +428,7 @@ defmodule ImagePipe.Plug.ConfigTest do
     token = wm_token(instance, "logo.png")
 
     config =
-      ImagePipe.config(
-        instance ++ [request_watermarks: true, presets: %{"wm" => "wm-enc=" <> token}]
-      )
+      ImagePipe.config(instance ++ [presets: %{"wm" => "wm-enc=" <> token}])
 
     assert %ImagePipe.Config{} =
              ImagePipe.Config.override(config,

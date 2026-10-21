@@ -311,7 +311,11 @@ defmodule ImagePipe.API.LqipCssWireTest do
   end
 
   defp mount(body, extra \\ [], content_type \\ "image/png"),
-    do: body |> options(extra, content_type) |> ImagePipe.Plug.init()
+    do:
+      body
+      |> options(extra, content_type)
+      |> Keyword.put_new(:allow_unsigned, true)
+      |> ImagePipe.Plug.init()
 
   defp options(body, extra, content_type \\ "image/png") do
     pid = self()

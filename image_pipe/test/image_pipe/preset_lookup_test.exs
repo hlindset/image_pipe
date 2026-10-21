@@ -30,6 +30,7 @@ defmodule ImagePipe.PresetLookupTest do
     end
 
     [
+      allow_unsigned: true,
       sources: [
         path: [
           adapter: RootHTTPAdapter,
@@ -153,43 +154,14 @@ defmodule ImagePipe.PresetLookupTest do
     end
   end
 
-  test "max_preset_lookups caps the distinct names one request may look up", %{body: body} do
-    lookup = lookup(presets: %{"card" => "preset=base", "base" => "w=30/format=png"})
+  test "a request may look up any number of presets", %{body: body} do
+    names = for n <- 1..40, do: "p#{n}"
+    lookup = lookup(presets: Map.new(names, &{&1, "w=30/format=png"}))
 
-    assert get(
-             config(body, preset_lookup: lookup, max_preset_lookups: 1),
-             "/preset=card/src/photo.png"
-           ).status ==
-             500
+    response =
+      get(config(body, preset_lookup: lookup), "/preset=#{Enum.join(names, ",")}/src/photo.png")
 
-    assert get(
-             config(body, preset_lookup: lookup, max_preset_lookups: 2),
-             "/preset=card/src/photo.png"
-           ).status ==
-             200
-  end
-
-  test "a URL naming more presets than max_preset_lookups is a 400 before any lookup",
-       %{body: body} do
-    config =
-      CacheObserver.observe(
-        options(body,
-          presets: %{"static" => "format=png"},
-          preset_lookup: lookup(presets: %{"a" => "w=30", "b" => "blur=1"}),
-          max_preset_lookups: 1
-        )
-      )
-
-    response = get(config, "/preset=a,b,static/src/photo.png")
-    assert response.status == 400
-    refute_received {:preset_fetch, _names}
-    refute_received :source_fetch
-    refute_received {:cache_lookup, _, _}
-
-    assert IP.validate(Caches.instance(config), IP.URL.new() |> IP.URL.group(presets: ["a", "b"])) ==
-             {:error, {:preset, :too_many_presets}}
-
-    assert get(config, "/preset=a,static/src/photo.png").status == 200
+    assert response.status == 200
   end
 
   test "a URL with malformed options is a 400 before any lookup", %{body: body} do
@@ -217,16 +189,6 @@ defmodule ImagePipe.PresetLookupTest do
   end
 
   test "lookup options are validated at init", %{body: body} do
-    assert_raise ArgumentError, ~r/requires preset_lookup/, fn ->
-      config(body, max_preset_lookups: 4)
-    end
-
-    for value <- [0, -1, "4"] do
-      assert_raise ArgumentError, fn ->
-        config(body, preset_lookup: lookup([]), max_preset_lookups: value)
-      end
-    end
-
     assert_raise ArgumentError, ~r/preset_lookup/, fn ->
       config(body, preset_lookup: PresetLookup)
     end

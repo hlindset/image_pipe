@@ -81,9 +81,7 @@ defmodule ImagePipe.ShrinkThroughRotateTest do
   defp shrink_factor(%{w: w}), do: round(w)
 
   defp opts(body) do
-    body
-    |> mount_options()
-    |> ImagePipe.Plug.init()
+    body |> mount_options() |> Keyword.put_new(:allow_unsigned, true) |> ImagePipe.Plug.init()
   end
 
   defp mount_options(body) do

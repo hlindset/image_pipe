@@ -31,6 +31,7 @@ defmodule ImagePipe.Telemetry.LoggerTest do
 
     config =
       ImagePipe.config(
+        allow_unsigned: true,
         processing_pool: pool,
         telemetry_prefix: prefix,
         sources: [

@@ -8,6 +8,7 @@ defmodule ImagePipe.Test.ForwardRouter do
   forward "/images",
     to: ImagePipe.Plug,
     init_opts: [
+      allow_unsigned: true,
       sources: [
         path: [
           adapter: ImagePipe.Source.File,

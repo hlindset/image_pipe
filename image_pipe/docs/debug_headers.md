@@ -3,47 +3,26 @@
 Debug headers show how one response was produced: what the original was,
 which output was chosen, how quality was picked, whether the cache was used,
 and how long each stage took. They are `X-ImagePipe-*` headers plus a
-standard `Server-Timing` header, and they are off by default.
+standard `Server-Timing` header.
 
-## Enabling debug headers
+## Requesting debug headers
 
-Debug headers need a setting in the server's configuration:
-
-<!-- tabs-open -->
-
-### Plug
-
-```elixir
-forward "/images", ImagePipe.Plug,
-  sources: [...],
-  allow_debug_headers: true
-```
-
-### image_pipe_server
-
-```toml
-[http]
-allow_debug_headers = true
-```
-
-<!-- tabs-close -->
-
-A request then adds the [`debug`](processing/request.md#debug) option, for
-example `/w=400/debug/src/cat.jpg`. Without the setting, `debug` is ignored.
+Add the [`debug`](processing/request.md#debug) option to a request, for
+example `/w=400/debug/src/cat.jpg`.
 
 `debug` doesn't change the image, the cache key, or the `ETag`. The details
-are recorded on every response that is generated, so a cached response
-created before you allowed debug headers has them too.
+are recorded on every response that is generated, so a cached response has
+them too.
 
 ## Security and disclosure
 
 `debug` is part of the signed path. Sign a new URL to add it to a signed
 request.
 
-With debug headers on, a response can reveal the original's size, format,
-and color details, the output settings, the quality search results, the
-operations applied, the cache key, and timings. Leave
-`allow_debug_headers` off if your deployment treats any of that as private.
+A response with debug headers can reveal the original's size, format, and
+color details, the output settings, the quality search results, the
+operations applied, the cache key, and timings. With
+[signed URLs](signing-urls.md), only your app can add `debug`.
 
 ## Header catalogue
 

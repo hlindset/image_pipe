@@ -104,6 +104,7 @@ defmodule ImagePipe.API.OrientationMatrixTest do
 
   defp api_opts(origin) do
     ImagePipe.Plug.init(
+      allow_unsigned: true,
       sources: [
         path: [
           adapter: RootHTTPAdapter,

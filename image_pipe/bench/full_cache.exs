@@ -62,6 +62,7 @@ defmodule FullCacheBench do
         [
           {ImagePipe,
            name: __MODULE__.Instance,
+           allow_unsigned: true,
            sources: [
              files: [
                adapter: ImagePipe.Source.File,

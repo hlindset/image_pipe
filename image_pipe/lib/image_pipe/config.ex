@@ -45,7 +45,7 @@ defmodule ImagePipe.Config do
           instance: atom() | nil
         }
 
-  @preset_keys [:presets, :request_defaults, :preset_lookup, :max_preset_lookups]
+  @preset_keys [:presets, :request_defaults, :preset_lookup]
 
   # The URL options are validated by `ImagePipe.URL.Config`, which also owns
   # `:validate_against`; this configuration fills that in itself.
@@ -348,20 +348,6 @@ defmodule ImagePipe.Config do
       doc:
         "Default AVIF encoder settings, as for `:jpeg_options`. `:effort` defaults to `3` and `:subsample_mode` to `:off`."
     ],
-    max_effort: [
-      type: :keyword_list,
-      keys: [avif: [type: {:in, 0..9}], webp: [type: {:in, 0..6}]],
-      type_doc: "`t:keyword/0`",
-      doc: """
-      The highest encoder effort a request may ask for, per format, such as \
-      `[avif: 6]`. A format left out allows up to its effort in \
-      `:avif_options` or `:webp_options`, and a lower limit raises an \
-      `ArgumentError`. A request above the limit fails with `400` before the \
-      source is fetched, and a preset or `:request_defaults` above it raises \
-      an `ArgumentError`. Higher effort encodes more slowly, and `autoquality` \
-      and `max-bytes` encode once for each quality they try.
-      """
-    ],
     detector: [
       type: {:or, [{:in, [:default, nil]}, :atom]},
       type_doc: "`:default`, `nil`, or `t:module/0`",
@@ -402,7 +388,23 @@ defmodule ImagePipe.Config do
   ]
 
   @schema NimbleOptions.new!(
-            @processing_options ++
+            [
+              allow_unsigned: [
+                type: :boolean,
+                default: false,
+                doc: """
+                Serve unsigned URLs when `:keys` is empty. Without `:keys`, an \
+                `ImagePipe.Plug` mount raises `ArgumentError` on a request \
+                unless this is `true`. Serve public traffic with signed URLs, \
+                and set this only for a mount that nothing outside a private \
+                network can reach. Running a plan with `ImagePipe.run/4` or \
+                `ImagePipe.write/5` checks no URL, so it needs neither `:keys` \
+                nor this option. See \
+                [signing URLs](signing-urls.md).
+                """
+              ]
+            ] ++
+              @processing_options ++
               [
                 cache: [
                   type: :keyword_list,
@@ -465,14 +467,6 @@ defmodule ImagePipe.Config do
                   [watermarks](processing/watermark.md).
                   """
                 ],
-                request_watermarks: [
-                  type: :boolean,
-                  default: false,
-                  doc: """
-                  Let requests overlay any image the configured sources serve, with \
-                  `wm-src64` or `wm-enc`, besides the named `:watermarks`.
-                  """
-                ],
                 presets: [
                   type: {:map, :string, :any},
                   type_doc: "map of `t:String.t/0` to fragment or `ImagePipe.URL` builder",
@@ -498,13 +492,6 @@ defmodule ImagePipe.Config do
                   Looks up preset names that `:presets` doesn't define, per request. \
                   See `ImagePipe.PresetLookup` and \
                   [storing presets in a database](storing-presets-in-a-database.md).
-                  """
-                ],
-                max_preset_lookups: [
-                  type: :pos_integer,
-                  doc: """
-                  Most distinct names one request may look up. Only with \
-                  `:preset_lookup`. The default value is `32`.
                   """
                 ]
               ]
@@ -532,13 +519,9 @@ defmodule ImagePipe.Config do
           |> Keyword.put_new(:clock, &__MODULE__.system_time/0)
           |> Keyword.update!(:watermarks, &watermarks!(&1, validated))
 
-        known_watermarks = %{
-          watermarks: Map.keys(Keyword.fetch!(validated, :watermarks)),
-          request_watermarks: Keyword.fetch!(validated, :request_watermarks)
-        }
-
-        {presets, validate_against} = presets!(preset_options, known_watermarks)
-        validate_against = Map.merge(validate_against, known_watermarks)
+        watermarks = Map.keys(Keyword.fetch!(validated, :watermarks))
+        {presets, validate_against} = presets!(preset_options, watermarks)
+        validate_against = Map.put(validate_against, :watermarks, watermarks)
 
         url = URLConfig.put_validate_against(url, validate_against)
         concealed_watermarks!(presets, url)
@@ -557,7 +540,6 @@ defmodule ImagePipe.Config do
           |> Keyword.merge(url.options)
           |> Keyword.merge(presets)
 
-        preset_efforts!(presets, Keyword.fetch!(resolved, :max_effort))
         %__MODULE__{options: resolved, raw: options, url: url}
 
       {:error, error} ->
@@ -583,16 +565,13 @@ defmodule ImagePipe.Config do
 
   # Compiles static presets and request defaults; returns the resolved options
   # and the builder's view of them for `ImagePipe.url_config/1`.
-  defp presets!(options, known_watermarks) do
+  defp presets!(options, watermarks) do
     presets =
       Map.new(Keyword.fetch!(options, :presets), fn {name, value} -> {name, plan(value)} end)
 
-    watermarks =
-      Presets.watermarks(known_watermarks.watermarks, known_watermarks.request_watermarks)
-
     case Presets.compile(presets, plan(options[:request_defaults]), watermarks) do
       {:ok, compiled} ->
-        lookup = lookup_options!(options)
+        lookup = lookup_options(options)
 
         {[presets: compiled.presets, request_defaults: compiled.request_defaults] ++ lookup,
          Map.put(compiled, :lookup?, lookup != [])}
@@ -630,22 +609,6 @@ defmodule ImagePipe.Config do
     end
   end
 
-  # A preset or request default above max_effort would fail most requests
-  # that use it with a 400.
-  defp preset_efforts!(presets, limits) do
-    for {owner, preset} <- preset_owners(presets),
-        preset != nil,
-        {key, format} <- [avif_options: :avif, webp_options: :webp],
-        effort = effort(Map.get(preset.request, key)),
-        effort != nil and effort > Keyword.fetch!(limits, format) do
-      raise ArgumentError,
-            "invalid ImagePipe configuration: #{owner} sets #{format} effort #{effort}, " <>
-              "above the #{format} effort limit #{Keyword.fetch!(limits, format)} (max_effort: #{format})"
-    end
-
-    :ok
-  end
-
   defp preset_owners(presets) do
     [
       {"request_defaults", Keyword.fetch!(presets, :request_defaults)}
@@ -653,26 +616,15 @@ defmodule ImagePipe.Config do
     ]
   end
 
-  defp effort({:unset, options}), do: effort(options)
-  defp effort(%{effort: effort}), do: effort
-  defp effort(_options), do: nil
-
   defp watermark_tokens(%{groups: groups}),
     do: for({_index, %{watermark_token: token}} when is_binary(token) <- groups, do: token)
 
   defp watermark_tokens(nil), do: []
 
-  defp lookup_options!(options) do
-    case {options[:preset_lookup], options[:max_preset_lookups]} do
-      {nil, nil} ->
-        []
-
-      {nil, _max} ->
-        raise ArgumentError,
-              "invalid ImagePipe configuration: max_preset_lookups requires preset_lookup"
-
-      {lookup, max} ->
-        [preset_lookup: lookup, max_preset_lookups: max || 32]
+  defp lookup_options(options) do
+    case options[:preset_lookup] do
+      nil -> []
+      lookup -> [preset_lookup: lookup]
     end
   end
 
@@ -832,32 +784,9 @@ defmodule ImagePipe.Config do
       |> Keyword.update!(:format_quality, &Map.merge(@default_format_quality, &1))
       |> Keyword.update!(:detector, &Transform.resolve_detector/1)
 
-    options = Keyword.put(options, :max_effort, max_effort!(options))
-
     validate_detector!(Keyword.fetch!(options, :detector))
     validate_detector_required!(options)
     options
-  end
-
-  # libvips encodes WebP at effort 4 when none is set.
-  @encoder_default_effort [avif: 3, webp: 4]
-
-  # Each format's limit, defaulting to its configured effort.
-  defp max_effort!(options) do
-    limits = Keyword.get(options, :max_effort, [])
-
-    for {format, default} <- @encoder_default_effort do
-      configured = Keyword.fetch!(options, :"#{format}_options").effort || default
-      limit = Keyword.get(limits, format, configured)
-
-      if limit < configured do
-        raise ArgumentError,
-              "invalid ImagePipe configuration: max_effort: #{format}: #{limit} is below " <>
-                "the configured #{format}_options effort #{configured}"
-      end
-
-      {format, limit}
-    end
   end
 
   defp validate_detector!(nil), do: :ok

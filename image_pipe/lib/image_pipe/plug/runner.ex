@@ -302,19 +302,14 @@ defmodule ImagePipe.Plug.Runner do
     keys = Parser.ignored_keys(request)
     Telemetry.ignored_options(config, keys, request.ignored)
 
-    case delivery_config(request, config)[:debug?] do
+    case request.debug? do
       true -> Plug.Conn.put_resp_header(conn, "x-imagepipe-ignored-options", Enum.join(keys, ","))
       false -> conn
     end
   end
 
-  defp delivery_config(%Spec{} = request, config) do
-    Keyword.put(
-      config,
-      :debug?,
-      request.debug? and Keyword.get(config, :allow_debug_headers, false)
-    )
-  end
+  defp delivery_config(%Spec{} = request, config),
+    do: Keyword.put(config, :debug?, request.debug?)
 
   # -- terminal sends ---------------------------------------------------------
 

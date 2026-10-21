@@ -92,6 +92,7 @@ defmodule ImagePipe.API.DetectionFrameWireTest do
 
   defp mount(origin) do
     ImagePipe.Plug.init(
+      allow_unsigned: true,
       sources: [
         path: [
           adapter: RootHTTPAdapter,

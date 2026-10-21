@@ -82,7 +82,11 @@ defmodule ImagePipe.API.OutputCoalescingWireTest do
   end
 
   test "without output caching identical requests use ordinary admission", context do
-    mount = ImagePipe.Plug.init(Keyword.delete(context.options, :cache))
+    mount =
+      ImagePipe.Plug.init(
+        Keyword.put_new(Keyword.delete(context.options, :cache), :allow_unsigned, true)
+      )
+
     leader = async(context, fn -> request(mount, "output=info") end)
     assert_receive {:fetch, ["blocked"], worker}
     assert request(mount, "output=info").status == 503

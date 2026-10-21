@@ -169,12 +169,13 @@ The HTTP listener. Times are in milliseconds. `read_timeout` closes connections 
 
 ### `[url]`
 
-How the server checks request URLs: the signing keys and the keys that decrypt `enc/` image paths. See [signing URLs and rotating keys](../../image_pipe/docs/signing-urls.md).
+How the server checks request URLs: the signing keys and the keys that decrypt `enc/` image paths. See [signing URLs and rotating keys](../../image_pipe/docs/signing-urls.md). Without `keys`, the server doesn't start unless `allow_unsigned = true`. That setting lets the server answer URLs without a signature, and the server logs a warning at startup. Set it only for a server that nothing outside a private network can reach.
 
 | Key | Type | Default |
 | --- | --- | --- |
 | `keys` | array of hex strings, each at least 64 digits | `[]` |
 | `source_encryption_keys` | array of hex strings, each a 32-byte key | `[]` |
+| `allow_unsigned` | boolean | `false` |
 
 ### `[sources.<name>]`
 
@@ -370,8 +371,6 @@ Defaults and limits for every image the server processes. The limits on original
 | `skip_processing_formats` | array of `"avif"` or `"webp"` or `"jpeg"` or `"png"` or `"jpeg_xl"` or `"heif"` or `"tiff"` or `"jpeg2000"` or `"gif"` | `[]` |
 | `autoquality` | boolean | `false` |
 | `autoquality_target` | integer or number | `75` |
-| `max_effort.avif` | integer 0–9 |  |
-| `max_effort.webp` | integer 0–6 |  |
 | `detector` | `"default"` | `"default"` |
 | `detector_required` | boolean | `false` |
 | `source_cache_policy.storage` | `"origin"` or `"allow"` or `"deny"` |  |
@@ -397,12 +396,11 @@ Defaults and limits for every image the server processes. The limits on original
 | `avif_options.effort` | integer 0–9 | `3` |
 | `watermarks.<name>.source` | string |  |
 | `watermarks.<name>.opacity` | number | `1.0` |
-| `request_watermarks` | boolean | `false` |
 | `presets` | table of string |  |
 | `request_defaults` | string |  |
 | `detector_warmup` | `"all"` or `false` or array of string | `"all"` |
 
-Elixir only: `max_preset_lookups`, `preset_lookup`, `telemetry_prefix`, `clock`.
+Elixir only: `preset_lookup`, `telemetry_prefix`, `clock`.
 
 ### `[pool]`
 
@@ -418,12 +416,11 @@ How many images are processed at once, and how long requests wait for a turn. Ti
 
 ### `[http]`
 
-Response settings: the CORS origin, whether requests may ask for debug headers, and the HTTP cache headers. See [serving images through a CDN](../../image_pipe/docs/serving-through-a-cdn.md).
+Response settings: the CORS origin and the HTTP cache headers. See [serving images through a CDN](../../image_pipe/docs/serving-through-a-cdn.md).
 
 | Key | Type | Default |
 | --- | --- | --- |
 | `allow_origin` | string |  |
-| `allow_debug_headers` | boolean | `false` |
 | `http_cache` | `"validators"` or `"auto"` or `"public"` or `"private"` | `"validators"` |
 
 ### `[telemetry]`

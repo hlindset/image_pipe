@@ -308,8 +308,7 @@ defmodule CostCalibration do
   defp start_instance(cache_root, media) do
     name = CostCalibration.Instance
 
-    # The converted sources are larger than the default `max_body_bytes`, and
-    # the corpus measures efforts above the default `max_effort`.
+    # The converted sources are larger than the default `max_body_bytes`.
     {:ok, supervisor} =
       Supervisor.start_link(
         [
@@ -317,7 +316,6 @@ defmodule CostCalibration do
            name: name,
            telemetry_prefix: @prefix,
            max_body_bytes: 200_000_000,
-           max_effort: [avif: 9, webp: 6],
            sources: [
              media: [
                adapter: ImagePipe.Source.File,

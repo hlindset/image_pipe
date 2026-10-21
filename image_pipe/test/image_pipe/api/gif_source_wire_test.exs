@@ -102,6 +102,7 @@ defmodule ImagePipe.API.GifSourceWireTest do
       telemetry_prefix: @prefix
     ]
     |> Keyword.merge(extra)
+    |> Keyword.put_new(:allow_unsigned, true)
     |> ImagePipe.Plug.init()
   end
 end

@@ -97,11 +97,7 @@ defmodule ImagePipe.Run do
   end
 
   defp request(plan, config) do
-    watermarks = %{
-      names: Map.keys(config[:watermarks]),
-      request_sources?: config[:request_watermarks]
-    }
-
+    watermarks = Map.keys(config[:watermarks])
     names = Plan.preset_names(plan)
 
     # The builder's own errors need no lookup, so they return before one.

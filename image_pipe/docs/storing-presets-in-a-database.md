@@ -39,8 +39,7 @@ end
 Each definition is a fragment of URL options, the same as a preset in the
 configuration, such as `"w=400/h=300/fit=cover"`. Leave out names the
 database doesn't have, and the request answers `400` with
-`unknown preset`. A definition above the encoder effort limit
-(`:max_effort`) also answers `400`. When the database is unreachable, the request answers
+`unknown preset`. When the database is unreachable, the request answers
 `503`, whether `fetch/2` returns `{:error, reason}` or, as `repo.all/1` does
 here, raises.
 
@@ -71,10 +70,7 @@ and raises `ArgumentError` when it returns `{:error, reason}`.
 A name in `:presets` always wins, and requests that use only those names
 never call the lookup. Stored presets may name presets from `:presets` or
 other stored presets, and ImagePipe fetches the names they reference in
-further calls. `:max_preset_lookups` (default `32`) caps how many distinct
-names one request may look up. A request fails with `400` when its URL names
-more stored presets than the cap. It fails with `500` when the presets that
-stored definitions reference push the total over the cap.
+further calls.
 
 ## Build URLs for stored presets
 

@@ -27,6 +27,7 @@ defmodule ImagePipe.URLWireTest do
 
     config =
       IP.config(
+        allow_unsigned: true,
         sources: [
           path: [
             adapter: ImagePipe.Source.File,
@@ -129,7 +130,7 @@ defmodule ImagePipe.URLWireTest do
     response =
       conn(:get, url)
       |> Map.put(:script_name, ["images"])
-      |> IP.Plug.call(IP.Plug.init(config: config, allow_debug_headers: true))
+      |> IP.Plug.call(IP.Plug.init(config: config))
 
     assert response.status == 200
     assert Image.width(Image.from_binary!(response.resp_body)) == 30
