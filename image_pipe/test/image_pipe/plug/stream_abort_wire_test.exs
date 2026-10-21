@@ -48,6 +48,17 @@ defmodule ImagePipe.Plug.StreamAbortWireTest do
     def get_http_protocol(_state), do: :"HTTP/1.1"
   end
 
+  # A Plug adapter whose connection fails after the headers of a file
+  # response are out.
+  defmodule FailedSendFileAdapter do
+    @moduledoc false
+    def send_file(_state, _status, _headers, _path, _offset, _length),
+      do: raise(Bandit.TransportError, message: "reset", error: :protocol_error)
+
+    def get_peer_data(_state), do: %{address: {127, 0, 0, 1}, port: 0, ssl_cert: nil}
+    def get_http_protocol(_state), do: :"HTTP/1.1"
+  end
+
   describe "over a real HTTP/1.1 connection" do
     test "a complete stream ends with the terminating chunk" do
       socket = serve(config([]))
@@ -155,6 +166,31 @@ defmodule ImagePipe.Plug.StreamAbortWireTest do
     conn = :get |> conn(@path) |> Map.put(:adapter, {ClosedClientAdapter, nil})
 
     assert %Plug.Conn{state: :file} = ImagePipe.Plug.call(conn, mount(config))
+  end
+
+  test "a cache hit whose send fails is summarized as a failed 200" do
+    {config, _hash, _body} = warm(@path)
+    test_pid = self()
+    id = {__MODULE__, make_ref()}
+
+    :ok =
+      :telemetry.attach(
+        id,
+        Keyword.fetch!(config, :telemetry_prefix) ++ [:request, :summary],
+        fn _event, _measurements, metadata, _config -> send(test_pid, {:summary, metadata}) end,
+        nil
+      )
+
+    on_exit(fn -> :telemetry.detach(id) end)
+    conn = :get |> conn(@path) |> Map.put(:adapter, {FailedSendFileAdapter, nil})
+
+    capture_log(fn ->
+      assert_raise ImagePipe.Plug.StreamAbortedError, fn ->
+        ImagePipe.Plug.call(conn, mount(config))
+      end
+    end)
+
+    assert_received {:summary, %{status: 200, result: :processing_error}}
   end
 
   # Stores the response for `path` in a fresh cache and returns a config
