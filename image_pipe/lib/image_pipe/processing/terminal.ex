@@ -3,13 +3,13 @@ defmodule ImagePipe.Processing.Terminal do
 
   alias ImagePipe.Decode
   alias ImagePipe.Format
-  alias ImagePipe.Output.Clamp
   alias ImagePipe.Output.Terminal.Blurhash
   alias ImagePipe.Output.Terminal.LqipCss
   alias ImagePipe.Plan.Spec
   alias ImagePipe.Plan.Spec.Output
   alias ImagePipe.Processing
   alias ImagePipe.Telemetry
+  alias ImagePipe.Transform.Clamp
   alias ImagePipe.Transform.Executor
   alias ImagePipe.Transform.Materializer
   alias ImagePipe.Transform.PendingOrientation

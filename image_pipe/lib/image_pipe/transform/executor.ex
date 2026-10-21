@@ -286,6 +286,17 @@ defmodule ImagePipe.Transform.Executor do
          do: Materializer.materialize(state)
   end
 
+  @doc """
+  The kernel for scaling the request's result down to the result limits: the
+  kernel of the last group that resizes, or lanczos3.
+  """
+  @spec result_kernel(Spec.t()) :: Group.kernel()
+  def result_kernel(%Spec{groups: groups}) do
+    groups
+    |> Enum.reverse()
+    |> Enum.find_value(:lanczos3, fn group -> group.resize && group.resize.kernel end)
+  end
+
   @doc "The fixed-order operation names represented by a request."
   @spec operation_names(Spec.t()) :: [atom()]
   def operation_names(%Spec{groups: groups}),

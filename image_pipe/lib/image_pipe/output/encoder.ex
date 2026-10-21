@@ -14,7 +14,7 @@ defmodule ImagePipe.Output.Encoder do
   alias Vix.Vips.Operation
 
   @doc """
-  Returns libvips encoder limits for `ImagePipe.Output.Clamp`.
+  Returns libvips encoder limits for `ImagePipe.Transform.Clamp`.
 
   `:max_dimension` limits each axis; `:max_pixels` limits total pixels.
   `:infinity` means no practical limit. The producer takes the minimum of

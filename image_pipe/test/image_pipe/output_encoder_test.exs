@@ -185,4 +185,16 @@ defmodule ImagePipe.Output.EncoderTest do
       assert {:ok, _decoded} = Image.from_binary(body)
     end
   end
+
+  describe "encoder_limit/1" do
+    test "returns the WebP and AVIF hard dimension limits with unbounded pixels" do
+      assert Encoder.encoder_limit(:webp) == %{max_dimension: 16_383, max_pixels: :infinity}
+      assert Encoder.encoder_limit(:avif) == %{max_dimension: 16_384, max_pixels: :infinity}
+    end
+
+    test "returns the documented JPEG limit and unbounded PNG" do
+      assert Encoder.encoder_limit(:jpeg) == %{max_dimension: 65_500, max_pixels: :infinity}
+      assert Encoder.encoder_limit(:png) == %{max_dimension: :infinity, max_pixels: :infinity}
+    end
+  end
 end

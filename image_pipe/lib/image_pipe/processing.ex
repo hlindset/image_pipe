@@ -19,7 +19,6 @@ defmodule ImagePipe.Processing do
   alias ImagePipe.Decode
   alias ImagePipe.Delivery.StreamPull
   alias ImagePipe.Format
-  alias ImagePipe.Output.Clamp
   alias ImagePipe.Output.Encoder
   alias ImagePipe.Output.Policy
   alias ImagePipe.Output.Resolved, as: ResolvedOutput
@@ -29,6 +28,7 @@ defmodule ImagePipe.Processing do
   alias ImagePipe.Processing.Prepared
   alias ImagePipe.Telemetry
   alias ImagePipe.Transform
+  alias ImagePipe.Transform.Clamp
   alias ImagePipe.Transform.Executor
   alias ImagePipe.Transform.Materializer
   alias ImagePipe.Transform.State
@@ -229,7 +229,7 @@ defmodule ImagePipe.Processing do
              state.image,
              result_limits(resolved_output.format, config),
              resolved_output.format,
-             config
+             [kernel: Executor.result_kernel(request)] ++ config
            ),
          {:ok, %State{} = state} <-
            materialize_for_delivery(%State{state | image: clamped}) do

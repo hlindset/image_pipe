@@ -12,6 +12,7 @@ defmodule ImagePipe.APIResultLimitsTest do
 
   alias ImagePipe.SourceTest.RootHTTPAdapter
   alias ImagePipe.Test.PlugFixture.OriginImage
+  alias Vix.Vips.Image, as: VipsImage
 
   @default_sources [
     path: [
@@ -96,6 +97,59 @@ defmodule ImagePipe.APIResultLimitsTest do
     assert get_resp_header(conn, "content-type") == ["image/png"]
     assert decoded_dims(conn.resp_body) == {6000, 60}
     refute_received {:clamp, ^event, _}
+  end
+
+  describe "the clamp's resize" do
+    test "keeps semi-transparent colors exact" do
+      body =
+        Image.new!(900, 100, color: [200, 120, 37, 100], bands: 4)
+        |> Image.write!(:memory, suffix: ".png")
+
+      conn = get("/format=png/src/image", served(body, max_result_width: 613))
+
+      assert conn.status == 200
+      image = Image.from_binary!(conn.resp_body)
+      assert {Image.width(image), Image.height(image)} == {613, 68}
+      assert Image.get_pixel!(image, 306, 34) == [200, 120, 37, 100]
+    end
+
+    test "uses the request's resize kernel" do
+      # Ten-pixel black and white stripes. A nearest-neighbour reduction keeps
+      # only black and white, where lanczos3 rings at every edge.
+      pixels = for _y <- 1..40, x <- 0..39, into: <<>>, do: <<rem(div(x, 10), 2) * 255>>
+      {:ok, stripes} = VipsImage.new_from_binary(pixels, 40, 40, 1, :VIPS_FORMAT_UCHAR)
+      body = Image.write!(stripes, :memory, suffix: ".png")
+
+      conn =
+        get(
+          "/w=400/enlarge/kernel=nearest/format=png/src/image",
+          served(body, max_result_width: 200)
+        )
+
+      assert conn.status == 200
+      image = Image.from_binary!(conn.resp_body)
+      assert Image.width(image) == 200
+      {:ok, bytes} = VipsImage.write_to_binary(image)
+      assert bytes |> :binary.bin_to_list() |> Enum.uniq() |> Enum.sort() == [0, 255]
+    end
+  end
+
+  defp served(body, extra) do
+    origin = fn conn ->
+      conn |> Plug.Conn.put_resp_content_type("image/png") |> Plug.Conn.send_resp(200, body)
+    end
+
+    opts(
+      [
+        sources: [
+          path: [
+            adapter: RootHTTPAdapter,
+            match: :path,
+            options: [root_url: "http://origin.test", req_options: [plug: origin]]
+          ]
+        ]
+      ] ++ extra
+    )
   end
 
   describe "the clamp composes the host cap with the format's encoder limit (min wins)" do
