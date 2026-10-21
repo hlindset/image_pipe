@@ -19,7 +19,7 @@ defmodule ImagePipe do
   the processes its caches need. Run one with `child_spec/1` when a mount's
   configuration reads runtime values, such as environment variables, or when
   the configuration uses a cache. `ImagePipe.Plug` mounts, `run/4`,
-  `write/5`, `validate/2`, and `url_config/2` find it by name.
+  `write/5`, `validate/2`, and `url_config/1` find it by name.
   """
 
   use Boundary,
@@ -49,16 +49,6 @@ defmodule ImagePipe do
 
   alias ImagePipe.Config
 
-  @url_config_schema NimbleOptions.new!(
-                       mount: [
-                         type: :atom,
-                         doc: """
-                         One of the instance's `:mounts`, whose URL options the \
-                         result uses instead of the instance's own.
-                         """
-                       ]
-                     )
-
   @doc """
   Builds the configuration that `ImagePipe.Plug` mounts, instances, and
   `run/4` use.
@@ -85,7 +75,7 @@ defmodule ImagePipe do
 
   `keys` and `source_encryption_keys` set which URLs an `ImagePipe.Plug`
   mount accepts. `base_url`, `encrypt_source`, and `iv_mode` only affect URLs
-  built from the configuration with `url_config/2`.
+  built from the configuration with `url_config/1`.
 
   ## Options
 
@@ -110,7 +100,7 @@ defmodule ImagePipe do
       ]
 
   Mount it with the `:instance` option of `ImagePipe.Plug`, and pass its name
-  to `run/4`, `write/5`, `validate/2`, and `url_config/2`.
+  to `run/4`, `write/5`, `validate/2`, and `url_config/1`.
 
   A configuration with `cache` or `input_cache` must be used through an
   instance, which starts the processes that track each cache's size.
@@ -146,29 +136,11 @@ defmodule ImagePipe do
   `ImagePipe.URL.validate/1` and `ImagePipe.URL.url/3` check plans against
   them.
 
-  ## Options
-
-  #{NimbleOptions.docs(@url_config_schema)}
-
-  Raises `ArgumentError` for an invalid option, when no instance with the
-  name is running or it has no mount with that name, or when `:mount` comes
-  with a configuration.
+  Raises `ArgumentError` when no instance with the name is running.
   """
-  @spec url_config(Config.t() | atom(), keyword()) :: ImagePipe.URL.Config.t()
-  def url_config(config_or_name, options \\ []) do
-    case NimbleOptions.validate(options, @url_config_schema) do
-      {:ok, options} -> fetch_url_config(config_or_name, options[:mount])
-      {:error, error} -> raise ArgumentError, Exception.message(error)
-    end
-  end
-
-  defp fetch_url_config(%Config{url: url}, nil), do: url
-
-  defp fetch_url_config(%Config{}, _mount),
-    do: raise(ArgumentError, "url_config/2 takes :mount only with an instance name")
-
-  defp fetch_url_config(name, mount) when is_atom(name),
-    do: Config.fetch_instance!(name, mount).url
+  @spec url_config(Config.t() | atom()) :: ImagePipe.URL.Config.t()
+  def url_config(%Config{url: url}), do: url
+  def url_config(name) when is_atom(name), do: Config.fetch_instance!(name).url
 
   @doc """
   Checks a builder's plan as this configuration would serve it.
@@ -382,5 +354,5 @@ defmodule ImagePipe do
   # An instance name stands for the configuration the running instance
   # published. It raises when the instance isn't running.
   defp resolve(%Config{} = config), do: config
-  defp resolve(name) when is_atom(name), do: Config.fetch_instance!(name, nil)
+  defp resolve(name) when is_atom(name), do: Config.fetch_instance!(name)
 end

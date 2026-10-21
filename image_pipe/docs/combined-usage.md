@@ -76,7 +76,7 @@ as a warning, and that image is broken while the rest of the page renders.
 `ImagePipe.URL.Helpers` describes both checks.
 
 Outside templates, build URLs from the instance's URL settings with
-`ImagePipe.url_config/2`:
+`ImagePipe.url_config/1`:
 
 ```elixir
 def thumbnail_url(path) do

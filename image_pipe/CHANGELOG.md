@@ -202,13 +202,21 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `ImagePipe.Plug` is mounted at, such as `/images` for
   `forward "/images", ImagePipe.Plug`. Before, the mount path was left out.
 
+### Removed
+
+- **Breaking:** The instance option `mounts:`, and `mount:` on
+  `ImagePipe.Plug` and `ImagePipe.url_config/2`, which is now
+  `ImagePipe.url_config/1`. An instance checks URLs against its own URL
+  settings only. To serve URLs with different keys, such as signed and
+  unsigned URLs, start an instance for each, and mount it or build its URLs
+  by its name. Instances that use caches each need their own cache roots.
+
 ### Fixed
 
 - A preset or `:request_defaults` with a `wm-enc` token that the
   `:source_encryption_keys` can't decrypt raises `ArgumentError` when
-  ImagePipe starts, also for a mount with its own `:source_encryption_keys`.
-  Before, the configuration was accepted and every request using the token
-  failed with `404`.
+  ImagePipe starts. Before, the configuration was accepted and every request
+  using the token failed with `404`.
 - A preset with `wm-enc=unset` no longer needs `:source_encryption_keys`.
 - The request defaults apply to a URL's first group even when that group
   holds only `unset` options. Before, they moved to the next group, so

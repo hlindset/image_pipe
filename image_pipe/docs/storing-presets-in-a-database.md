@@ -78,7 +78,7 @@ stored definitions reference push the total over the cap.
 
 ## Build URLs for stored presets
 
-The URL configuration from `ImagePipe.url_config/2` has
+The URL configuration from `ImagePipe.url_config/1` has
 `preset_lookup: true` in its `:validate_against`, so the builder accepts
 names missing from `:presets` and leaves them to the server.
 `ImagePipe.validate/2` runs the lookup, for a full check before you hand out

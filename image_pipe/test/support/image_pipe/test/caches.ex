@@ -47,7 +47,7 @@ defmodule ImagePipe.Test.Caches do
   The instance's options as a request sees them, for a test that calls an
   internal function or adds test-only keys to a mount.
   """
-  def options(options), do: ImagePipe.Config.fetch_instance!(instance(options), nil).options
+  def options(options), do: ImagePipe.Config.fetch_instance!(instance(options)).options
 
   @doc "The resolved options of `plug/1`'s mount, as `ImagePipe.Plug.call/2` gets them."
   def plug_options(options), do: options |> plug() |> ImagePipe.Plug.Config.resolve()

@@ -38,6 +38,11 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Checking and decoding the percent escapes of a `src` source takes less
   time, up to about 0.5 ms less for an 8 KB source.
 
+### Removed
+
+- **Breaking:** `mount:` on `ImagePipe.URL.Helpers`. Start an instance with
+  the mount's URL settings and pass its name as `instance:`.
+
 ### Fixed
 
 - `ImagePipe.URL.url/3` returns `{:error, :invalid_source}` for a source

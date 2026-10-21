@@ -153,7 +153,7 @@ defmodule ImagePipe.Telemetry.SummaryTest do
   test "an overloaded pool's 503 is summarized as an error line", ctx do
     options = start(ctx, pool: [max_concurrency: 1, max_queue: 0])
     config = Caches.plug(options)
-    holder = hold_slot(ImagePipe.Config.fetch_instance!(Caches.instance(options), nil))
+    holder = hold_slot(ImagePipe.Config.fetch_instance!(Caches.instance(options)))
     Telemetry.attach_default_logger(prefix: ctx.prefix)
 
     log =
@@ -171,7 +171,7 @@ defmodule ImagePipe.Telemetry.SummaryTest do
   test "a low-priority request turned away by a full pool is summarized below warning", ctx do
     options = start(ctx, pool: [max_concurrency: 1, max_queue: 0])
     config = Caches.plug(options)
-    holder = hold_slot(ImagePipe.Config.fetch_instance!(Caches.instance(options), nil))
+    holder = hold_slot(ImagePipe.Config.fetch_instance!(Caches.instance(options)))
     Telemetry.attach_default_logger(prefix: ctx.prefix)
 
     log =
