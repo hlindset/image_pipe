@@ -31,6 +31,8 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `detect=all`.
 - `autoquality` and `max-bytes` are reported as ignored options with
   `format=webp` and lossless `webp-options`, as with `format=png`.
+- Checking and decoding the percent escapes of a `src` source takes less
+  time, up to about 0.5 ms less for an 8 KB source.
 
 ### Fixed
 

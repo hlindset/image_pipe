@@ -299,29 +299,33 @@ defmodule ImagePipe.API.Path do
 
   # -- percent-decoding (src tail only, exactly once) ----------------------
 
+  # Checks and decodes in one pass. Any "%" not followed by exactly two hex
+  # digits is a malformed escape.
   defp percent_decode(value) do
-    if malformed_percent?(value) do
-      {:error, :malformed_percent_escape}
-    else
-      {:ok, URI.decode(value)}
+    case :binary.match(value, "%") do
+      :nomatch ->
+        {:ok, value}
+
+      {at, 1} ->
+        decode_escapes(binary_part(value, at, byte_size(value) - at), binary_part(value, 0, at))
     end
   end
 
   defguardp hex?(byte) when byte in ?0..?9 or byte in ?A..?F or byte in ?a..?f
 
-  # Any "%" not followed by exactly two hex digits is a malformed escape.
-  defp malformed_percent?(value) do
-    case :binary.match(value, "%") do
-      :nomatch ->
-        false
+  defp decode_escapes(<<?%, a, b, rest::binary>>, acc) when hex?(a) and hex?(b),
+    do: decode_escapes(rest, <<acc::binary, hex_value(a) * 16 + hex_value(b)>>)
 
-      {at, 1} ->
-        case binary_part(value, at + 1, byte_size(value) - at - 1) do
-          <<a, b, rest::binary>> when hex?(a) and hex?(b) -> malformed_percent?(rest)
-          _malformed -> true
-        end
-    end
-  end
+  defp decode_escapes(<<?%, _rest::binary>>, _acc), do: {:error, :malformed_percent_escape}
+
+  defp decode_escapes(<<byte, rest::binary>>, acc),
+    do: decode_escapes(rest, <<acc::binary, byte>>)
+
+  defp decode_escapes(<<>>, acc), do: {:ok, acc}
+
+  defp hex_value(byte) when byte in ?0..?9, do: byte - ?0
+  defp hex_value(byte) when byte in ?A..?F, do: byte - ?A + 10
+  defp hex_value(byte) when byte in ?a..?f, do: byte - ?a + 10
 
   # -- diagnostics ----------------------------------------------------------
 
