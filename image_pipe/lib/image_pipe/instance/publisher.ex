@@ -5,13 +5,12 @@ defmodule ImagePipe.Instance.Publisher do
 
   alias ImagePipe.Config
 
-  def start_link({name, config, mounts}),
-    do: GenServer.start_link(__MODULE__, {name, config, mounts})
+  def start_link({name, config}), do: GenServer.start_link(__MODULE__, {name, config})
 
   @impl true
-  def init({name, config, mounts}) do
+  def init({name, config}) do
     Process.flag(:trap_exit, true)
-    :ok = Config.publish(name, config, mounts)
+    :ok = Config.publish(name, config)
     {:ok, name}
   end
 

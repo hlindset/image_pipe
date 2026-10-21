@@ -47,13 +47,11 @@ defmodule ImagePipe.URL.Helpers do
   ## Options
 
     * `:instance` - the `:name` of an `ImagePipe` instance. Each URL uses
-      the instance's URL settings from `ImagePipe.url_config/2`: its base
+      the instance's URL settings from `ImagePipe.url_config/1`: its base
       URL, signing keys, source encryption settings, and the presets, request
       defaults, and watermark settings it checks options against. Building a
       URL raises `ArgumentError` when the instance isn't running. Needs the
       `image_pipe` package.
-    * `:mount` - with `:instance`, one of the instance's `:mounts`, whose URL
-      options the URLs use instead of the instance's own.
     * `:config` - `{module, function, args}`, called for each URL, that
       returns an `ImagePipe.URL.Config`. Use it in place of `:instance`.
     * `:on_invalid` - `:warn` (the default) or `:raise`. See
@@ -81,7 +79,7 @@ defmodule ImagePipe.URL.Helpers do
   # app depends on `image_pipe`, even though this library compiles first.
   @doc false
   def __options__(options) do
-    case Keyword.split(options, [:config, :instance, :mount, :on_invalid]) do
+    case Keyword.split(options, [:config, :instance, :on_invalid]) do
       {known, []} ->
         on_invalid = Keyword.get(known, :on_invalid, :warn)
 
@@ -95,27 +93,23 @@ defmodule ImagePipe.URL.Helpers do
     end
   end
 
-  defp config(options), do: config(options[:config], options[:instance], options[:mount])
+  defp config(options), do: config(options[:config], options[:instance])
 
-  defp config(nil, nil, nil), do: nil
+  defp config(nil, nil), do: nil
 
-  defp config({module, function, args} = mfa, nil, nil)
+  defp config({module, function, args} = mfa, nil)
        when is_atom(module) and is_atom(function) and is_list(args),
        do: mfa
 
-  defp config(nil, instance, mount)
-       when is_atom(instance) and instance != nil and is_atom(mount) do
+  defp config(nil, instance) when is_atom(instance) do
     unless Code.ensure_loaded?(ImagePipe),
       do: raise(ArgumentError, "instance: needs the image_pipe package. Use config: instead")
 
-    args = if mount, do: [instance, [mount: mount]], else: [instance]
-    {ImagePipe, :url_config, args}
+    {ImagePipe, :url_config, [instance]}
   end
 
-  defp config(_config, _instance, _mount) do
-    raise ArgumentError,
-          "expected config: {module, function, args}, or instance: with an optional mount:"
-  end
+  defp config(_config, _instance),
+    do: raise(ArgumentError, "expected config: {module, function, args}, or instance:")
 
   @doc """
   Builds the URL for `source` with the options of `ImagePipe.URL`.

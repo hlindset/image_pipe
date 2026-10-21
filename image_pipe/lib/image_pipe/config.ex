@@ -582,7 +582,7 @@ defmodule ImagePipe.Config do
   end
 
   # Compiles static presets and request defaults; returns the resolved options
-  # and the builder's view of them for `ImagePipe.url_config/2`.
+  # and the builder's view of them for `ImagePipe.url_config/1`.
   defp presets!(options, known_watermarks) do
     presets =
       Map.new(Keyword.fetch!(options, :presets), fn {name, value} -> {name, plan(value)} end)
@@ -724,9 +724,8 @@ defmodule ImagePipe.Config do
   @doc false
   # Supervised instances store their configuration here, keyed by name, so
   # mounts can look it up per request.
-  @spec publish(atom(), t(), %{atom() => t()}) :: :ok
-  def publish(name, config, mounts),
-    do: :persistent_term.put({__MODULE__, name}, {config, mounts})
+  @spec publish(atom(), t()) :: :ok
+  def publish(name, config), do: :persistent_term.put({__MODULE__, name}, config)
 
   @doc false
   @spec unpublish(atom()) :: :ok
@@ -736,9 +735,9 @@ defmodule ImagePipe.Config do
   end
 
   @doc false
-  @spec fetch_instance!(atom(), atom() | nil) :: t()
-  def fetch_instance!(name, mount) do
-    config = published!(name, mount)
+  @spec fetch_instance!(atom()) :: t()
+  def fetch_instance!(name) do
+    config = published!(name)
     %{config | options: drop_refused(config.options)}
   end
 
@@ -746,7 +745,7 @@ defmodule ImagePipe.Config do
   # The configuration the instance published, with every cache it configures,
   # including ones another node holds.
   @spec fetch_configured!(atom()) :: t()
-  def fetch_configured!(name), do: published!(name, nil)
+  def fetch_configured!(name), do: published!(name)
 
   @doc false
   # Requests run without the caches whose root another node holds. A root
@@ -755,47 +754,26 @@ defmodule ImagePipe.Config do
   @spec drop_refused(keyword()) :: keyword()
   def drop_refused(options), do: Cache.drop_refused(options)
 
-  defp published!(name, mount) do
-    case {:persistent_term.get({__MODULE__, name}, nil), mount} do
-      {nil, _mount} ->
-        raise ArgumentError, "ImagePipe instance #{inspect(name)} is not running"
-
-      {{config, _mounts}, nil} ->
-        config
-
-      {{_config, mounts}, mount} ->
-        case Map.fetch(mounts, mount) do
-          {:ok, config} ->
-            config
-
-          :error ->
-            raise ArgumentError,
-                  "ImagePipe instance #{inspect(name)} has no mount named #{inspect(mount)}"
-        end
-    end
-  end
-
-  @doc false
-  @spec override(t(), keyword()) :: t()
-  def override(%__MODULE__{} = config, []), do: config
-
-  # URL options alone leave the caches and everything else as they are. The
-  # caches and the table of remembered originals belong to the instance, so
-  # an instance's configuration can't override them.
-  def override(%__MODULE__{} = config, options) do
-    case Keyword.keys(options) -- @url_keys do
-      [] -> put_url_options(config, options)
-      _other -> override_all(config, options)
+  defp published!(name) do
+    case :persistent_term.get({__MODULE__, name}, nil) do
+      nil -> raise ArgumentError, "ImagePipe instance #{inspect(name)} is not running"
+      config -> config
     end
   end
 
   # Options that set up the instance's processes and tables.
   @instance_keys [:cache, :input_cache, :max_remembered_originals]
 
-  defp override_all(%__MODULE__{instance: nil} = config, options),
+  @doc false
+  @spec override(t(), keyword()) :: t()
+  def override(%__MODULE__{} = config, []), do: config
+
+  def override(%__MODULE__{instance: nil} = config, options),
     do: new!(Keyword.merge(config.raw, options))
 
-  defp override_all(config, options) do
+  # The caches and the table of remembered originals belong to the instance,
+  # so an instance's configuration can't override them.
+  def override(config, options) do
     if Enum.any?(@instance_keys, &Keyword.has_key?(options, &1)) do
       raise ArgumentError,
             "cache, input_cache and max_remembered_originals belong to the instance " <>
@@ -804,7 +782,6 @@ defmodule ImagePipe.Config do
 
     overridden = new!(Keyword.merge(config.raw, options))
 
-    # So does the table of originals the instance remembers.
     %{
       overridden
       | instance: config.instance,
@@ -813,40 +790,6 @@ defmodule ImagePipe.Config do
             overridden.options,
             Keyword.take(config.options, [:source_records, :max_remembered_originals])
           )
-    }
-  end
-
-  @doc false
-  # The URL option names, which a named mount or an override can set.
-  @spec url_keys() :: [atom()]
-  def url_keys, do: @url_keys
-
-  @doc false
-  # The URL options' schema, which a named mount's options are validated with.
-  @spec url_options_schema() :: keyword()
-  def url_options_schema, do: @url_option_doc
-
-  @doc false
-  # Applies URL options on top of the configuration's own, for a named mount
-  # or a URL-only override. Only the URL settings are rebuilt: the presets and
-  # watermarks they're checked against stay the same, and so do the caches, so
-  # the result keeps the instance.
-  @spec put_url_options(t(), keyword()) :: t()
-  def put_url_options(%__MODULE__{} = config, url_options) do
-    url_options = config.raw |> Keyword.take(@url_keys) |> Keyword.merge(url_options)
-
-    url =
-      url_options
-      |> URLConfig.new!()
-      |> URLConfig.put_validate_against(Keyword.fetch!(config.url.options, :validate_against))
-
-    concealed_watermarks!(config.options, url)
-
-    %{
-      config
-      | options: Keyword.merge(config.options, url.options),
-        raw: Keyword.merge(config.raw, url_options),
-        url: url
     }
   end
 

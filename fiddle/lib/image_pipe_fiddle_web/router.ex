@@ -14,10 +14,13 @@ defmodule ImagePipeFiddleWeb.Router do
     plug :accepts, ["json"]
   end
 
-  @image_mount [instance: ImagePipeFiddle.Images, allow_origin: "*", allow_debug_headers: true]
+  @image_mount [allow_origin: "*", allow_debug_headers: true]
 
-  forward "/image", ImagePipe.Plug, @image_mount
-  forward "/image-signed", ImagePipe.Plug, [mount: :signed] ++ @image_mount
+  forward "/image", ImagePipe.Plug, [instance: ImagePipeFiddle.Images] ++ @image_mount
+
+  forward "/image-signed",
+          ImagePipe.Plug,
+          [instance: ImagePipeFiddle.SignedImages] ++ @image_mount
 
   scope "/api", ImagePipeFiddleWeb do
     pipe_through(:api)

@@ -27,12 +27,23 @@ defmodule ImagePipe.Cache.FileSystem.Root do
     }
   end
 
-  def start_link(opts), do: Supervisor.start_link(__MODULE__, opts, name: name(opts))
+  # A root this VM already runs belongs to another cache, such as another
+  # instance's, so the second one raises before it touches the owner file.
+  def start_link(opts) do
+    case Supervisor.start_link(__MODULE__, opts, name: name(opts)) do
+      {:error, {:already_started, _pid}} ->
+        raise ArgumentError,
+              "cache root #{Store.root_dir(opts)} is already used by another cache in this " <>
+                "VM. Give each ImagePipe instance its own cache roots."
+
+      started ->
+        started
+    end
+  end
 
   @doc false
-  # Named after the directory, so a second cache on a root this VM already
-  # runs fails to start before it touches the owner file. Roots are static
-  # host configuration, so the derived atoms are bounded.
+  # Named after the directory, so a root runs one cache per VM. Roots are
+  # static host configuration, so the derived atoms are bounded.
   def name(opts) do
     hash =
       :crypto.hash(:sha256, Store.root_dir(opts))

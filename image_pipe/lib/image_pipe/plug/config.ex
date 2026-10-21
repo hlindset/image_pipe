@@ -47,13 +47,6 @@ defmodule ImagePipe.Plug.Config do
                        Name of a running instance (see `ImagePipe.child_spec/1`) whose \
                        configuration the mount serves.
                        """
-                     ],
-                     mount: [
-                       type: :atom,
-                       doc: """
-                       Name of one of the instance's `:mounts`, whose URL options check \
-                       request URLs. Defaults to the instance's own URL options.
-                       """
                      ]
                    )
 
@@ -65,7 +58,7 @@ defmodule ImagePipe.Plug.Config do
 
   @doc false
   @spec validate!(keyword() | SharedConfig.t()) ::
-          keyword() | {:instance, atom(), atom() | nil, keyword()}
+          keyword() | {:instance, atom(), keyword()}
   def validate!(opts) when is_list(opts) do
     if Keyword.has_key?(opts, :instance),
       do: validate_instance!(opts),
@@ -77,20 +70,20 @@ defmodule ImagePipe.Plug.Config do
   @doc false
   # Resolves a mount's options for one request. Only an instance's mount has
   # caches.
-  @spec resolve({:instance, atom(), atom() | nil, keyword()} | keyword()) :: keyword()
-  def resolve({:instance, name, mount_name, mount}),
-    do: Keyword.merge(mount, SharedConfig.fetch_instance!(name, mount_name).options)
+  @spec resolve({:instance, atom(), keyword()} | keyword()) :: keyword()
+  def resolve({:instance, name, mount}),
+    do: Keyword.merge(mount, SharedConfig.fetch_instance!(name).options)
 
   def resolve(opts) when is_list(opts), do: opts
 
   # Shared configuration belongs to the instance, so only mount-only options
-  # and the name of one of the instance's named mounts are accepted.
+  # are accepted.
   defp validate_instance!(opts) do
-    {instance, opts} = Keyword.split(opts, [:instance, :mount])
+    {instance, opts} = Keyword.split(opts, [:instance])
 
     case NimbleOptions.validate(instance, @instance_schema) do
       {:ok, instance} ->
-        {:instance, instance[:instance], instance[:mount], validate_known_opts!(opts)}
+        {:instance, instance[:instance], validate_known_opts!(opts)}
 
       {:error, error} ->
         raise ArgumentError, "invalid ImagePipe.Plug options: #{Exception.message(error)}"

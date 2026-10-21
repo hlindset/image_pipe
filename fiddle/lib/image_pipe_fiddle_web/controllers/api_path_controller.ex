@@ -4,7 +4,7 @@ defmodule ImagePipeFiddleWeb.APIPathController do
   alias ImagePipeFiddle.APIPath
 
   def create(conn, %{"tail" => tail, "protection" => protection}) do
-    config = ImagePipe.url_config(ImagePipeFiddle.Images, mount: :signed)
+    config = ImagePipe.url_config(ImagePipeFiddle.SignedImages)
 
     case APIPath.protect(tail, protection, config) do
       {:ok, path} -> json(conn, %{path: path})

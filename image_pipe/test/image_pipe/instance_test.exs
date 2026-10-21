@@ -196,7 +196,7 @@ defmodule ImagePipe.InstanceTest do
     etag
   end
 
-  describe "url_config/2" do
+  describe "url_config/1" do
     test "builds URLs with the instance's presets", ctx do
       start_instance(ctx, presets: %{"thumb" => "w=8"})
       builder = ImagePipe.URL.new(ImagePipe.url_config(ctx.name))
@@ -206,37 +206,6 @@ defmodule ImagePipe.InstanceTest do
 
       assert {:error, _reason} =
                builder |> ImagePipe.URL.group(presets: ["nope"]) |> ImagePipe.URL.url("red.png")
-    end
-
-    test "mount: builds URLs the named mount accepts", ctx do
-      start_instance(ctx, mounts: [signed: [keys: [@signing_key]]])
-
-      path =
-        ImagePipe.url_config(ctx.name, mount: :signed)
-        |> ImagePipe.URL.new()
-        |> ImagePipe.URL.group(resize: [width: 8])
-        |> ImagePipe.URL.url!("red.png")
-
-      assert request(path, instance: ctx.name, mount: :signed).status == 200
-      assert request(path, instance: ctx.name).status != 200
-    end
-
-    test "rejects an unknown mount, and mount: with a configuration", ctx do
-      start_instance(ctx)
-
-      assert_raise ArgumentError, ~r/no mount named :missing/, fn ->
-        ImagePipe.url_config(ctx.name, mount: :missing)
-      end
-
-      config = ImagePipe.config(sources: ctx.sources)
-
-      assert_raise ArgumentError, ~r/mount/, fn ->
-        ImagePipe.url_config(config, mount: :signed)
-      end
-
-      assert_raise ArgumentError, ~r/unknown options \[:foo\]/, fn ->
-        ImagePipe.url_config(config, foo: 1)
-      end
     end
   end
 
@@ -339,38 +308,6 @@ defmodule ImagePipe.InstanceTest do
       assert request("/w=8/src/red.png", instance: ctx.name).status == 200
     end
 
-    test "mount: checks URLs with the instance's named mount", ctx do
-      start_instance(ctx, mounts: [signed: [keys: [@signing_key]]])
-      path = "/w=8/src/red.png"
-
-      assert request(path, instance: ctx.name).status == 200
-      assert request(path, instance: ctx.name, mount: :signed).status == 403
-
-      signed_path = ImagePipe.URL.sign_path(path, ImagePipe.URL.config(keys: [@signing_key]))
-      assert request(signed_path, instance: ctx.name, mount: :signed).status == 200
-    end
-
-    test "a named mount applies its URL options on top of the instance's", ctx do
-      start_instance(ctx,
-        keys: [@signing_key],
-        mounts: [cdn: [base_url: "https://cdn.example.com"], open: [keys: []]]
-      )
-
-      path = "/w=8/src/red.png"
-
-      assert request(path, instance: ctx.name).status == 403
-      assert request(path, instance: ctx.name, mount: :cdn).status == 403
-      assert request(path, instance: ctx.name, mount: :open).status == 200
-    end
-
-    test "an unknown mount: name fails the request", ctx do
-      start_instance(ctx)
-
-      assert_raise ArgumentError, ~r/:missing/, fn ->
-        request("/w=8/src/red.png", instance: ctx.name, mount: :missing)
-      end
-    end
-
     test "a stopped instance fails requests", ctx do
       start_instance(ctx)
       stop_supervised!(ctx.name)
@@ -402,7 +339,19 @@ defmodule ImagePipe.InstanceTest do
 
       assert request("/w=8/format=png/src/red.png", instance: ctx.name).status == 200
       assert [_ | _] = stored_bodies(ctx.cache_root)
-      assert ImagePipe.Config.fetch_instance!(ctx.name, nil).options[:quality] == 40
+      assert ImagePipe.Config.fetch_instance!(ctx.name).options[:quality] == 40
+    end
+
+    test "takes a prebuilt config: with URL options, keeping its cache", ctx do
+      config = ImagePipe.config(sources: ctx.sources, cache: ctx.bounded)
+      start_supervised!({ImagePipe, name: ctx.name, config: config, keys: [@signing_key]})
+      path = "/w=8/format=png/src/red.png"
+
+      assert request(path, instance: ctx.name).status == 403
+
+      signed_path = ImagePipe.URL.sign_path(path, ImagePipe.URL.config(keys: [@signing_key]))
+      assert request(signed_path, instance: ctx.name).status == 200
+      assert [_ | _] = stored_bodies(ctx.cache_root)
     end
 
     test "remembers one original per 50 KB of the output cache, from 10,000 to 1,000,000",
@@ -410,7 +359,7 @@ defmodule ImagePipe.InstanceTest do
       limit = fn options ->
         name = Module.concat(ctx.name, "L#{System.unique_integer([:positive])}")
         start_supervised!({ImagePipe, [name: name, sources: ctx.sources] ++ options})
-        ImagePipe.Config.fetch_instance!(name, nil).options[:max_remembered_originals]
+        ImagePipe.Config.fetch_instance!(name).options[:max_remembered_originals]
       end
 
       big = [root: Path.join(ctx.cache_root, "big"), max_size_bytes: 5_000_000_000]
@@ -447,51 +396,11 @@ defmodule ImagePipe.InstanceTest do
         ImagePipe.child_spec(name: ctx.name, sources: ctx.sources, quality: 0)
       end
     end
-
-    test "rejects mounts: entries with options other than URL options", ctx do
-      for mounts <- [
-            [signed: ImagePipe.URL.config(keys: [@signing_key])],
-            [signed: [quality: 50]],
-            [signed: [validate_against: []]]
-          ] do
-        assert_raise ArgumentError, ~r/mounts/, fn ->
-          ImagePipe.child_spec(name: ctx.name, sources: ctx.sources, mounts: mounts)
-        end
-      end
-    end
-
-    test "invalid URL options in a mount raise and name the mount", ctx do
-      for {mount_options, detail} <- [
-            {[encrypt_source: true], "encrypt_source"},
-            {[keyz: []], "keyz"}
-          ] do
-        error =
-          assert_raise ArgumentError, fn ->
-            ImagePipe.child_spec(
-              name: ctx.name,
-              sources: ctx.sources,
-              mounts: [open: [], signed: mount_options]
-            )
-          end
-
-        assert error.message =~ "mounts"
-        assert error.message =~ "signed"
-        assert error.message =~ detail
-      end
-    end
-
-    test "rejects duplicate and nil mount names", ctx do
-      for mounts <- [[signed: [], signed: []], [nil: []]] do
-        assert_raise ArgumentError, ~r/mounts/, fn ->
-          ImagePipe.child_spec(name: ctx.name, sources: ctx.sources, mounts: mounts)
-        end
-      end
-    end
   end
 
   describe "processing pool" do
     defp instance_pool(name),
-      do: ImagePipe.Config.fetch_instance!(name, nil).options[:processing_pool]
+      do: ImagePipe.Config.fetch_instance!(name).options[:processing_pool]
 
     defp hold_slot(pool) do
       test = self()

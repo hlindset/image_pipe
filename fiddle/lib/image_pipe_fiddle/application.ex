@@ -25,6 +25,7 @@ defmodule ImagePipeFiddle.Application do
          query: Application.get_env(:image_pipe_fiddle, :dns_cluster_query) || :ignore},
         {Phoenix.PubSub, name: ImagePipeFiddle.PubSub},
         {ImagePipe, image_pipe_opts()},
+        {ImagePipe, signed_image_pipe_opts()},
         ImagePipeFiddleWeb.Endpoint
       ]
 
@@ -103,22 +104,29 @@ defmodule ImagePipeFiddle.Application do
     Application.fetch_env!(:image_pipe_fiddle, ImagePipeFiddleWeb.Endpoint)[:http][:port]
   end
 
-  # One instance serves both mounts; the signed mount picks the `:signed` URL
-  # options, so both share the cache.
+  # The signed mount checks URLs against other keys, so it has an instance of
+  # its own, with its own cache root.
   defp image_pipe_opts do
-    [
-      name: ImagePipeFiddle.Images,
-      mounts: [signed: signed_url_options()],
-      detector_warmup: ["face"]
-    ] ++ api_opts()
+    [name: ImagePipeFiddle.Images] ++ api_opts(Application.get_env(:image_pipe_fiddle, :cache))
   end
 
-  defp signed_url_options do
-    [keys: [@demo_signing_key], source_encryption_keys: [@demo_source_encryption_key]]
+  defp signed_image_pipe_opts do
+    cache =
+      case Application.get_env(:image_pipe_fiddle, :cache) do
+        nil -> nil
+        cache -> Keyword.update!(cache, :root, &(&1 <> "-signed"))
+      end
+
+    [
+      name: ImagePipeFiddle.SignedImages,
+      keys: [@demo_signing_key],
+      source_encryption_keys: [@demo_source_encryption_key]
+    ] ++ api_opts(cache)
   end
 
-  defp api_opts do
+  defp api_opts(cache) do
     [
+      detector_warmup: ["face"],
       presets: @presets,
       sources: sources(),
       watermarks: %{
@@ -130,7 +138,7 @@ defmodule ImagePipeFiddle.Application do
       # The demo's encoder controls cover every effort.
       max_effort: [avif: 9, webp: 6]
     ]
-    |> maybe_put_cache(Application.get_env(:image_pipe_fiddle, :cache))
+    |> maybe_put_cache(cache)
   end
 
   defp maybe_put_cache(opts, nil), do: opts
