@@ -55,7 +55,10 @@ defmodule ImagePipe.API.Path do
   @doc false
   @spec diagnostic_path(String.t()) :: String.t()
   def diagnostic_path(path) when is_binary(path) do
-    redact_secrets(path, path, path)
+    case secret_ranges(path, 0, []) do
+      [] -> path
+      ranges -> path |> mask_ranges(0, Enum.reverse(ranges)) |> IO.iodata_to_binary()
+    end
   end
 
   @doc """
@@ -347,39 +350,48 @@ defmodule ImagePipe.API.Path do
   defp message_for(:too_many_segments),
     do: "too many option segments (max #{@max_option_segments})"
 
-  defp redact_secrets(path, rest, redacted) do
-    case split_first_segment(rest) do
-      {nil, _offset, _remainder} ->
-        redacted
+  # The `{offset, length}` of each secret in `path`, last first. The walk
+  # goes by byte offset, so each segment is a sub-binary of `path`.
+  defp secret_ranges(path, position, ranges) when position < byte_size(path) do
+    start = position + 1
 
-      {marker, _offset, _remainder} when marker in ["src", "src64"] ->
-        redacted
+    segment_end =
+      case :binary.match(path, "/", scope: {start, byte_size(path) - start}) do
+        {slash, 1} -> slash
+        :nomatch -> byte_size(path)
+      end
 
-      {"enc", _offset, remainder} ->
-        {_tail, offset} = concealed_tail(path, remainder)
-        mask_tail(redacted, offset)
+    case binary_part(path, start, segment_end - start) do
+      marker when marker in ["src", "src64"] ->
+        ranges
 
-      {"sig=" <> signature, _offset, remainder} ->
-        segment_offset = byte_size(path) - byte_size(rest) + 1
-        redacted = mask_bytes(redacted, segment_offset + 4, byte_size(signature))
-        redact_secrets(path, remainder, redacted)
+      "enc" when segment_end < byte_size(path) ->
+        [{segment_end + 1, byte_size(path) - segment_end - 1} | ranges]
 
-      {"wm-enc=" <> token, _offset, remainder} ->
-        segment_offset = byte_size(path) - byte_size(rest) + 1
-        redacted = mask_bytes(redacted, segment_offset + 7, byte_size(token))
-        redact_secrets(path, remainder, redacted)
+      "enc" ->
+        ranges
 
-      {_segment, _offset, remainder} ->
-        redact_secrets(path, remainder, redacted)
+      "sig=" <> signature ->
+        secret_ranges(path, segment_end, [{start + 4, byte_size(signature)} | ranges])
+
+      "wm-enc=" <> token ->
+        secret_ranges(path, segment_end, [{start + 7, byte_size(token)} | ranges])
+
+      _segment ->
+        secret_ranges(path, segment_end, ranges)
     end
   end
 
-  defp mask_tail(path, offset) do
-    mask_bytes(path, offset, byte_size(path) - offset)
+  defp secret_ranges(_path, _position, ranges), do: ranges
+
+  defp mask_ranges(path, position, [{offset, length} | ranges]) do
+    [
+      binary_part(path, position, offset - position),
+      :binary.copy("*", length)
+      | mask_ranges(path, offset + length, ranges)
+    ]
   end
 
-  defp mask_bytes(path, offset, length) do
-    <<prefix::binary-size(^offset), _secret::binary-size(^length), suffix::binary>> = path
-    prefix <> String.duplicate("*", length) <> suffix
-  end
+  defp mask_ranges(path, position, []),
+    do: [binary_part(path, position, byte_size(path) - position)]
 end

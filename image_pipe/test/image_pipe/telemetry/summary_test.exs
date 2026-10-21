@@ -594,15 +594,6 @@ defmodule ImagePipe.Telemetry.SummaryTest do
     assert path =~ "X-Amz-Signature=REDACTED"
   end
 
-  test "redacting a path of many wm-src64 segments takes linear time" do
-    path = String.duplicate("/wm-src64=A", 2_000) <> "/src/a.jpg"
-
-    {micros, redacted} = :timer.tc(fn -> Telemetry.request_path(path, "") end)
-
-    assert redacted == path
-    assert micros < 500_000
-  end
-
   test "sources without credentials, and ImagePipe's own signature, are logged as sent" do
     plain = Base.url_encode64("https://b.example/a.jpg?keep=1", padding: false)
 

@@ -331,7 +331,7 @@ defmodule ImagePipe.Telemetry do
   @max_joined_segments 64
 
   defp redact_segment_list(["wm-src64=" <> token = segment | rest]) do
-    taken = if base64_presigned?(token), do: 0, else: joined_presigned(token, token, rest, 1)
+    taken = if base64_presigned?(token), do: 0, else: joined_presigned(token, rest)
 
     case taken do
       nil -> [segment | redact_segment_list(rest)]
@@ -342,18 +342,100 @@ defmodule ImagePipe.Telemetry do
   defp redact_segment_list([segment | rest]), do: [segment | redact_segment_list(rest)]
   defp redact_segment_list([]), do: []
 
-  defp joined_presigned(joined, previous, [segment | rest], taken)
-       when taken <= @max_joined_segments do
-    if base64_open?(previous) and base64_piece?(segment) do
-      joined = joined <> "/" <> segment
+  # The fewest following segments that make the token a presigned URL, or
+  # nil. A joined candidate holds a `/`, so only standard base64 can decode
+  # it, as sent or percent-decoded. While a spelling's segments are all
+  # standard base64 characters, each candidate decodes to a prefix of one
+  # stream, and a prefix is presigned once it reaches the end of the stream's
+  # first credential name. So the stream is decoded once per spelling, and
+  # only a candidate whose last segment holds another character is decoded
+  # on its own, at most once per spelling.
+  defp joined_presigned(token, rest) do
+    case base64_run(token, rest, 0) do
+      [] ->
+        nil
 
-      if base64_presigned?(joined),
-        do: taken,
-        else: joined_presigned(joined, segment, rest, taken + 1)
+      pieces ->
+        segments = [token | pieces]
+
+        verdicts =
+          [segments, Enum.map(segments, &URI.decode/1)]
+          |> Enum.uniq()
+          |> Enum.map(&joined_verdicts/1)
+
+        first_presigned(segments, verdicts, 1)
     end
   end
 
-  defp joined_presigned(_joined, _previous, _segments, _taken), do: nil
+  defp base64_run(previous, [segment | rest], count) when count < @max_joined_segments do
+    if base64_open?(previous) and base64_piece?(segment),
+      do: [segment | base64_run(segment, rest, count + 1)],
+      else: []
+  end
+
+  defp base64_run(_previous, _segments, _count), do: []
+
+  # For each candidate from one following segment on: `true` when it's
+  # presigned, `:decode` when only decoding it can tell. A segment with a
+  # character outside standard base64 leaves every longer candidate invalid.
+  defp joined_verdicts([first | rest]) do
+    if base64_alphabet?(first) do
+      {pure, other} = Enum.split_while(rest, &base64_alphabet?/1)
+      reach = pure_stream_reach([first | pure])
+      verdicts = pure_verdicts(pure, byte_size(first), trailing_slashes(first), reach)
+      if other == [], do: verdicts, else: verdicts ++ [:decode]
+    else
+      []
+    end
+  end
+
+  # The decoded length a candidate needs to be presigned: the end of the
+  # first credential name in the whole stream, or nil. A credential whose
+  # value is already `REDACTED` counts too, which can only redact more.
+  defp pure_stream_reach(segments) do
+    chars = Enum.join(segments, "/")
+    {:ok, url} = Base.decode64(binary_part(chars, 0, div(byte_size(chars), 4) * 4))
+    presigned_reach(url)
+  end
+
+  # Each candidate is tried as sent and with its trailing slashes trimmed.
+  defp pure_verdicts([segment | rest], length, slashes, reach) do
+    length = length + 1 + byte_size(segment)
+
+    slashes =
+      if trailing_slashes(segment) == byte_size(segment),
+        do: slashes + 1 + byte_size(segment),
+        else: trailing_slashes(segment)
+
+    presigned =
+      reach != nil and
+        (decodes_past?(length, reach) or (slashes > 0 and decodes_past?(length - slashes, reach)))
+
+    [presigned | pure_verdicts(rest, length, slashes, reach)]
+  end
+
+  defp pure_verdicts([], _length, _slashes, _reach), do: []
+
+  defp decodes_past?(length, reach), do: rem(length, 4) == 0 and div(length, 4) * 3 >= reach
+
+  defp first_presigned(segments, verdicts, taken) do
+    heads = for [head | _tail] <- verdicts, do: head
+
+    cond do
+      heads == [] -> nil
+      true in heads -> taken
+      :decode in heads and joined_presigned?(segments, taken) -> taken
+      true -> first_presigned(segments, for([_head | tail] <- verdicts, do: tail), taken + 1)
+    end
+  end
+
+  # A joined candidate's `/` leaves only standard base64. Trimming its
+  # trailing slashes back to the token alone gives a spelling already tried.
+  defp joined_presigned?(segments, taken),
+    do: segments |> Enum.take(taken + 1) |> Enum.join("/") |> base64_presigned?([:standard])
+
+  defp trailing_slashes(segment),
+    do: byte_size(segment) - byte_size(String.trim_trailing(segment, "/"))
 
   # A segment that a later one could continue: base64 without padding or an
   # extension. `%` allows a percent-escaped `+` or `=` beside a literal `/`.
@@ -372,9 +454,15 @@ defmodule ImagePipe.Telemetry do
 
   defp base64_chars?(<<>>, _extra), do: true
 
+  defp base64_alphabet?(<<char, rest::binary>>)
+       when char in ?A..?Z or char in ?a..?z or char in ?0..?9 or char in [?+, ?/],
+       do: base64_alphabet?(rest)
+
+  defp base64_alphabet?(<<>>), do: true
+  defp base64_alphabet?(_other), do: false
+
   defp redact_tail("src", tail) do
-    with {:ok, url} <- percent_decode(tail),
-         [base, query] <- String.split(String.replace_invalid(url), "?", parts: 2),
+    with [base, query] <- String.split(String.replace_invalid(URI.decode(tail)), "?", parts: 2),
          redacted when redacted != query <- redact_params(query) do
       base <> "?" <> redacted
     else
@@ -385,39 +473,34 @@ defmodule ImagePipe.Telemetry do
   defp redact_tail("src64", tail), do: if(base64_presigned?(tail), do: "REDACTED", else: tail)
   defp redact_tail("enc", tail), do: tail
 
-  defp percent_decode(value) do
-    {:ok, URI.decode(value)}
-  rescue
-    ArgumentError -> :error
-  end
-
   # Every spelling a base64 source might use, valid or not, since a request
   # the parser rejects is logged too.
-  defp base64_presigned?(token) do
+  @base64_decoders [:url_unpadded, :url, :standard]
+
+  defp base64_presigned?(token, decoders \\ @base64_decoders) do
     Enum.any?(base64_spellings(token), fn candidate ->
-      Enum.any?(base64_decodings(candidate), &presigned_url?/1)
+      Enum.any?(decoders, &presigned_decoding?(&1, candidate))
     end)
   end
 
   defp base64_spellings(token) do
-    decoded =
-      case percent_decode(token) do
-        {:ok, decoded} -> decoded
-        :error -> token
-      end
-
-    for spelling <- Enum.uniq([token, decoded]),
+    for spelling <- Enum.uniq([token, URI.decode(token)]),
         spelling <- Enum.uniq([spelling, String.trim_trailing(spelling, "/")]),
         spelling <- Enum.uniq([spelling, strip_extension(spelling)]),
         uniq: true,
         do: spelling
   end
 
-  defp base64_decodings(candidate) do
-    for decode <- [&Base.url_decode64(&1, padding: false), &Base.url_decode64/1, &Base.decode64/1],
-        {:ok, url} <- [decode.(candidate)],
-        do: url
+  defp presigned_decoding?(decoder, candidate) do
+    case decode64(decoder, candidate) do
+      {:ok, url} -> presigned_url?(url)
+      :error -> false
+    end
   end
+
+  defp decode64(:url_unpadded, candidate), do: Base.url_decode64(candidate, padding: false)
+  defp decode64(:url, candidate), do: Base.url_decode64(candidate)
+  defp decode64(:standard, candidate), do: Base.decode64(candidate)
 
   defp strip_extension(token) do
     with [_ | _] = dots <- :binary.matches(token, "."),
@@ -441,6 +524,32 @@ defmodule ImagePipe.Telemetry do
     case String.split(url, "?", parts: 2) do
       [_base, query] -> redact_params(query) != query
       [_base] -> false
+    end
+  end
+
+  # How many bytes of `url` a prefix must hold to be presigned: up to the
+  # `=` after the first credential name in its query, or nil.
+  defp presigned_reach(url) do
+    case :binary.match(url, "?") do
+      {position, 1} -> credential_reach(url, position + 1)
+      :nomatch -> nil
+    end
+  end
+
+  defp credential_reach(url, start) do
+    size = byte_size(url)
+
+    {pair_end, next} =
+      case :binary.match(url, ["&", ";"], scope: {start, size - start}) do
+        {position, 1} -> {position, position + 1}
+        :nomatch -> {size, nil}
+      end
+
+    with {equals, 1} <- :binary.match(url, "=", scope: {start, pair_end - start}),
+         true <- credential_param?(binary_part(url, start, equals - start)) do
+      equals + 1
+    else
+      _not_credential -> if next, do: credential_reach(url, next)
     end
   end
 
@@ -468,15 +577,7 @@ defmodule ImagePipe.Telemetry do
     end
   end
 
-  defp credential_param?(name) do
-    decoded =
-      case percent_decode(name) do
-        {:ok, decoded} -> decoded
-        :error -> name
-      end
-
-    String.downcase(decoded) in @credential_params
-  end
+  defp credential_param?(name), do: String.downcase(URI.decode(name)) in @credential_params
 
   @doc false
   @spec span(keyword(), [atom()], map() | keyword(), (-> term())) :: term()
