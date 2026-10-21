@@ -500,7 +500,7 @@ write nests under the request's span and can end after it.
   - `:estimated_cost_us` (integer): the estimated
     [work to make the entry](cache.md#work-to-make-an-entry), in
     microseconds, comparable only with other entries' estimates. The cache
-    scores entries by it. Output pool only, and not on source records.
+    scores entries by it. Output pool only.
   - `:bytes` (integer): the size of the entry's body. On `:write`, the span's
     duration includes syncing the body to disk, so `:bytes` divided by the
     duration gives a rough write speed. The duration also includes waiting for

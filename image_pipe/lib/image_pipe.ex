@@ -361,9 +361,7 @@ defmodule ImagePipe do
 
   Every other entry has `available: true`, `refused: false`, and these:
 
-    * `:bytes` and `:entries` - what the cache stores now. The output cache's
-      `:entries` also counts one small entry for each original that processed
-      images were made from, and `:bytes` includes them.
+    * `:bytes` and `:entries` - what the cache stores now.
     * `:max_bytes` - the cache's `max_size_bytes`.
     * `:counting?` - `true` until the cache has counted the entries an
       earlier run left on disk. Until then, `:bytes` and `:entries` leave
