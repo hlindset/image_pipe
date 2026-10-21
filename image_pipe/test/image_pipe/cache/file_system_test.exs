@@ -593,6 +593,48 @@ defmodule ImagePipe.Cache.FileSystemTest do
     assert {:hit, %{body: "record"}} = FileSystem.get(cache_key, opts)
   end
 
+  @tag cache: false
+  test "a write into an existing partition only renames through the file server", %{
+    root: root
+  } do
+    opts = opts(root)
+    children = start_cache!(opts)
+    [admission] = for {{Admission, _root}, pid, _type, _modules} <- children, do: pid
+    write = fn hash -> commit_entry(key(hash), opts) end
+
+    write.(String.duplicate("a", 64))
+    file_server = Process.whereis(:file_server_2)
+    :erlang.trace(file_server, true, [:receive])
+    write.(String.duplicate("a", 63) <> "b")
+    _ = :sys.get_state(admission)
+    :erlang.trace(file_server, false, [:receive])
+    ref = :erlang.trace_delivered(file_server)
+    assert_receive {:trace_delivered, ^file_server, ^ref}
+
+    senders = [self(), admission]
+
+    requests =
+      for {:trace, _pid, :receive, {:"$gen_call", {from, _tag}, request}} <- messages(),
+          from in senders,
+          do: elem(request, 0)
+
+    assert requests == [:rename, :rename]
+  end
+
+  defp commit_entry(cache_key, opts) do
+    {:ok, state} = FileSystem.open_sink(cache_key, entry_metadata(), opts)
+    {:ok, state} = FileSystem.write_chunk(state, "encoded image", opts)
+    :ok = FileSystem.commit_sink(state, opts)
+  end
+
+  defp messages do
+    receive do
+      message -> [message | messages()]
+    after
+      0 -> []
+    end
+  end
+
   describe "cost_us metadata" do
     test "is persisted in the meta file and returned on hit", %{root: root} do
       cache_key = key()

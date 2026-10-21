@@ -169,9 +169,11 @@ defmodule ImagePipe.Cache.FileSystem.Store do
   # write, sync and close it: the cache's writer, or a test.
   def open_sink(%Key{} = key, metadata, opts) when is_list(opts) do
     with {:ok, paths} <- paths(key, opts),
-         :ok <- File.mkdir_p(paths.dir),
          temp_body_path = temp_path(paths),
-         {:ok, body_io} <- :file.open(temp_body_path, [:write, :binary, :exclusive, :raw]) do
+         {:ok, body_io} <-
+           in_partition(paths, fn ->
+             :file.open(temp_body_path, [:write, :binary, :exclusive, :raw])
+           end) do
       {:ok,
        %{
          paths: paths,
@@ -206,9 +208,8 @@ defmodule ImagePipe.Cache.FileSystem.Store do
   # across filesystems, and the caller then copies the bytes into a sink.
   def open_linked_sink(%Key{} = key, metadata, path, body_sha256, opts) when is_list(opts) do
     with {:ok, paths} <- paths(key, opts),
-         :ok <- File.mkdir_p(paths.dir),
          temp_body_path = temp_path(paths),
-         :ok <- :file.make_link(path, temp_body_path) do
+         :ok <- in_partition(paths, fn -> :file.make_link(path, temp_body_path) end) do
       case open_linked_body(temp_body_path) do
         {:ok, body_io, size} ->
           {:ok,
@@ -368,10 +369,19 @@ defmodule ImagePipe.Cache.FileSystem.Store do
 
   defp refresh_body_time(%{hash_context: _}), do: :ok
 
+  # A rename consumes a temp file, unless the temp is a hard link to the file
+  # it replaces: then the rename does nothing and the temp stays. Only a
+  # linked body can be one.
   defp commit_prepared_sink(state, body_filename) do
-    commit_sink_files(state, body_filename)
-  after
-    cleanup_sink_state(state)
+    case commit_sink_files(state, body_filename) do
+      :ok ->
+        if Map.has_key?(state, :body_sha256), do: cleanup_temp_files([state.temp_body_path])
+        :ok
+
+      error ->
+        cleanup_sink_state(state)
+        error
+    end
   end
 
   def abort_sink(state, _opts) when is_map(state) do
@@ -592,7 +602,7 @@ defmodule ImagePipe.Cache.FileSystem.Store do
   defp write_sink_metadata(paths, encoded_metadata) do
     temp_path = temp_path(paths)
 
-    case File.write(temp_path, encoded_metadata, [:binary, :exclusive]) do
+    case :file.write_file(temp_path, encoded_metadata, [:raw, :binary, :exclusive]) do
       :ok -> {:ok, temp_path}
       {:error, reason} -> {:error, reason}
     end
@@ -819,6 +829,18 @@ defmodule ImagePipe.Cache.FileSystem.Store do
   end
 
   defp digits(_string), do: :error
+
+  # Creates the partition directory only when `fun` finds it missing, so a
+  # write into an existing partition makes no directory calls.
+  defp in_partition(paths, fun) do
+    case fun.() do
+      {:error, :enoent} ->
+        with :ok <- File.mkdir_p(paths.dir), do: fun.()
+
+      result ->
+        result
+    end
+  end
 
   defp temp_path(paths) do
     random = Base.url_encode64(:crypto.strong_rand_bytes(16), padding: false)
