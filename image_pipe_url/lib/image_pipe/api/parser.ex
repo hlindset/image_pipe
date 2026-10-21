@@ -374,7 +374,42 @@ defmodule ImagePipe.API.Parser do
   # length.
   defp whole_path_span({source_offset, source_len}), do: {0, source_offset + source_len}
 
+  # A URL that names no preset and writes no `unset`, without request
+  # defaults, expands to itself, so the parse skips the expansion.
   defp expand_presets(clean_group_maps, clean_request_map, occurrences, config, whole_path_span) do
+    if Keyword.get(config, :request_defaults) == nil and
+         nothing_to_expand?(clean_group_maps, clean_request_map) do
+      origins = Map.new(clean_group_maps, fn {index, _options} -> {index, index} end)
+      {clean_group_maps, clean_request_map, [], occurrences, origins}
+    else
+      expand_named_presets(
+        clean_group_maps,
+        clean_request_map,
+        occurrences,
+        config,
+        whole_path_span
+      )
+    end
+  end
+
+  # Expansion drops empty groups, though it keeps the only one.
+  defp nothing_to_expand?(groups, request) do
+    (map_size(groups) == 1 or not Enum.any?(groups, &(elem(&1, 1) == %{}))) and
+      not Enum.any?(groups, fn {_index, options} -> Map.has_key?(options, :presets) end) and
+      not Enum.any?(groups, fn {_index, options} -> unsets?(options) end) and
+      not unsets?(request)
+  end
+
+  defp unsets?(options),
+    do: Enum.any?(options, fn {_key, value} -> value == :unset or match?({:unset, _}, value) end)
+
+  defp expand_named_presets(
+         clean_group_maps,
+         clean_request_map,
+         occurrences,
+         config,
+         whole_path_span
+       ) do
     presets_config = Keyword.get(config, :presets, %{})
     fallback_span = request_occurrence_span(occurrences, :presets) || whole_path_span
 

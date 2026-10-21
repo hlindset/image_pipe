@@ -31,14 +31,16 @@ defmodule ImagePipe.Plan.Presets do
   # the whole family. A modifier, such as `anchor_offset`, merges like any
   # other option and its `unset` removes only itself.
   @family_modifiers [:anchor_offset, :extend_at, :extend_offset]
-  @group_override_families [
+  @group_families [
     @guide_family,
     [:crop, :region],
     @canvas_family,
     [:watermark, :watermark_source, :watermark_token]
   ]
+  # Each family with its principals, the options whose presence replaces it.
+  @group_override_families Enum.map(@group_families, &{&1, &1 -- @family_modifiers})
   @crop_modifiers [:crop_ratio, :crop_ratio_enlarge]
-  @request_override_families [[:quality, :autoquality]]
+  @request_override_families [{[:quality, :autoquality], [:quality, :autoquality]}]
   @field_merged_options [
     :format_qualities,
     :jpeg_options,
@@ -241,19 +243,10 @@ defmodule ImagePipe.Plan.Presets do
          for({^index, _name, preset} <- selected, do: Map.fetch!(preset.groups, 0)) ++ [options]}
       end)
 
-    first =
-      case Enum.find(Enum.sort(layered), fn {_index, layers} -> merge_layers(layers) != %{} end) do
-        {index, _layers} -> index
-        nil -> layered |> Map.keys() |> Enum.min()
-      end
-
     merged =
-      layered
-      |> Enum.sort()
-      |> Enum.map(fn {index, layers} ->
-        layers = if index == first, do: default_layer(defaults) ++ layers, else: layers
-        {index, merge_layers(layers)}
-      end)
+      layered |> Enum.sort() |> Enum.map(fn {index, layers} -> {index, merge_layers(layers)} end)
+
+    merged = merge_defaults(merged, layered, defaults)
 
     %{
       groups:
@@ -264,8 +257,18 @@ defmodule ImagePipe.Plan.Presets do
     }
   end
 
-  defp default_layer(%{groups: %{0 => default}}), do: [default]
-  defp default_layer(nil), do: []
+  defp merge_defaults(merged, _layered, nil), do: merged
+
+  defp merge_defaults(merged, layered, %{groups: %{0 => default}}) do
+    first =
+      case Enum.find(merged, fn {_index, options} -> options != %{} end) do
+        {index, _options} -> index
+        nil -> merged |> hd() |> elem(0)
+      end
+
+    layers = [default | Map.fetch!(layered, first)]
+    List.keyreplace(merged, first, 0, {first, merge_layers(layers)})
+  end
 
   defp compose_pipeline({index, name, pipeline}, explicit, request, selected, defaults) do
     explicit_options? = Enum.any?(explicit, fn {_index, options} -> options != %{} end)
@@ -393,8 +396,8 @@ defmodule ImagePipe.Plan.Presets do
   end
 
   defp prune_families(previous, next, families) do
-    Enum.reduce(families, previous, fn family, acc ->
-      case Enum.any?(family -- @family_modifiers, &Map.has_key?(next, &1)) do
+    Enum.reduce(families, previous, fn {family, principals}, acc ->
+      case Enum.any?(principals, &Map.has_key?(next, &1)) do
         true -> Map.drop(acc, family)
         false -> acc
       end
