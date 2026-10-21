@@ -438,6 +438,33 @@ defmodule ImagePipe.API.PixelEffectsWireTest do
     assert Image.get_pixel!(step, 0, 5) == [0, 0, 0]
   end
 
+  # out = src · (1 − m) + white · m, with m = 0.8 · y / 99 on a 100-row frame.
+  test "a gradient blends 8-bit and 16-bit frames to within a level" do
+    for {format, interpretation, top, white, options} <- [
+          {:VIPS_FORMAT_UCHAR, :VIPS_INTERPRETATION_sRGB, [200, 120, 37], 255,
+           "gradient=0.8,white,down"},
+          {:VIPS_FORMAT_USHORT, :VIPS_INTERPRETATION_RGB16, [51_400, 30_840, 9509], 65_535,
+           "gradient=0.8,white,down/hdr=preserve"}
+        ] do
+      {:ok, black} = Operation.black(3, 100, bands: 3)
+      {:ok, flat} = Operation.linear(black, [1.0], Enum.map(top, &(&1 * 1.0)))
+      {:ok, flat} = Operation.cast(flat, format)
+      {:ok, flat} = Operation.copy(flat, interpretation: interpretation)
+      {:ok, body} = Operation.pngsave_buffer(flat)
+
+      blended = image(options, mount(png_origin(body)))
+      assert VipsImage.format(blended) == format
+
+      for y <- [0, 33, 50, 99] do
+        m = 0.8 * y / 99
+
+        for {channel, source} <- Enum.zip(Image.get_pixel!(blended, 1, y), top) do
+          assert_in_delta channel, source * (1 - m) + white * m, 1, "#{options}, row #{y}"
+        end
+      end
+    end
+  end
+
   test "directional effects use the display frame for every EXIF orientation", %{body: body} do
     for orientation <- 1..8,
         options <- ["pixelate=7", "gradient=1,black,down", "progressive-blur=3,down"] do

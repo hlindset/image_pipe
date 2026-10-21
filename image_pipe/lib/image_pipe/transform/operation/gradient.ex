@@ -64,9 +64,36 @@ defmodule ImagePipe.Transform.Operation.Gradient do
 
   # The color is sRGB; blend its value in the image's own space and depth.
   defp blend(rgb, mask, color) do
-    with {:ok, values} <- WorkingColor.values(rgb, color),
-         bands = length(values),
-         {:ok, masks} <- Operation.bandjoin(List.duplicate(mask, bands)),
+    with {:ok, values} <- WorkingColor.values(rgb, color) do
+      case VipsImage.format(rgb) do
+        :VIPS_FORMAT_UCHAR -> blend_8_bit(rgb, mask, values)
+        _deeper -> blend_float(rgb, mask, values)
+      end
+    end
+  end
+
+  # An 8-bit frame blends in one pass against a mask quantized to 255 steps,
+  # which stays within a level of the float blend. A deeper frame would lose
+  # precision to that mask, so it blends in float.
+  defp blend_8_bit(rgb, mask, values) do
+    with {:ok, scaled} <- Operation.linear(mask, [255.0], [0.0]),
+         {:ok, mask} <- Rounding.cast(scaled, :VIPS_FORMAT_UCHAR),
+         {:ok, color_img} <- color_constant(rgb, values),
+         {:ok, color_img} <- Rounding.cast(color_img, :VIPS_FORMAT_UCHAR),
+         {:ok, blended} <- Operation.ifthenelse(mask, color_img, rgb, blend: true) do
+      # ifthenelse takes its header from the mask, so restore the frame's.
+      Operation.copy(blended,
+        interpretation: VipsImage.interpretation(rgb),
+        xres: VipsImage.xres(rgb),
+        yres: VipsImage.yres(rgb)
+      )
+    end
+  end
+
+  defp blend_float(rgb, mask, values) do
+    bands = length(values)
+
+    with {:ok, masks} <- Operation.bandjoin(List.duplicate(mask, bands)),
          {:ok, inverse} <-
            Operation.linear(masks, List.duplicate(-1.0, bands), List.duplicate(1.0, bands)),
          {:ok, src_term} <- Operation.multiply(rgb, inverse),

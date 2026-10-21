@@ -99,6 +99,8 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     With one, they wait for the stored original like requests for other
     sizes. For sources without a `fetch_timeout`, such as files, that first
     wait lasts at most 60 seconds.
+- `gradient` on an 8-bit image takes less time, since it blends in one pass.
+  A blended color can differ from before by one level.
 - `autoquality` on an image with transparency takes less time. Each quality
   it tries is scored against a dark and a light background at the same time
   instead of one after the other.
