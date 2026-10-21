@@ -335,6 +335,33 @@ defmodule ImagePipe.API.CanonicalPropertyTest do
       end
     end
 
+    test "a full-frame crop or region has the identity of none" do
+      for options <- [
+            ["crop=100pct,100pct"],
+            ["crop=100pct,100pct", "anchor=top-left", "anchor-offset=10,10"],
+            ["crop=100pct,100pct", "focus=0.2,0.8"],
+            ["region=0,0,100pct,100pct"],
+            ["region=0pct,0,100pct,100pct"],
+            ["crop=100.0pct,100pct"]
+          ] do
+        assert parse(["w=10"]) == parse(["w=10" | options])
+      end
+
+      assert parse(["blur=1"]) == parse(["crop=100pct,100pct", "-", "blur=1"])
+      assert parse(["w=10", "fit=cover"]) == parse(["w=10", "fit=cover", "crop=100pct,100pct"])
+
+      assert parse(["w=10", "fit=cover", "anchor=smart"]) ==
+               parse(["w=10", "fit=cover", "anchor=smart", "region=0,0,100pct,100pct"])
+    end
+
+    test "a full-frame crop with a crop ratio keeps its identity" do
+      refute parse(["crop-ratio=3:2"]) ==
+               parse(["crop=100pct,100pct", "crop-ratio=3:2"])
+
+      assert {:ok, request} = parse(["crop=100pct,100pct", "crop-ratio=3:2"])
+      assert [%{crop: {{:pct, 100}, {:pct, 100}}}] = request.groups
+    end
+
     property "angles equal modulo 360 share identity, normalized into [0, 360)" do
       check all degrees <- StreamData.integer(-10_000..10_000),
                 turns <- StreamData.integer(-5..5),

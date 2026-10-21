@@ -434,6 +434,23 @@ defmodule ImagePipe.APIWireTest do
       assert get_resp_header(conn_b, "etag") == get_resp_header(conn_a, "etag")
     end
 
+    test "a full-frame crop or region is served from the plain request's cached entry" do
+      config = observed_opts(sources: counting_sources())
+
+      conn_a = get("/w=64/src/images/cat.jpg", config)
+      assert conn_a.status == 200
+      assert_received :origin_fetch
+
+      for path <- ["/w=64/crop=100pct,100pct", "/region=0,0,100pct,100pct/w=64"] do
+        conn_b = get(path <> "/src/images/cat.jpg", config)
+
+        assert conn_b.status == 200
+        refute_received :origin_fetch
+        assert conn_b.resp_body == conn_a.resp_body
+        assert get_resp_header(conn_b, "etag") == get_resp_header(conn_a, "etag")
+      end
+    end
+
     test "If-None-Match matching etag on a warmed cache: 304, no source fetch" do
       config = observed_opts(sources: counting_sources())
 
