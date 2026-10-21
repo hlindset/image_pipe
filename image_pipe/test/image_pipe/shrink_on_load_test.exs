@@ -7,6 +7,7 @@ defmodule ImagePipe.ShrinkOnLoadTest do
 
   alias Vix.Vips.Image, as: VipsImage
   alias Vix.Vips.MutableImage
+  alias Vix.Vips.Operation
 
   # ──────────────────────────────────────────────────────────────────────────────
   # Origin plugs
@@ -68,6 +69,25 @@ defmodule ImagePipe.ShrinkOnLoadTest do
 
       conn
       |> Plug.Conn.put_resp_content_type("image/webp")
+      |> Plug.Conn.send_resp(200, body)
+    end
+  end
+
+  defmodule TwinOrigin do
+    @moduledoc false
+    # Serves woman.jpg (1200×800) decoded once and re-encoded losslessly, as
+    # `/twin.png` or `/twin.webp`, so both sources hold the same pixels.
+    def call(%Plug.Conn{request_path: "/twin." <> suffix} = conn, _opts) do
+      image = Image.open!("priv/static/images/woman.jpg")
+
+      {:ok, body} =
+        case suffix do
+          "png" -> Operation.pngsave_buffer(image)
+          "webp" -> Operation.webpsave_buffer(image, lossless: true)
+        end
+
+      conn
+      |> Plug.Conn.put_resp_content_type("image/" <> suffix)
       |> Plug.Conn.send_resp(200, body)
     end
   end
@@ -291,6 +311,28 @@ defmodule ImagePipe.ShrinkOnLoadTest do
       # The host libvips has no WebP loader; the scale-on-load path can't be
       # exercised here. Don't silently pass — make the skip visible.
       IO.puts(:stderr, "[shrink_on_load] skipping WebP test: libvips has no .webp loader")
+    end
+  end
+
+  # libwebp's own scaler is coarse at large reductions, so a WebP decode stops
+  # at the power of two below the ratio, as a JPEG decode does, and the resize
+  # kernel does the rest.
+  test "a small WebP thumbnail matches its PNG twin" do
+    if webp_supported?() do
+      opts = http_source_opts(TwinOrigin)
+
+      for width <- [16, 50, 200] do
+        png = call_pipe("/w=#{width}/format=png/src/twin.png", opts) |> decoded_image()
+        webp = call_pipe("/w=#{width}/format=png/src/twin.webp", opts) |> decoded_image()
+
+        assert {Image.width(webp), Image.height(webp)} == {Image.width(png), Image.height(png)}
+        {:ok, difference} = Operation.subtract(webp, png)
+        {:ok, difference} = Operation.abs(difference)
+        {:ok, mae} = Operation.avg(difference)
+        assert mae < 1.2, "w=#{width}: mean difference #{mae}"
+      end
+    else
+      IO.puts(:stderr, "[shrink_on_load] skipping WebP twin test: libvips has no .webp loader")
     end
   end
 

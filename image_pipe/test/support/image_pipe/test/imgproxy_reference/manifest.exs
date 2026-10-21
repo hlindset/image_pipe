@@ -2074,19 +2074,6 @@
       },
       fixture_sha256: "d26cb97cf990f1a00ac95d0f40bf826f433cd7d344e5342a24b00ef77cdf601c"
     },
-    "dps_extend_webp" => %{
-      structure: %{
-        depth: 8,
-        metadata: [],
-        icc: nil,
-        content_type: "image/png",
-        bands: 4,
-        interpretation: :VIPS_INTERPRETATION_sRGB,
-        orientation: 1,
-        alpha?: true
-      },
-      fixture_sha256: "be9bca43bcb20e526658cb38efa9747149620cf280d8d4e57b6ad6810084a670"
-    },
     "dps_pad_odd" => %{
       structure: %{
         depth: 8,
@@ -2831,19 +2818,6 @@
         alpha?: true
       },
       fixture_sha256: "9d4f6dfa80e36ff8a9095ccd0bf8b389aeda32114c74b2f994ef8b4295e408eb"
-    },
-    "rs_fill_webp_residual" => %{
-      structure: %{
-        depth: 8,
-        metadata: [],
-        icc: nil,
-        content_type: "image/png",
-        bands: 3,
-        interpretation: :VIPS_INTERPRETATION_sRGB,
-        orientation: 1,
-        alpha?: false
-      },
-      fixture_sha256: "9a384d245050b259bcd38efdf8c480caaf570bdc112149c5cd4917b432916332"
     },
     "rgba16_tonemap_8bit" => %{
       structure: %{

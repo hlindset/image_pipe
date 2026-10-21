@@ -53,14 +53,6 @@ defmodule ImagePipe.Test.ImgproxyReference.Cases do
         imgproxy: "rs:fill:200:150",
         tolerance: {2, 64}
       },
-      %{
-        id: "rs_fill_webp_residual",
-        kind: :png,
-        source: "high_freq.webp",
-        native: "w=233/h=151/fit=cover",
-        imgproxy: "rs:fill:233:151",
-        tolerance: {2, 64}
-      },
       # Inline-crop placement cases use the aperiodic `:placement` grid, not `:marker`
       # (#239): a no-resize crop of the near-uniform marker field had zero discriminating
       # power (a placement bug moved the window within flat gray → identical pixels). The
@@ -2438,14 +2430,6 @@ defmodule ImagePipe.Test.ImgproxyReference.Cases do
         source: "exif_large_6.jpg",
         native: "w=333/h=111/fit=cover",
         imgproxy: "rs:fill:333:111",
-        tolerance: {2, 64}
-      },
-      %{
-        id: "dps_extend_webp",
-        kind: :png,
-        source: "high_freq.webp",
-        native: "w=500/h=200/fit=contain/extend",
-        imgproxy: "rs:fit:500:200/ex:1",
         tolerance: {2, 64}
       },
       # Orientation x geometry (image_plug-e4a.10): odd crops, offsets, edge gravity,

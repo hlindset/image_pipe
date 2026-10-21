@@ -112,6 +112,11 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   cache. `:source` can report `:bypass` with `reason: :not_stored`, and
   `:download` reports `:bypass`, with `reason: :not_stored` or
   `reason: :watermark_not_stored` when storage is the cause.
+- A WebP original scaled down a lot matches the same image as a JPEG or PNG
+  original. Like a JPEG, it's decoded at 1/2, 1/4, or 1/8 of its size, the
+  smallest that stays at or above the requested size, and the resize does the
+  rest. Before, it was decoded straight at the requested size, so a thumbnail
+  under about 200 pixels wide differed visibly from the JPEG or PNG one.
 - When a cache with `max_size_bytes` is full, a new processed image or
   original that many requests want is kept sooner. The cache now counts
   each request that misses it, including requests that wait for another

@@ -105,7 +105,7 @@
       }
     },
     "crop_centered_shrunk_webp" => %{
-      fixture_sha256: "71aa8acec37b76aafabe061c5f0c5dfe56e5c7575830661216782ae22b7ea7c3",
+      fixture_sha256: "62bb91d8ab51b5947502ea169c486c0734dbc6551d2f87a3e8dc6c11d75f25c8",
       structure: %{
         alpha?: false,
         bands: 3,
@@ -667,6 +667,32 @@
     },
     "trim_auto_display_corner" => %{
       fixture_sha256: "09829c2b27a4d848218b3b5e076a5d0bf3dd93ca5a39a570fba75a6f77ca51ce",
+      structure: %{
+        alpha?: false,
+        bands: 3,
+        content_type: "image/png",
+        depth: 8,
+        icc: nil,
+        interpretation: :VIPS_INTERPRETATION_sRGB,
+        metadata: [],
+        orientation: 1
+      }
+    },
+    "webp_contain_extend" => %{
+      fixture_sha256: "17dabb55f5384b33932c9f14971064e8c9bf23fdac88eb4eae0c882ef0fc7601",
+      structure: %{
+        alpha?: true,
+        bands: 4,
+        content_type: "image/png",
+        depth: 8,
+        icc: nil,
+        interpretation: :VIPS_INTERPRETATION_sRGB,
+        metadata: [],
+        orientation: 1
+      }
+    },
+    "webp_cover_residual" => %{
+      fixture_sha256: "93d684639a7770b85ffed41e1a7a365ec0ef9f62e66229ee89fba496986b1ad9",
       structure: %{
         alpha?: false,
         bands: 3,
