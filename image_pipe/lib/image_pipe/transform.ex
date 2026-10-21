@@ -12,6 +12,7 @@ defmodule ImagePipe.Transform do
     exports: [
       # Runtime execution contract.
       Executor,
+      Clamp,
       State,
       DecodePlanner,
       Materializer,

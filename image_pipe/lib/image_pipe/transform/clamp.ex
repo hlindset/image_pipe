@@ -1,4 +1,4 @@
-defmodule ImagePipe.Output.Clamp do
+defmodule ImagePipe.Transform.Clamp do
   @moduledoc false
   # Generic, product-neutral uniform downscale of a realized image so it fits a
   # set of result caps: per-axis dimensions (`:max_width`/`:max_height`) and a
@@ -6,8 +6,9 @@ defmodule ImagePipe.Output.Clamp do
   # min(host max_result_*, encoder limit), so encoding cannot fail AND the host
   # result cap downscales rather than errors (imgproxy `limitScale` parity).
   #
-  # The core `clamp/3` is product-neutral and format-blind: it reads/resizes via
-  # the `image` library directly and returns `clamp_info` describing what it did.
+  # The core `clamp/3` is product-neutral and format-blind: it resizes with the
+  # resize operation's resampler and the request's `:kernel` (default lanczos3),
+  # and returns `clamp_info` describing what it did.
   # `clamp_with_telemetry/4` wraps it: it runs `clamp/3` and, when clamping
   # occurred, emits the `[:output, :clamp]` one-shot tagged with the negotiated
   # `format`. Format enters here only to label that event, never to influence the
@@ -16,8 +17,8 @@ defmodule ImagePipe.Output.Clamp do
   # Resize is lazy; measuring width/height reads libvips header fields (O(1)).
 
   alias ImagePipe.Telemetry
+  alias ImagePipe.Transform.Operation.Resize
   alias Vix.Vips.Image, as: VixImage
-  alias Vix.Vips.Operation
 
   @type limit :: pos_integer() | :infinity
   @type limits :: %{max_width: limit(), max_height: limit(), max_pixels: limit()}
@@ -45,10 +46,10 @@ defmodule ImagePipe.Output.Clamp do
     if scale >= 1.0 do
       {:ok, image, nil}
     else
-      image_module = Keyword.get(opts, :image_module, Image)
+      resample = &resampler(opts).resample(&1, &2, &3, Keyword.get(opts, :kernel, :lanczos3))
 
-      with {:ok, resized} <- resize(image_module, image, scale),
-           {:ok, resized} <- enforce(image_module, image, resized, limits, @max_pixel_iterations) do
+      with {:ok, resized} <- resize(resample, image, scale),
+           {:ok, resized} <- enforce(resample, image, resized, limits, @max_pixel_iterations) do
         rw = Image.width(resized)
         rh = Image.height(resized)
 
@@ -122,7 +123,7 @@ defmodule ImagePipe.Output.Clamp do
   # ORIGINAL (never the already-resized image) to avoid compounding rounding;
   # only ever shrinks, so dimension caps stay satisfied. Checks ALL caps each
   # iteration (defensive). Exhausting the bound is a tagged encode error.
-  defp enforce(image_module, original, resized, limits, iters_left) do
+  defp enforce(resample, original, resized, limits, iters_left) do
     rw = Image.width(resized)
     rh = Image.height(resized)
 
@@ -139,8 +140,8 @@ defmodule ImagePipe.Output.Clamp do
         # round-to target_long on the long axis; +0.49 lands on target_long, not target_long+1.
         scale = (target_long + 0.49) / long_orig
 
-        with {:ok, resized} <- resize(image_module, original, scale) do
-          enforce(image_module, original, resized, limits, iters_left - 1)
+        with {:ok, resized} <- resize(resample, original, scale) do
+          enforce(resample, original, resized, limits, iters_left - 1)
         end
     end
   end
@@ -173,43 +174,27 @@ defmodule ImagePipe.Output.Clamp do
   # The sqrt is non-negative, so `trunc` is `floor` here.
   defp pixel_target(max_px, long, short), do: trunc(:math.sqrt(max_px * long / short))
 
+  # `:clamp_resampler` is a test seam that stands in for the resize operation.
+  defp resampler(opts), do: Keyword.get(opts, :clamp_resampler, Resize)
+
   # Per-axis 1px floor: never scale an axis below one realized pixel. This is the
   # equivalent of imgproxy's `WScale >= 1/widthToScale` (prepare.go:252-258) and
   # is what keeps an extreme aspect ratio (e.g. 40000x1) from rounding the short
   # axis to 0 under a tight cap.
-  defp resize(image_module, image, scale) do
+  #
+  # Workaround for `image` 0.72.0: `Image.resize/3` truncates the
+  # unpremultiplied result of an image with alpha, losing a level. The resize
+  # operation's resampler rounds instead, and resizes 16-bit images in float
+  # (image_plug-qeqt).
+  defp resize(resample, image, scale) do
     w = Image.width(image)
     h = Image.height(image)
     hscale = max(scale, 1.0 / w)
     vscale = max(scale, 1.0 / h)
 
-    with {:ok, input} <- widen(image),
-         {:ok, resized} <- image_module.resize(input, hscale, vertical_scale: vscale),
-         {:ok, resized} <- narrow(resized, image) do
-      {:ok, resized}
-    else
+    case resample.(image, hscale, vscale) do
+      {:ok, resized} -> {:ok, resized}
       {:error, reason} -> {:error, encode_error(reason)}
-    end
-  end
-
-  # libvips reduces 16-bit images in fixed point that loses about 0.2% of
-  # each value, so white comes back as 65455. In float it doesn't. An image
-  # with alpha is already resized in float, premultiplied.
-  defp widen(image) do
-    case {VixImage.format(image), Image.has_alpha?(image)} do
-      {:VIPS_FORMAT_USHORT, false} -> Operation.cast(image, :VIPS_FORMAT_FLOAT)
-      _other -> {:ok, image}
-    end
-  end
-
-  defp narrow(resized, original) do
-    case {VixImage.format(resized), VixImage.format(original)} do
-      {:VIPS_FORMAT_FLOAT, :VIPS_FORMAT_USHORT} ->
-        with {:ok, rounded} <- Operation.round(resized, :VIPS_OPERATION_ROUND_RINT),
-             do: Operation.cast(rounded, :VIPS_FORMAT_USHORT)
-
-      _same ->
-        {:ok, resized}
     end
   end
 

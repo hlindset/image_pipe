@@ -277,6 +277,11 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the scale-down to fit the result limits or a format's size limit, no
   longer darkens it slightly. Each value lost about 0.2%, so white came back as
   65455 instead of 65535.
+- An image scaled down to fit `:max_result_width`, `:max_result_height`, or
+  `:max_result_pixels` keeps the exact colors of its semi-transparent pixels
+  and uses the request's `kernel`. Before, a semi-transparent pixel could
+  lose a level, so `[200, 120, 37, 100]` became `[200, 119, 37, 100]`, and a
+  `kernel=nearest` result was smoothed.
 - When the first load of the face or object model failed, each detection
   request waiting for it tried the load again in turn, so the last one
   waited for every attempt. Those requests now fail with the first load's

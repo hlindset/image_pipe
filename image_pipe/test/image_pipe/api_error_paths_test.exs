@@ -94,14 +94,14 @@ defmodule ImagePipe.APIErrorPathsTest do
     end
   end
 
-  # A `Clamp.clamp/3` `image_module` seam whose `resize/3` raises. Clamp is a
+  # A `Clamp.clamp/3` `clamp_resampler` seam whose `resample/4` raises. Clamp is a
   # shared post-transform stage with no rescue of its own (AGENTS.md: only a
   # dialect's own pipeline run is a trusted-callback boundary the runner must
   # not launder) — the raise is expected to escape the producer process,
   # surface to the coordinator as a `:DOWN`, and render 500-class.
-  defmodule RaisingClampImage do
+  defmodule RaisingClampResampler do
     @moduledoc false
-    def resize(_image, _scale, _opts), do: raise("boom during clamp resize")
+    def resample(_image, _scale, _vscale, _kernel), do: raise("boom during clamp resize")
   end
 
   @default_sources [
@@ -112,11 +112,11 @@ defmodule ImagePipe.APIErrorPathsTest do
     ]
   ]
 
-  # `on_bracket_exit` and `image_module` are test-injection seams that
-  # `ImagePipe.Plug.init/1` would reject as unknown options. A cache runs only
-  # on an instance, so this mounts the instance with an observed cache and
-  # appends the seams to the resolved mount.
-  @test_only_seam_keys [:on_bracket_exit, :image_module]
+  # `on_bracket_exit`, `image_module` and `clamp_resampler` are test-injection
+  # seams that `ImagePipe.Plug.init/1` would reject as unknown options. A cache
+  # runs only on an instance, so this mounts the instance with an observed
+  # cache and appends the seams to the resolved mount.
+  @test_only_seam_keys [:on_bracket_exit, :image_module, :clamp_resampler]
 
   defp observed_opts(extra) do
     {seams, known} = Keyword.split(extra, @test_only_seam_keys)
@@ -577,7 +577,7 @@ defmodule ImagePipe.APIErrorPathsTest do
           telemetry_prefix: prefix,
           max_result_width: 10,
           max_result_height: 10,
-          image_module: RaisingClampImage,
+          clamp_resampler: RaisingClampResampler,
           on_bracket_exit: fn -> send(test_pid, :bracket_cleanup) end
         )
 

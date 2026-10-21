@@ -1,26 +1,12 @@
-defmodule ImagePipe.Output.ClampTest do
+defmodule ImagePipe.Transform.ClampTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
 
-  alias ImagePipe.Output.Encoder
+  alias ImagePipe.Transform.Clamp
   alias Vix.Vips.Image, as: VipsImage
   alias Vix.Vips.Operation, as: VipsOperation
 
-  describe "encoder_limit/1" do
-    test "returns the WebP and AVIF hard dimension limits with unbounded pixels" do
-      assert Encoder.encoder_limit(:webp) == %{max_dimension: 16_383, max_pixels: :infinity}
-      assert Encoder.encoder_limit(:avif) == %{max_dimension: 16_384, max_pixels: :infinity}
-    end
-
-    test "returns the documented JPEG limit and unbounded PNG" do
-      assert Encoder.encoder_limit(:jpeg) == %{max_dimension: 65_500, max_pixels: :infinity}
-      assert Encoder.encoder_limit(:png) == %{max_dimension: :infinity, max_pixels: :infinity}
-    end
-  end
-
   describe "clamp/3" do
-    alias ImagePipe.Output.Clamp
-
     @inf %{max_width: :infinity, max_height: :infinity, max_pixels: :infinity}
 
     defp image(width, height) do
@@ -152,8 +138,6 @@ defmodule ImagePipe.Output.ClampTest do
   end
 
   describe "clamp/3 pixel ≤-cap property" do
-    alias ImagePipe.Output.Clamp
-
     # Bias the generator toward the regimes that actually drive the pixel loop
     # deep: extreme aspect ratios (one axis tiny) and small pixel caps. A uniform
     # square generator almost never reaches the >1-iteration path (~72% no-op),

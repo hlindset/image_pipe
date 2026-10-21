@@ -12,7 +12,6 @@ defmodule ImagePipe.Output do
     ],
     exports: [
       Capabilities,
-      Clamp,
       Encoder,
       Negotiation,
       Policy,
