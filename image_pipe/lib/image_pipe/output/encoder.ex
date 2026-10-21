@@ -479,16 +479,32 @@ defmodule ImagePipe.Output.Encoder do
   defp restore_backup(image, backup), do: {:ok, set_icc(image, backup)}
 
   # Removing a profile also removes its EXIF color-characterization tags,
-  # even when general metadata stripping is disabled.
+  # even when general metadata stripping is disabled. EXIF requires
+  # ColorSpace, and without the field libvips writes it as Uncalibrated
+  # (65535). The result is sRGB, so the field is set to sRGB (1) instead.
   @icc_remove_fields [
     "icc-profile-data",
     "exif-ifd0-WhitePoint",
-    "exif-ifd0-PrimaryChromaticities",
-    "exif-ifd2-ColorSpace"
+    "exif-ifd0-PrimaryChromaticities"
   ]
 
   defp maybe_drop_profile(image, true), do: {:ok, image}
-  defp maybe_drop_profile(image, false), do: {:ok, remove_fields(image, @icc_remove_fields)}
+
+  defp maybe_drop_profile(image, false) do
+    color_space? = header_value(image, "exif-ifd2-ColorSpace") != nil
+
+    {:ok, image} =
+      VixImage.mutate(image, fn mut ->
+        Enum.each(@icc_remove_fields, &VixMutableImage.remove(mut, &1))
+
+        if color_space?,
+          do: VixMutableImage.set(mut, "exif-ifd2-ColorSpace", :gchararray, "1")
+
+        :ok
+      end)
+
+    {:ok, image}
+  end
 
   # Strip EXIF/XMP/IPTC (keeping copyright/artist iff kcr).
   # `minimize_metadata` enumerates and removes all metadata

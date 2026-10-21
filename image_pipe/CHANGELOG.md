@@ -218,6 +218,9 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   flipping first and then resizing. Before, enlarged pixels could be off by
   a fraction of a pixel, and a `kernel=nearest` downscale picked different
   source pixels.
+- An image delivered in sRGB without a color profile, with its metadata
+  kept, has the EXIF `ColorSpace` tag set to sRGB when the original has the
+  tag. Before, the tag said Uncalibrated.
 - An image decoded while its original downloads no longer waits behind
   newer requests for its encode. The encode's turn in the processing pool
   goes ahead of waiting requests and keeps the deadline of its first turn.
