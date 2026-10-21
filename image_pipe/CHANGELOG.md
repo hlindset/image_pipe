@@ -48,6 +48,10 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- A request with `crop=100pct,100pct` and no `crop-ratio`, or with
+  `region=0,0,100pct,100pct`, is processed as the same request without them,
+  since they keep the whole image, and gets its cache key and ETag. Cached
+  copies of such requests miss once after an upgrade.
 - Requests that use `autoquality` or `max-bytes` have new cache keys and
   ETags, so their cached copies miss once after upgrading.
 - **Breaking:** A request that asks for more `avif-options` or

@@ -61,6 +61,7 @@ defmodule ImagePipe.Plan.Spec do
     case errors do
       [] ->
         {groups, options, dropped} = drop_inert(groups, options, invalid, inert, [])
+        {groups, options} = drop_full_frame(groups, options, invalid)
         {:ok, groups, options, explicit(dropped, explicit?)}
 
       errors ->
@@ -74,6 +75,36 @@ defmodule ImagePipe.Plan.Spec do
         locations != [],
         do: %{issue | locations: locations}
   end
+
+  # A crop or region covering the whole frame changes no pixels, so it is
+  # dropped to share identity with no crop at all, together with the options
+  # it alone made useful. A crop ratio still reshapes a full-frame crop.
+  defp drop_full_frame(groups, options, invalid) do
+    case Enum.map(groups, &drop_full_frame_group/1) do
+      ^groups ->
+        {groups, options}
+
+      groups ->
+        inert =
+          groups
+          |> Validation.errors(options, invalid, nil)
+          |> Enum.filter(&(&1.severity == :warning))
+
+        {groups, options, _dropped} = drop_inert(groups, options, invalid, inert, [])
+        {groups, options}
+    end
+  end
+
+  defp drop_full_frame_group(group),
+    do: Map.reject(group, fn {key, value} -> full_frame?(key, value, group) end)
+
+  defp full_frame?(:region, {{_, x}, {_, y}, {:pct, width}, {:pct, height}}, _group),
+    do: x == 0 and y == 0 and width == 100 and height == 100
+
+  defp full_frame?(:crop, {{:pct, width}, {:pct, height}}, group),
+    do: width == 100 and height == 100 and not Map.has_key?(group, :crop_ratio)
+
+  defp full_frame?(_key, _value, _group), do: false
 
   defp drop_inert(groups, options, _invalid, [], dropped) do
     case Enum.reject(groups, &(&1 == %{})) do
