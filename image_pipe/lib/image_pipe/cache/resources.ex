@@ -2,6 +2,8 @@ defmodule ImagePipe.Cache.Resources do
   @moduledoc false
   use GenServer
 
+  alias ImagePipe.RawFile
+
   def child_spec(opts) do
     %{id: __MODULE__, start: {__MODULE__.Supervisor, :start_link, [opts]}, type: :supervisor}
   end
@@ -16,7 +18,7 @@ defmodule ImagePipe.Cache.Resources do
   def release(:unavailable), do: :ok
 
   def release({token, path}) do
-    File.rm(path)
+    RawFile.delete(path)
     call({:release, token})
     :ok
   end
@@ -69,7 +71,7 @@ defmodule ImagePipe.Cache.Resources do
     case Map.fetch(state.monitors, ref) do
       {:ok, token} ->
         [{^token, _owner, path, _monitor}] = :ets.lookup(state.table, token)
-        File.rm(path)
+        RawFile.delete(path)
         {:noreply, forget(state, token)}
 
       :error ->

@@ -4,6 +4,7 @@ defmodule ImagePipe.Source.Input do
   # Direct `{:file, path}` and `{:binary, bytes}` inputs. `ImagePipe.Source`
   # resolves and fetches them here without a configured source.
 
+  alias ImagePipe.RawFile
   alias ImagePipe.Source
   alias ImagePipe.Source.CacheSemantics
   alias ImagePipe.Source.Parser
@@ -80,7 +81,7 @@ defmodule ImagePipe.Source.Input do
   defp check_file(path, runtime) do
     limit = Keyword.fetch!(runtime, :max_body_bytes)
 
-    case File.stat(path) do
+    case RawFile.stat(path) do
       {:ok, %{type: :regular, size: size}} when size <= limit -> :ok
       {:ok, %{type: :regular}} -> {:error, {:source, :body_too_large}}
       {:ok, _non_regular} -> {:error, {:source, :not_regular_file}}

@@ -6,6 +6,7 @@ defmodule ImagePipe.Execution.SourceCache do
   alias ImagePipe.Cache.Work
   alias ImagePipe.Execution.{Acquisition, Overlap}
   alias ImagePipe.MaterialDigest
+  alias ImagePipe.RawFile
   alias ImagePipe.Source
   alias ImagePipe.Source.CacheState
   alias ImagePipe.Source.Record
@@ -265,7 +266,7 @@ defmodule ImagePipe.Execution.SourceCache do
   defp checked_input(record, path, lease, config) do
     limit = Keyword.fetch!(config, :max_body_bytes)
 
-    case File.stat(path) do
+    case RawFile.stat(path) do
       {:ok, %{size: size}} when size <= limit ->
         {:ok,
          %Acquisition{
@@ -492,12 +493,18 @@ defmodule ImagePipe.Execution.SourceCache do
             now(config)
           )
 
-    {:ok,
-     %Acquisition{
-       record: record,
-       response: %Response{path: original, origin: response.origin},
-       source_bytes: File.stat!(original).size
-     }}
+    case RawFile.stat(original) do
+      {:ok, %File.Stat{size: size}} ->
+        {:ok,
+         %Acquisition{
+           record: record,
+           response: %Response{path: original, origin: response.origin},
+           source_bytes: size
+         }}
+
+      {:error, _reason} ->
+        {:error, {:source, :unreadable}}
+    end
   rescue
     exception in Source.StreamError -> {:error, {:source, exception.reason}}
     _exception in File.Error -> {:error, {:source, :unreadable}}
@@ -561,9 +568,9 @@ defmodule ImagePipe.Execution.SourceCache do
     do: %Response{stream: [bytes], origin: origin}
 
   defp spool(stream, path, response, preparation, config) do
-    case File.open(path, [:read, :write, :binary, :exclusive]) do
+    case :file.open(path, [:read, :write, :binary, :exclusive, :raw]) do
       {:ok, io} ->
-        _result = File.chmod(path, 0o600)
+        _result = RawFile.set_mode(path, 0o600)
 
         overlap = Overlap.start(response, preparation, config, path)
 
@@ -574,7 +581,7 @@ defmodule ImagePipe.Execution.SourceCache do
             Overlap.close(overlap)
             :erlang.raise(kind, reason, __STACKTRACE__)
         after
-          File.close(io)
+          :file.close(io)
         end
 
       {:error, _reason} ->

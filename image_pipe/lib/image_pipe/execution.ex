@@ -12,6 +12,7 @@ defmodule ImagePipe.Execution do
       ImagePipe.Plan,
       ImagePipe.Processing,
       ImagePipe.ProcessingPool,
+      ImagePipe.RawFile,
       ImagePipe.Representation,
       ImagePipe.Source,
       ImagePipe.Telemetry,

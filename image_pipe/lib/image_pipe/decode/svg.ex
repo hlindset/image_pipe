@@ -12,6 +12,7 @@ if Code.ensure_loaded?(ImagePipe.SVG) do
 
     alias ImagePipe.Decode
     alias ImagePipe.Plan.Spec
+    alias ImagePipe.RawFile
     alias ImagePipe.SVG
     alias ImagePipe.Telemetry
     alias ImagePipe.Transform.Executor
@@ -234,9 +235,9 @@ if Code.ensure_loaded?(ImagePipe.SVG) do
     end
 
     defp read({:path, path}, max_bytes) do
-      with {:ok, %File.Stat{size: size}} <- File.stat(path),
+      with {:ok, %File.Stat{size: size}} <- RawFile.stat(path),
            :ok <- check_bytes(size, max_bytes),
-           {:ok, data} <- File.read(path) do
+           {:ok, data} <- RawFile.read(path) do
         {:ok, data}
       else
         {:error, {:input_limit, _reason}} = error -> error

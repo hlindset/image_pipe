@@ -24,6 +24,7 @@ defmodule ImagePipe.Cache.FileSystem.Owner do
   require Logger
 
   alias ImagePipe.Cache.FileSystem.RefusedRoots
+  alias ImagePipe.RawFile
 
   @file_name ".image-pipe-owner"
   @heartbeat_ms 5_000
@@ -62,8 +63,8 @@ defmodule ImagePipe.Cache.FileSystem.Owner do
   @create_attempts 5
 
   defp create(claim, attempts \\ @create_attempts) do
-    with :ok <- File.mkdir_p(claim.dir) do
-      case publish(claim, &File.ln/2) do
+    with :ok <- RawFile.make_dir_p(claim.dir) do
+      case publish(claim, &RawFile.make_link/2) do
         :ok -> {:ok, claim}
         {:error, :eexist} -> found(claim, attempts)
         {:error, _reason} = error -> error
@@ -72,7 +73,7 @@ defmodule ImagePipe.Cache.FileSystem.Owner do
   end
 
   defp found(claim, attempts) do
-    case File.read(claim.path) do
+    case RawFile.read(claim.path) do
       {:ok, found} ->
         if restart?(claim, found), do: write(claim), else: {:watch, host(found), claim}
 
@@ -105,14 +106,14 @@ defmodule ImagePipe.Cache.FileSystem.Owner do
   the file since.
   """
   def confirm(claim) do
-    with {:ok, found} <- File.read(claim.path) do
+    with {:ok, found} <- RawFile.read(claim.path) do
       if found == contents(claim), do: hand_off(claim), else: {:owned, host(found)}
     end
   end
 
   @doc "Deletes the owner file if it still holds `claim`."
   def release(claim) do
-    if File.read(claim.path) == {:ok, contents(claim)}, do: File.rm(claim.path)
+    if RawFile.read(claim.path) == {:ok, contents(claim)}, do: RawFile.delete(claim.path)
     :ok
   end
 
@@ -129,7 +130,7 @@ defmodule ImagePipe.Cache.FileSystem.Owner do
       handed_off ->
         :persistent_term.erase(key)
 
-        if File.read(claim.path) == {:ok, contents(handed_off)},
+        if RawFile.read(claim.path) == {:ok, contents(handed_off)},
           do: {:ok, handed_off},
           else: :none
     end
@@ -155,7 +156,7 @@ defmodule ImagePipe.Cache.FileSystem.Owner do
   def handle_info(:heartbeat, state) do
     ours = contents(state)
 
-    case File.read(state.path) do
+    case RawFile.read(state.path) do
       {:ok, found} when found != ours ->
         Logger.error(
           "cache: host #{inspect(host(found))} took over cache root #{state.dir}. " <>
@@ -167,7 +168,7 @@ defmodule ImagePipe.Cache.FileSystem.Owner do
 
       _ours_or_missing ->
         state = %{state | count: state.count + 1}
-        publish(state, &File.rename/2)
+        publish(state, &RawFile.rename/2)
         schedule(state)
         {:noreply, state}
     end
@@ -191,7 +192,7 @@ defmodule ImagePipe.Cache.FileSystem.Owner do
   defp schedule(claim), do: Process.send_after(self(), :heartbeat, claim.heartbeat_ms)
 
   defp write(claim) do
-    with :ok <- publish(claim, &File.rename/2), do: {:ok, claim}
+    with :ok <- publish(claim, &RawFile.rename/2), do: {:ok, claim}
   end
 
   # The file is written beside the owner file and moved into place, so a
@@ -200,9 +201,9 @@ defmodule ImagePipe.Cache.FileSystem.Owner do
   defp publish(claim, place) do
     temp = "#{claim.path}.#{claim.token}.tmp"
 
-    with :ok <- File.write(temp, contents(claim)) do
+    with :ok <- RawFile.write(temp, contents(claim)) do
       result = place.(temp, claim.path)
-      File.rm(temp)
+      RawFile.delete(temp)
       result
     end
   end

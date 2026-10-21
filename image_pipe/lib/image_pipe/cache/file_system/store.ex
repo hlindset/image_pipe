@@ -11,6 +11,7 @@ defmodule ImagePipe.Cache.FileSystem.Store do
   alias ImagePipe.Cache.FileSystem.Sweep
   alias ImagePipe.Cache.FileSystem.Writers
   alias ImagePipe.Cache.Key
+  alias ImagePipe.RawFile
   alias ImagePipe.SafePath
 
   @metadata_version 1
@@ -212,7 +213,7 @@ defmodule ImagePipe.Cache.FileSystem.Store do
   def open_linked_sink(%Key{} = key, metadata, path, body_sha256, opts) when is_list(opts) do
     with {:ok, paths} <- paths(key, opts),
          temp_body_path = temp_path(paths),
-         :ok <- in_partition(paths, fn -> :file.make_link(path, temp_body_path) end) do
+         :ok <- in_partition(paths, fn -> RawFile.make_link(path, temp_body_path) end) do
       case open_linked_body(temp_body_path) do
         {:ok, body_io, size} ->
           {:ok,
@@ -368,7 +369,7 @@ defmodule ImagePipe.Cache.FileSystem.Store do
   # A linked body can carry an old mtime. Refresh it before publication so the
   # leftover sweep leaves it alone until its metadata has been installed.
   defp refresh_body_time(%{body_sha256: _} = state),
-    do: :file.change_time(state.temp_body_path, :calendar.local_time())
+    do: RawFile.set_times(state.temp_body_path, System.os_time(:second))
 
   defp refresh_body_time(%{hash_context: _}), do: :ok
 
@@ -508,8 +509,8 @@ defmodule ImagePipe.Cache.FileSystem.Store do
     binary = :erlang.term_to_binary(metadata, [:deterministic])
 
     with {:ok, temp} <- write_sink_metadata(paths, binary) do
-      result = File.rename(temp, paths.meta_path)
-      File.rm(temp)
+      result = RawFile.rename(temp, paths.meta_path)
+      RawFile.delete(temp)
       result
     end
   end
@@ -526,8 +527,8 @@ defmodule ImagePipe.Cache.FileSystem.Store do
   def delete_entry(paths) do
     with {:ok, metadata} <- read_metadata(paths),
          {:ok, path} <- body_path_from_metadata(paths, metadata),
-         :ok <- File.rm(paths.meta_path) do
-      {:ok, File.rm(path)}
+         :ok <- RawFile.delete(paths.meta_path) do
+      {:ok, RawFile.delete(path)}
     end
   end
 
@@ -638,7 +639,7 @@ defmodule ImagePipe.Cache.FileSystem.Store do
   defp commit_sink_files(state, body_filename) do
     body_path = Path.join(state.paths.dir, body_filename)
 
-    with :ok <- File.rename(state.temp_body_path, body_path) do
+    with :ok <- RawFile.rename(state.temp_body_path, body_path) do
       commit_metadata_file(state.paths.meta_path, state.temp_meta_path)
     end
   end
@@ -646,7 +647,7 @@ defmodule ImagePipe.Cache.FileSystem.Store do
   defp cost_us(metadata), do: Map.get(metadata, :cost_us, 0)
 
   defp commit_metadata_file(meta_path, meta_tmp_path) do
-    File.rename(meta_tmp_path, meta_path)
+    RawFile.rename(meta_tmp_path, meta_path)
   end
 
   defp matching_body_file?(body_path, body_filename) do
@@ -696,7 +697,7 @@ defmodule ImagePipe.Cache.FileSystem.Store do
   defp cleanup_temp_files(temp_paths) do
     temp_paths
     |> Enum.reject(&is_nil/1)
-    |> Enum.each(&File.rm/1)
+    |> Enum.each(&RawFile.delete/1)
   end
 
   @doc false
@@ -766,7 +767,7 @@ defmodule ImagePipe.Cache.FileSystem.Store do
   end
 
   defp rm_tolerant(path) do
-    case File.rm(path) do
+    case RawFile.delete(path) do
       :ok ->
         :ok
 
@@ -862,7 +863,7 @@ defmodule ImagePipe.Cache.FileSystem.Store do
   defp in_partition(paths, fun) do
     case fun.() do
       {:error, :enoent} ->
-        with :ok <- File.mkdir_p(paths.dir), do: fun.()
+        with :ok <- RawFile.make_dir_p(paths.dir), do: fun.()
 
       result ->
         result

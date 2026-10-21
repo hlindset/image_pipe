@@ -6,6 +6,7 @@ defmodule ImagePipe.Cache.Input do
   alias ImagePipe.Cache.FileSystem.Sweep
   alias ImagePipe.Cache.Lookups
   alias ImagePipe.Cache.Resources
+  alias ImagePipe.RawFile
   alias ImagePipe.Source.Record
   alias ImagePipe.Telemetry
 
@@ -159,7 +160,7 @@ defmodule ImagePipe.Cache.Input do
   defp pin(_path, _pinned, :unavailable), do: :miss
 
   defp pin(path, pinned, ref) do
-    case File.ln(path, pinned) do
+    case RawFile.make_link(path, pinned) do
       :ok ->
         {:ok, pinned, ref}
 
@@ -214,11 +215,11 @@ defmodule ImagePipe.Cache.Input do
   end
 
   defp make_private(dir) do
-    _result = File.mkdir(dir)
+    _result = RawFile.make_dir(dir)
 
-    with {:ok, %File.Stat{type: :directory, uid: uid}} <- File.lstat(dir),
+    with {:ok, %File.Stat{type: :directory, uid: uid}} <- RawFile.lstat(dir),
          {:ok, ^uid} <- own_uid(),
-         :ok <- File.chmod(dir, 0o700) do
+         :ok <- RawFile.set_mode(dir, 0o700) do
       :ok
     else
       _other -> :error
@@ -229,11 +230,11 @@ defmodule ImagePipe.Cache.Input do
   defp own_uid do
     probe = Path.join(System.tmp_dir!(), ".image-pipe-#{random()}.uid")
 
-    with :ok <- File.write(probe, "", [:exclusive]) do
+    with :ok <- RawFile.write(probe, "", [:exclusive]) do
       try do
-        with {:ok, %File.Stat{uid: uid}} <- File.lstat(probe), do: {:ok, uid}
+        with {:ok, %File.Stat{uid: uid}} <- RawFile.lstat(probe), do: {:ok, uid}
       after
-        File.rm(probe)
+        RawFile.delete(probe)
       end
     end
   end
@@ -259,7 +260,7 @@ defmodule ImagePipe.Cache.Input do
   end
 
   defp size(path) do
-    case File.stat(path) do
+    case RawFile.stat(path) do
       {:ok, stat} -> stat.size
       _error -> 0
     end

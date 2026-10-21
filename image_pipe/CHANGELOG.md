@@ -233,6 +233,11 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - A second instance whose cache `root` another instance in the VM already
   uses raises `ArgumentError` naming the root when it starts. Before, its
   start failed with `{:already_started, pid}`.
+- The caches and source downloads no longer queue their file operations
+  behind the Erlang VM's single file-server process. In a burst of requests
+  for new originals, the originals cache can drop fewer writes (logged as
+  `stage_dropped (writer_limit)`). A dropped write means the original is
+  downloaded again on its next request.
 
 ### Removed
 

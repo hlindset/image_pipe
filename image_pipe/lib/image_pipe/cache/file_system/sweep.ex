@@ -11,6 +11,7 @@ defmodule ImagePipe.Cache.FileSystem.Sweep do
   @moduledoc false
 
   alias ImagePipe.Cache.FileSystem.Store
+  alias ImagePipe.RawFile
   alias ImagePipe.Telemetry
 
   @grace_ms 3_600_000
@@ -128,7 +129,7 @@ defmodule ImagePipe.Cache.FileSystem.Sweep do
   defp cutoff, do: System.os_time(:millisecond) - @grace_ms
 
   defp list(dir) do
-    case File.ls(dir) do
+    case RawFile.list_dir(dir) do
       {:ok, names} -> names
       {:error, _reason} -> []
     end
@@ -187,15 +188,15 @@ defmodule ImagePipe.Cache.FileSystem.Sweep do
   end
 
   defp older?(path, cutoff) do
-    case File.stat(path, time: :posix) do
+    case RawFile.stat(path, time: :posix) do
       {:ok, %{mtime: mtime}} -> mtime * 1000 < cutoff
       {:error, _reason} -> false
     end
   end
 
   defp remove(path, kind, counts) do
-    with {:ok, %{size: size}} <- File.stat(path),
-         :ok <- File.rm(path) do
+    with {:ok, %{size: size}} <- RawFile.stat(path),
+         :ok <- RawFile.delete(path) do
       counts
       |> Map.update!(kind, &(&1 + 1))
       |> Map.update!(:bytes, &(&1 + size))

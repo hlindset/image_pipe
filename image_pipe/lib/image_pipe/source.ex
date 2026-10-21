@@ -65,6 +65,7 @@ defmodule ImagePipe.Source do
     deps: [
       ImagePipe.MaterialDigest,
       ImagePipe.Plan,
+      ImagePipe.RawFile,
       ImagePipe.SafePath,
       ImagePipe.Telemetry
     ],

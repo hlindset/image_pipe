@@ -46,8 +46,7 @@ defmodule ImagePipe.API.SourceIntegrityFaultWireTest do
           )
         )
 
-      Code.ensure_loaded!(File)
-      :erlang.trace_pattern({File, :open, 2}, true, [:local])
+      :erlang.trace_pattern({:file, :open, 2}, true, [:local])
 
       try do
         task =
@@ -61,7 +60,7 @@ defmodule ImagePipe.API.SourceIntegrityFaultWireTest do
         send(producer, :continue)
 
         assert_receive {:trace, ^producer, :call,
-                        {File, :open, [path, [:read, :write, :binary, :exclusive]]}},
+                        {:file, :open, [path, [:read, :write, :binary, :exclusive, :raw]]}},
                        2_000
 
         assert_receive {:staged, ^producer}, 2_000
@@ -81,7 +80,7 @@ defmodule ImagePipe.API.SourceIntegrityFaultWireTest do
         refute File.exists?(path)
         assert_receive {:closed, ["blocked", "image.jpg"]}
       after
-        :erlang.trace_pattern({File, :open, 2}, false, [:local])
+        :erlang.trace_pattern({:file, :open, 2}, false, [:local])
       end
     end
   end

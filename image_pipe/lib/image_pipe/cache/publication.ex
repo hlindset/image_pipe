@@ -16,6 +16,7 @@ defmodule ImagePipe.Cache.Publication do
   alias ImagePipe.Cache.Input
   alias ImagePipe.Cache.Resources
   alias ImagePipe.Cache.Work
+  alias ImagePipe.RawFile
   alias ImagePipe.Telemetry
   alias ImagePipe.Telemetry.RequestContext
 
@@ -95,7 +96,7 @@ defmodule ImagePipe.Cache.Publication do
   end
 
   defp prepare({:staged, path, put, then}, writer, pending, hash, opts) do
-    with {:ok, %{size: size}} <- File.stat(path),
+    with {:ok, %{size: size}} <- RawFile.stat(path),
          :ok <- Writers.reserve(pending, size) do
       pinned(path, size, writer, pending, put, then)
     else

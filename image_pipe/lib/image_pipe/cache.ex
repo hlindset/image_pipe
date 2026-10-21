@@ -8,6 +8,7 @@ defmodule ImagePipe.Cache do
       ImagePipe.Debug,
       ImagePipe.Format,
       ImagePipe.Output,
+      ImagePipe.RawFile,
       ImagePipe.SafePath,
       ImagePipe.Source,
       ImagePipe.Telemetry

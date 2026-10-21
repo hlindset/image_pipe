@@ -14,6 +14,7 @@ defmodule ImagePipe.Execution.Watermarks do
   alias ImagePipe.Execution.SourceCache
   alias ImagePipe.Execution.Watermark
   alias ImagePipe.Plan.Spec
+  alias ImagePipe.RawFile
   alias ImagePipe.Representation
   alias ImagePipe.Representation.IdentityMaterial
   alias ImagePipe.Source
@@ -216,9 +217,9 @@ defmodule ImagePipe.Execution.Watermarks do
   defp read(%Response{path: path}, config) when is_binary(path) do
     limit = Keyword.fetch!(config, :max_body_bytes)
 
-    case File.stat(path) do
+    case RawFile.stat(path) do
       {:ok, %{size: size}} when size > limit -> {:error, {:source, :body_too_large}}
-      {:ok, _stat} -> path |> File.read() |> read_result()
+      {:ok, _stat} -> path |> RawFile.read() |> read_result()
       {:error, _reason} -> {:error, {:source, :invalid_body}}
     end
   end

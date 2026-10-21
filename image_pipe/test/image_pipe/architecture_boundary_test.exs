@@ -127,6 +127,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Plan,
       ImagePipe.Processing,
       ImagePipe.ProcessingPool,
+      ImagePipe.RawFile,
       ImagePipe.Representation,
       ImagePipe.Source,
       ImagePipe.Telemetry,
@@ -184,6 +185,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     assert_boundary_deps(decode, [
       ImagePipe.Format,
       ImagePipe.Plan,
+      ImagePipe.RawFile,
       ImagePipe.Source,
       ImagePipe.Telemetry,
       ImagePipe.Transform
@@ -260,6 +262,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     assert_boundary_deps(source, [
       ImagePipe.MaterialDigest,
       ImagePipe.Plan,
+      ImagePipe.RawFile,
       ImagePipe.SafePath,
       ImagePipe.Telemetry
     ])
@@ -456,6 +459,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Debug,
       ImagePipe.Format,
       ImagePipe.Output,
+      ImagePipe.RawFile,
       ImagePipe.SafePath,
       ImagePipe.Source,
       ImagePipe.Telemetry
