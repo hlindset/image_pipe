@@ -282,8 +282,6 @@ curl -H "Authorization: Bearer a-long-random-string" http://localhost:8080/stats
   original a request needs: a hit when it's read from the cache, a miss
   when it's downloaded. `read_errors` are stored entries the cache couldn't
   read, also counted as misses.
-- `output`'s `entries` also counts one small entry for each original that
-  processed images were made from, and `bytes` includes them.
 - `counting` is `true` for a short time after startup, while the cache
   counts the entries an earlier run left on disk. Until then, `bytes` and
   `entries` leave out the ones it hasn't reached.

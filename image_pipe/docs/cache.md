@@ -64,10 +64,9 @@ watermark source permit storage and have internal caching enabled.
 A stored response keeps its body, content type, and two response headers:
 `vary` and `cache-control`. Header names are stored in lower case.
 
-Each original's version and its origin freshness headers are also stored in
-the processed-image cache. They let
-[processed images outlive their original](caching-and-freshness.md#originals-and-processed-images),
-and count against the processed-image cache's size.
+An instance keeps each original's version and its origin freshness
+headers in memory, so
+[processed images outlive their original](caching-and-freshness.md#originals-and-processed-images).
 
 ## Cache key inputs
 
@@ -411,8 +410,6 @@ started:
   [startup scan](#eviction-and-startup-scan) has counted the entries on
   disk. Until then, `:bytes` and `:entries` leave out the ones it hasn't
   reached.
-- `:output`'s `:entries` also counts one small entry for each original that
-  processed images were made from, and `:bytes` includes them.
 
 The hit rate is `hits / (hits + misses)`. Each node counts only its own
 requests. A cache that isn't configured isn't listed. A cache whose `root`
