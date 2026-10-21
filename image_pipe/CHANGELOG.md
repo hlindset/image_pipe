@@ -187,6 +187,12 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- A preset or `:request_defaults` with a `wm-enc` token that the
+  `:source_encryption_keys` can't decrypt raises `ArgumentError` when
+  ImagePipe starts, also for a mount with its own `:source_encryption_keys`.
+  Before, the configuration was accepted and every request using the token
+  failed with `404`.
+- A preset with `wm-enc=unset` no longer needs `:source_encryption_keys`.
 - The request defaults apply to a URL's first group even when that group
   holds only `unset` options. Before, they moved to the next group, so
   `w=unset/-/blur=2` with a default `w=200` was still resized to 200

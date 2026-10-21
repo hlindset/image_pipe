@@ -10,6 +10,7 @@ defmodule ImagePipe.Plug.ConfigTest do
 
   @source_key String.duplicate("2a", 32)
   @signing_key String.duplicate("a1", 32)
+  @other_source_key String.duplicate("3b", 32)
 
   defmodule CustomDetector do
     @behaviour ImagePipe.Transform.Detector
@@ -435,6 +436,60 @@ defmodule ImagePipe.Plug.ConfigTest do
       error = assert_raise ArgumentError, fn -> ImagePipe.config(options) end
       assert error.message =~ "#{owner} uses wm-enc, which needs source_encryption_keys"
     end
+  end
+
+  test "accepts a static wm-enc=unset without source encryption keys" do
+    for options <- [[presets: %{"wm" => "wm-enc=unset"}], [request_defaults: "wm-enc=unset"]] do
+      assert %ImagePipe.Config{} = ImagePipe.config([request_watermarks: true] ++ options)
+    end
+  end
+
+  test "rejects a static wm-enc that the source encryption keys can't decrypt" do
+    token =
+      wm_token([keys: [@signing_key], source_encryption_keys: [@other_source_key]], "logo.png")
+
+    for {options, owner} <- [
+          {[presets: %{"wm" => "wm-enc=" <> token}], ~s(preset "wm")},
+          {[request_defaults: "wm-enc=" <> token], "request_defaults"}
+        ] do
+      options =
+        [keys: [@signing_key], source_encryption_keys: [@source_key], request_watermarks: true] ++
+          options
+
+      error = assert_raise ArgumentError, fn -> ImagePipe.config(options) end
+
+      assert error.message =~
+               "#{owner} has a wm-enc token that source_encryption_keys can't decrypt"
+    end
+  end
+
+  test "checks a static wm-enc against a URL override's source encryption keys" do
+    instance = [keys: [@signing_key], source_encryption_keys: [@source_key]]
+    token = wm_token(instance, "logo.png")
+
+    config =
+      ImagePipe.config(
+        instance ++ [request_watermarks: true, presets: %{"wm" => "wm-enc=" <> token}]
+      )
+
+    assert %ImagePipe.Config{} =
+             ImagePipe.Config.override(config,
+               source_encryption_keys: [@other_source_key, @source_key]
+             )
+
+    error =
+      assert_raise ArgumentError, fn ->
+        ImagePipe.Config.override(config, source_encryption_keys: [@other_source_key])
+      end
+
+    assert error.message =~ ~s(preset "wm" has a wm-enc token)
+  end
+
+  defp wm_token(options, source) do
+    {:ok, token} =
+      ImagePipe.Security.encrypt_source(source, ImagePipe.config(options).url.options, [])
+
+    token
   end
 
   test "rejects malformed secret configuration without including its value" do
