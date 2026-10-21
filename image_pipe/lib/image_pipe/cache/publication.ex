@@ -2,7 +2,8 @@ defmodule ImagePipe.Cache.Publication do
   # Runs a source fetch's cache writes off the request, in one of the cache's
   # writers. The writer takes the source's lease (`Work.transfer/3`), so the
   # requests waiting for the source wake when it publishes, or after a
-  # deadline. A staged original the writes read is pinned for the writer and
+  # deadline. A write to memory needs no writer and runs in the request. A
+  # staged original the writes read is pinned for the writer and
   # counted as pending against the originals cache. The original is dropped
   # when the cache runs its maximum number of writers or its pending bytes
   # would pass the limit, and the other writes still run. Without a running
@@ -25,9 +26,11 @@ defmodule ImagePipe.Cache.Publication do
   Publishes `write` for the source `hash` under `lease`. `write` is one of:
 
     * a function,
+    * `{:memory, write}`, where `write` is a function or an invalidation that
+      touches no disk, and runs in the calling process,
     * `{:staged, path, put, then}`, where `put` stores the staged original at
-      `path`, given the path to read, and `then`, a function or nil, runs
-      after it. A dropped original still runs `then`.
+      `path`, given the path to read, and `then`, a write to memory or nil,
+      runs after it. A dropped original still runs `then`.
     * `{:invalidate, fun}`, which runs even after the lease has expired, since
       dropping an entry is always safe.
 
@@ -37,13 +40,14 @@ defmodule ImagePipe.Cache.Publication do
   def publish(hash, lease, write, opts) do
     case {writers_root(opts), stored(write, opts)} do
       {_root, nil} -> :ok
+      {_root, {:memory, write}} -> run(hash, lease, write, opts)
       {nil, write} -> run(hash, lease, inline(write), opts)
       {root, write} -> hand_off(root, hash, lease, write, opts)
     end
   end
 
   defp stored({:staged, _path, _put, then} = write, opts),
-    do: if(Keyword.get(opts, :input_cache), do: write, else: then)
+    do: if(Keyword.get(opts, :input_cache), do: write, else: then && {:memory, then})
 
   defp stored(write, _opts), do: write
 
@@ -116,8 +120,8 @@ defmodule ImagePipe.Cache.Publication do
           Writers.release(pending, size)
         end
 
-        # The record `then` writes goes to the other cache, so the original's
-        # pending bytes are no longer this process's.
+        # `then` writes only to memory, so the original's pending bytes are no
+        # longer this process's.
         run = fn ->
           Writers.hold(size)
           put.(pinned)

@@ -168,9 +168,9 @@ defmodule ImagePipe.Cache do
   end
 
   @doc false
-  # Stores the record from the calling process, a publication that already
-  # runs off the request, so the record is in place when it releases the
-  # source's lease.
+  # Stores the record from the calling process, under the source's
+  # publication lock, so the record is in place when it releases the source's
+  # lease.
   def remember_source(input_key, record, opts) do
     case record_store(opts) do
       nil ->
