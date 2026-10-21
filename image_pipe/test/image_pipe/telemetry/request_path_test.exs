@@ -29,7 +29,13 @@ defmodule ImagePipe.Telemetry.RequestPathTest do
         String.duplicate("/wm-src64=" <> reaching <> String.duplicate("/AAA", 64), 7) <>
           "/src/x.jpg",
         String.duplicate("/wm-src64=A", 900) <> "/src/x.jpg",
-        "/w=40/src64/" <> String.duplicate("A", 9_900)
+        "/w=40/src64/" <> String.duplicate("A", 9_900),
+        "/enc" <> String.duplicate("/src/a%3Fb", 900),
+        "/enc/src/x" <> String.duplicate("%3Fa%3D", 1_400),
+        "/enc" <> String.duplicate("/wm-src64=AAA" <> String.duplicate("/src64/AAAA", 32), 25),
+        "/src" <> String.duplicate("/src64/AAAA", 800),
+        "/enc" <> String.duplicate("/src64/A/src/x", 600),
+        "/src/x" <> String.duplicate("/AAAA", 1_900) <> "/src/a%3Fsig%3D1"
       ]
 
       for path <- paths do
@@ -59,6 +65,83 @@ defmodule ImagePipe.Telemetry.RequestPathTest do
       end
     end
   end
+
+  describe "a presigned source after another source marker" do
+    test "is redacted when the path starts with enc or src64" do
+      for marker <- ["enc", "src64"] do
+        path = "/#{marker}/w=2/src/https%3A%2F%2Fo.test%2Fa.jpg%3FX-Amz-Signature%3Dsecret"
+
+        assert Telemetry.request_path(path, "") ==
+                 "/#{marker}/w=2/src/https://o.test/a.jpg?X-Amz-Signature=REDACTED"
+      end
+    end
+
+    test "is redacted when a later marker splits a src URL or src64 token" do
+      # Standard base64 of a presigned URL with a `/src/` segment.
+      token = "aHR0cHM6Ly9vLnRlc3QvVSGY/src/Ejam4SqP1gtQW16LVNpZ25hdHVyZT1TRUNSRVRWQUxVRQ=="
+
+      for path <- [
+            "/enc/w=2/src/https://o.test/enc/a.jpg%3FX-Amz-Signature%3Dsecret",
+            "/enc/w=2/src/https://o.test/src64/a.jpg%3FX-Amz-Signature%3Dsecret",
+            "/enc/src/https://o.test/a%3Fx%3D1%26y%3D/src/%26X-Amz-Signature%3Dsecret",
+            "/enc/src/https://o.test/a%3Fx%3D/src/https://o.test/b%3FX-Amz-Signature%3Dsecret",
+            "/enc/w=2/src64/" <> token,
+            "/src/x/src64/" <> token,
+            "/w=2/wm-src64=" <> token <> "/src/x.jpg",
+            "/enc/x/wm-src64=" <> String.replace(token, "/src/", "/src64/") <> "/y"
+          ] do
+        logged = Telemetry.request_path(path, "")
+
+        refute logged =~ "secret", path
+        refute logged =~ "Ejam4SqP1gtQW16", path
+      end
+    end
+
+    test "is redacted from the query string a later src URL's `?` starts" do
+      assert Telemetry.request_path("/w=2/src/https://o.test/a", "x=/src/b?X-Amz-Signature=s") ==
+               "/w=2/src/https://o.test/a?x=/src/b?X-Amz-Signature=REDACTED"
+    end
+
+    property "never leaves its credential in the path" do
+      check all(
+              prefix <- list_of(prefix_segment(), max_length: 6),
+              marker <- member_of(["src", "src64"]),
+              url_path <- list_of(member_of(~w(src src64 enc a b.jpg)), max_length: 4),
+              before <- member_of(["", "w=1&", "x=/src/&", "y=a/enc/b;", "z=1?"]),
+              name <- member_of(@credentials),
+              secret <-
+                map(string(:alphanumeric, min_length: 4, max_length: 12), &("SeCrEt" <> &1)),
+              spelling <- member_of([:escaped, :literal, :url, :standard])
+            ) do
+        # Only a later `src` source reads a name after a `?` in the query.
+        before = if marker == "src64", do: String.replace(before, "?", "&"), else: before
+
+        url =
+          "https://o.test/" <> Enum.join(url_path, "/") <> "?" <> before <> name <> "=" <> secret
+
+        source = source(marker, spelling, url)
+        logged = Telemetry.request_path(path(prefix ++ [marker, source]), "")
+
+        refute logged =~ secret
+        refute logged =~ source
+      end
+    end
+  end
+
+  defp prefix_segment do
+    member_of(
+      ~w(w=2 rs=fill:10:10 src src64 enc AAAA Zm9v x.jpg https%3A%2F%2Fa.test%2Fb a%3Fx%3D a%3Fsig%3D1%26x%3D)
+    )
+  end
+
+  defp source("src", :literal, url) do
+    String.replace(url, ["?", "&", ";", "="], &("%" <> Base.encode16(&1)))
+  end
+
+  defp source("src", _spelling, url), do: URI.encode_www_form(url)
+  defp source("src64", :url, url), do: Base.url_encode64(url, padding: false)
+  defp source("src64", :standard, url), do: Base.encode64(url)
+  defp source("src64", _spelling, url), do: URI.encode_www_form(Base.encode64(url))
 
   defp reductions(fun) do
     {:reductions, before} = Process.info(self(), :reductions)

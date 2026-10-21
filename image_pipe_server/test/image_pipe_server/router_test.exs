@@ -256,6 +256,28 @@ defmodule ImagePipeServer.RouterTest do
       assert log =~ ~r"\[info\] GET /other/x 404 \d+ms"
     end
 
+    test "redacts a presigned source outside the mount that starts like a source", %{
+      opts: opts
+    } do
+      for marker <- ["/enc", "/src64"] do
+        log =
+          capture_log([level: :info], fn ->
+            conn =
+              conn(
+                :get,
+                marker <> "/w=2/src/https%3A%2F%2Fo.test%2Fa.jpg%3FX-Amz-Signature%3Dsecret"
+              )
+              |> put_req_header("authorization", "Bearer t0k")
+              |> Router.call(Router.init(opts))
+
+            assert conn.status == 404
+          end)
+
+        assert log =~ "GET #{marker}/w=2/src/https://o.test/a.jpg?X-Amz-Signature=REDACTED 404"
+        refute log =~ "secret"
+      end
+    end
+
     test "leaves the health checks out", %{opts: opts} do
       log =
         capture_log([level: :info], fn ->

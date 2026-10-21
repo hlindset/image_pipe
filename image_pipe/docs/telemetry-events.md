@@ -101,6 +101,10 @@ stages. `ImagePipe.write/5` writes its destination after the span closes.
     - A `src64` or `wm-src64` URL that carries them is replaced whole, as
       `src64/REDACTED` or `wm-src64=REDACTED`, whether or not ImagePipe
       accepts its base64.
+    - A source can be followed by another source, such as a `src64/`
+      segment in a `src` URL's path. A later `src` URL is redacted as
+      above. A later `src64` source becomes `src64/REDACTED`, with
+      everything after it, whether or not it carries credentials.
     - ImagePipe's own `sig=` path segment, the URL signature, is kept.
 - Stop metadata:
   - `:result` (atom): a request [result value](#result-values). When a

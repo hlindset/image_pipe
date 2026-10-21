@@ -260,6 +260,11 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - A presigned `src64` or `wm-src64` source is now redacted from the
   `[:request]` span's `:path` when its base64 is percent-encoded or ends
   in a `/`.
+- A presigned source after an earlier `src`, `src64`, or `enc` segment is
+  now redacted from the `[:request]` span's `:path`. Before, a path such as
+  `/enc/w=2/src/https%3A%2F%2Fo.test%2Fa.jpg%3FX-Amz-Signature%3Dsecret`
+  kept its credentials. A `src64` source after such a segment becomes
+  `src64/REDACTED`, with everything after it, even without credentials.
 - A request with `format=webp` while WebP is lossless no longer fails with
   `400` when it, a preset, or the request defaults set `autoquality` or
   `max-bytes`. The options are ignored, as with `format=png`.
