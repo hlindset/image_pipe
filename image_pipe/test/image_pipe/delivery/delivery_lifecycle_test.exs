@@ -51,7 +51,7 @@ defmodule ImagePipe.Delivery.DeliveryLifecycleTest do
     fn pump -> pump.(stream, "image/jpeg", resolved_output(), nil) end
   end
 
-  # A dialect's `build_fun` wraps its pump call in brackets (fetch/decode) whose
+  # `Processing.build_fun/5` wraps its pump call in brackets (fetch/decode) whose
   # `after` must run exactly once. This stands in for that bracket.
   defp bracketed_build_fun(stream) do
     fn pump ->

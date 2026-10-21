@@ -464,7 +464,7 @@ defmodule ImagePipe.Telemetry.Trace.HandlerTest do
     assert span.attributes[:placeholders] == ["blurhash"]
   end
 
-  test "captures :sig_key_index on the API URL dialect's [:parse] stop metadata" do
+  test "captures :sig_key_index on the [:parse] stop metadata" do
     Telemetry.span([], [:parse], %{}, fn -> {:ok, %{result: :ok, sig_key_index: 1}} end)
 
     assert_receive {:span, %Span{name: "image_pipe.parse"} = span}
