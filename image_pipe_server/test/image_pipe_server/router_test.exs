@@ -15,6 +15,7 @@ defmodule ImagePipeServer.RouterTest do
 
     image_pipe =
       ImagePipe.Plug.init(
+        allow_unsigned: true,
         sources: [
           static: [
             adapter: ImagePipe.Source.File,

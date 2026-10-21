@@ -1,5 +1,9 @@
 # Configuration for the container smoke test (test/container/smoke.sh).
 
+# The test requests unsigned URLs from a local container.
+[url]
+allow_unsigned = true
+
 [sources.static]
 adapter = "file"
 match = "path"

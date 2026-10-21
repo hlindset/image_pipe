@@ -169,12 +169,13 @@ The HTTP listener. Times are in milliseconds. `read_timeout` closes connections 
 
 ### `[url]`
 
-How the server checks request URLs: the signing keys and the keys that decrypt `enc/` image paths. See [signing URLs and rotating keys](../../image_pipe/docs/signing-urls.md).
+How the server checks request URLs: the signing keys and the keys that decrypt `enc/` image paths. See [signing URLs and rotating keys](../../image_pipe/docs/signing-urls.md). Without `keys`, the server doesn't start unless `allow_unsigned = true`. That setting lets the server answer URLs without a signature, and the server logs a warning at startup. Set it only for a server that nothing outside a private network can reach.
 
 | Key | Type | Default |
 | --- | --- | --- |
 | `keys` | array of hex strings, each at least 64 digits | `[]` |
 | `source_encryption_keys` | array of hex strings, each a 32-byte key | `[]` |
+| `allow_unsigned` | boolean | `false` |
 
 ### `[sources.<name>]`
 

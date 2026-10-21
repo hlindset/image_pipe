@@ -17,6 +17,7 @@ defmodule ImagePipeServer.StatsTest do
 
     start_supervised!(
       {ImagePipe,
+       allow_unsigned: true,
        name: instance,
        sources: [
          static: [

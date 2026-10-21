@@ -27,7 +27,11 @@ defmodule ImagePipeServer.Config.Reference do
         "[health and shutdown](server-deployment.md#health-and-shutdown).",
     url:
       "How the server checks request URLs: the signing keys and the keys that decrypt " <>
-        "`enc/` image paths. See [signing URLs and rotating keys](../../image_pipe/docs/signing-urls.md).",
+        "`enc/` image paths. See [signing URLs and rotating keys](../../image_pipe/docs/signing-urls.md). " <>
+        "Without `keys`, the server doesn't start unless `allow_unsigned = true`. That " <>
+        "setting lets the server answer URLs without a signature, and the server logs a " <>
+        "warning at startup. Set it only for a server that nothing outside a private " <>
+        "network can reach.",
     sources: nil,
     cache:
       "Caches on the local filesystem: `output` for processed images, `input` for " <>

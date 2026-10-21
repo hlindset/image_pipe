@@ -36,7 +36,9 @@ defmodule ImagePipeServer.ConfigTest do
 
   describe "options!/1" do
     test "rejects unknown sections" do
-      assert error(fn -> Config.options!(%{"servr" => %{}}) end) =~ "servr: unknown setting"
+      assert error(fn ->
+               Config.options!(%{"url" => %{"allow_unsigned" => true}, "servr" => %{}})
+             end) =~ "servr: unknown setting"
     end
 
     test "converts [url], keeping hex source-encryption keys as given" do
@@ -54,9 +56,25 @@ defmodule ImagePipeServer.ConfigTest do
       assert url[:source_encryption_keys] == [hex, String.upcase(hex)]
     end
 
+    test "refuses to start without signing keys unless url.allow_unsigned is set" do
+      message =
+        error(fn -> Config.build!(Config.options!(%{})) end)
+
+      assert message =~ "url.keys"
+      assert message =~ "url.allow_unsigned"
+
+      assert %Config{} = Config.build!(Config.options!(%{"url" => %{"allow_unsigned" => true}}))
+
+      assert %Config{} =
+               Config.build!(
+                 Config.options!(%{"url" => %{"keys" => [String.duplicate("ab", 32)]}})
+               )
+    end
+
     test "converts presets and request defaults in [processing]" do
       processing =
         Config.options!(%{
+          "url" => %{"allow_unsigned" => true},
           "processing" => %{
             "presets" => %{"card" => "w=400/h=400"},
             "request_defaults" => "q=80"
@@ -89,6 +107,7 @@ defmodule ImagePipeServer.ConfigTest do
     test "converts [cache] to file system caches and storage inputs" do
       cache =
         Config.options!(%{
+          "url" => %{"allow_unsigned" => true},
           "cache" => %{
             "output" => %{"root" => "/var/cache/out", "max_size_bytes" => 1_000_000},
             "input" => %{"root" => {:env, "/var/cache/in"}, "max_size_bytes" => 2_000_000},
@@ -107,6 +126,7 @@ defmodule ImagePipeServer.ConfigTest do
     test "converts [processing], including encoder options" do
       processing =
         Config.options!(%{
+          "url" => %{"allow_unsigned" => true},
           "processing" => %{
             "quality" => {:env, "82"},
             "format_quality" => %{"webp" => 80},
@@ -132,6 +152,7 @@ defmodule ImagePipeServer.ConfigTest do
     test "converts [processing.svg]" do
       processing =
         Config.options!(%{
+          "url" => %{"allow_unsigned" => true},
           "processing" => %{
             "svg" => %{
               "font_dirs" => {:env, "/fonts,/more-fonts"},
@@ -150,7 +171,12 @@ defmodule ImagePipeServer.ConfigTest do
 
     test "keeps Elixir-only processing settings out of the file" do
       for key <- ["clock", "preset_lookup", "max_preset_lookups"] do
-        assert error(fn -> Config.options!(%{"processing" => %{key => 1}}) end) =~
+        assert error(fn ->
+                 Config.options!(%{
+                   "url" => %{"allow_unsigned" => true},
+                   "processing" => %{key => 1}
+                 })
+               end) =~
                  "processing.#{key}: not supported in the configuration file"
       end
     end
@@ -158,7 +184,7 @@ defmodule ImagePipeServer.ConfigTest do
 
   describe "build!/1" do
     test "fills server defaults" do
-      config = Config.build!(Config.options!(%{}))
+      config = Config.build!(Config.options!(%{"url" => %{"allow_unsigned" => true}}))
 
       assert config.server == [
                port: 8080,
@@ -181,16 +207,33 @@ defmodule ImagePipeServer.ConfigTest do
 
     test "parses the bind address and checks the mount path" do
       server = %{"port" => {:env, "9000"}, "bind" => "::1", "mount_path" => "/images"}
-      config = Config.build!(Config.options!(%{"server" => server}))
+
+      config =
+        Config.build!(
+          Config.options!(%{"url" => %{"allow_unsigned" => true}, "server" => server})
+        )
+
       assert config.server[:port] == 9000
       assert config.server[:ip] == {0, 0, 0, 0, 0, 0, 0, 1}
       assert config.server[:mount_path] == "/images"
 
-      assert error(fn -> Config.build!(Config.options!(%{"server" => %{"bind" => "host"}})) end) =~
+      assert error(fn ->
+               Config.build!(
+                 Config.options!(%{
+                   "url" => %{"allow_unsigned" => true},
+                   "server" => %{"bind" => "host"}
+                 })
+               )
+             end) =~
                "server.bind: expected an IP address"
 
       assert error(fn ->
-               Config.build!(Config.options!(%{"server" => %{"mount_path" => "images"}}))
+               Config.build!(
+                 Config.options!(%{
+                   "url" => %{"allow_unsigned" => true},
+                   "server" => %{"mount_path" => "images"}
+                 })
+               )
              end) =~ "server.mount_path: expected a path starting with /"
     end
 
@@ -198,6 +241,7 @@ defmodule ImagePipeServer.ConfigTest do
       config =
         Config.build!(
           Config.options!(%{
+            "url" => %{"allow_unsigned" => true},
             "sources" => %{
               "files" => %{
                 "adapter" => "file",
@@ -219,6 +263,7 @@ defmodule ImagePipeServer.ConfigTest do
       assert error(fn ->
                Config.build!(
                  Config.options!(%{
+                   "url" => %{"allow_unsigned" => true},
                    "processing" => %{"watermarks" => %{"logo" => %{"opacity" => 0.5}}}
                  })
                )
@@ -229,6 +274,7 @@ defmodule ImagePipeServer.ConfigTest do
       config =
         Config.build!(
           Config.options!(%{
+            "url" => %{"allow_unsigned" => true},
             "pool" => %{"max_concurrency" => 4},
             "telemetry" => %{
               "log_level" => "warning",
@@ -251,18 +297,27 @@ defmodule ImagePipeServer.ConfigTest do
       assert config.trust_traceparent == true
       assert config.trust_request_id == true
 
-      queue_only = Config.build!(Config.options!(%{"pool" => %{"max_queue" => 1}}))
+      queue_only =
+        Config.build!(
+          Config.options!(%{"url" => %{"allow_unsigned" => true}, "pool" => %{"max_queue" => 1}})
+        )
+
       assert queue_only.pool[:max_concurrency] == System.schedulers_online()
       assert queue_only.pool[:max_queue] == 1
 
       assert error(fn ->
-               Config.build!(Config.options!(%{"pool" => %{"max_concurrency" => 0}}))
+               Config.build!(
+                 Config.options!(%{
+                   "url" => %{"allow_unsigned" => true},
+                   "pool" => %{"max_concurrency" => 0}
+                 })
+               )
              end) =~
                "pool"
     end
 
     test "defaults [telemetry] to info, a summary line per request, plain text, and no inbound IDs" do
-      config = Config.build!([])
+      config = Config.build!(url: [allow_unsigned: true])
 
       assert config.log_level == :info
       assert config.log_format == :text
@@ -270,19 +325,32 @@ defmodule ImagePipeServer.ConfigTest do
       assert config.telemetry == [level: :info, stages: false]
       assert config.trust_request_id == false
 
-      off = Config.build!(Config.options!(%{"telemetry" => %{"log_requests" => false}}))
+      off =
+        Config.build!(
+          Config.options!(%{
+            "url" => %{"allow_unsigned" => true},
+            "telemetry" => %{"log_requests" => false}
+          })
+        )
+
       assert off.telemetry == nil
 
       assert error(fn ->
                Config.build!(
                  Config.options!(%{
+                   "url" => %{"allow_unsigned" => true},
                    "telemetry" => %{"log_requests" => false, "log_stages" => true}
                  })
                )
              end) =~ "log_stages"
 
       assert error(fn ->
-               Config.build!(Config.options!(%{"telemetry" => %{"log_format" => "xml"}}))
+               Config.build!(
+                 Config.options!(%{
+                   "url" => %{"allow_unsigned" => true},
+                   "telemetry" => %{"log_format" => "xml"}
+                 })
+               )
              end) =~ "log_format"
     end
 
@@ -290,6 +358,7 @@ defmodule ImagePipeServer.ConfigTest do
       config =
         Config.build!(
           Config.options!(%{
+            "url" => %{"allow_unsigned" => true},
             "processing" => %{"quality" => 70},
             "http" => %{"http_cache" => "auto", "allow_origin" => "*"}
           })
@@ -343,16 +412,27 @@ defmodule ImagePipeServer.ConfigTest do
     end
 
     test "names the cache root setting" do
-      assert error(fn -> Config.options!(%{"cache" => %{"output" => %{"root" => 5}}}) end) =~
+      assert error(fn ->
+               Config.options!(%{
+                 "url" => %{"allow_unsigned" => true},
+                 "cache" => %{"output" => %{"root" => 5}}
+               })
+             end) =~
                "invalid configuration: cache.output.root: expected an absolute path"
 
       assert error(fn ->
-               Config.options!(%{"cache" => %{"input" => %{"max_size_bytes" => 1}}})
+               Config.options!(%{
+                 "url" => %{"allow_unsigned" => true},
+                 "cache" => %{"input" => %{"max_size_bytes" => 1}}
+               })
              end) ==
                "invalid configuration: cache.input.root: required"
 
       assert error(fn ->
-               Config.options!(%{"cache" => %{"output" => %{"root" => "/var/cache/out"}}})
+               Config.options!(%{
+                 "url" => %{"allow_unsigned" => true},
+                 "cache" => %{"output" => %{"root" => "/var/cache/out"}}
+               })
              end) ==
                "invalid configuration: cache.output.max_size_bytes: required"
     end
@@ -361,6 +441,7 @@ defmodule ImagePipeServer.ConfigTest do
       assert error(fn ->
                Config.build!(
                  Config.options!(%{
+                   "url" => %{"allow_unsigned" => true},
                    "sources" => %{
                      "h" => %{"adapter" => "http", "match" => "path", "base_url" => "ftp://x"}
                    }
@@ -371,30 +452,47 @@ defmodule ImagePipeServer.ConfigTest do
 
     test "reports library validation errors" do
       assert error(fn ->
-               Config.build!(Config.options!(%{"processing" => %{"quality" => 500}}))
+               Config.build!(
+                 Config.options!(%{
+                   "url" => %{"allow_unsigned" => true},
+                   "processing" => %{"quality" => 500}
+                 })
+               )
              end) =~
                "quality"
     end
 
     test "reports an SVG fallback family that isn't among the fonts" do
-      options = %{"processing" => %{"svg" => %{"fallback_family" => "Noto Sans"}}}
+      options = %{
+        "url" => %{"allow_unsigned" => true},
+        "processing" => %{"svg" => %{"fallback_family" => "Noto Sans"}}
+      }
 
       assert error(fn -> Config.build!(Config.options!(options)) end) =~ "Noto Sans"
     end
 
     test "keeps only a hash of the auth token" do
-      config = Config.build!(Config.options!(%{"server" => %{"auth_token" => {:env, "sekrit"}}}))
+      config =
+        Config.build!(
+          Config.options!(%{
+            "url" => %{"allow_unsigned" => true},
+            "server" => %{"auth_token" => {:env, "sekrit"}}
+          })
+        )
 
       assert config.server[:auth_token_hash] == :crypto.hash(:sha256, "sekrit")
       refute inspect(config) =~ "sekrit"
     end
 
     test "turns stats on only with enabled and a token, keeping only the token's hash" do
-      assert Config.build!([]).stats_token_hash == nil
+      assert Config.build!(url: [allow_unsigned: true]).stats_token_hash == nil
 
       config =
         Config.build!(
-          Config.options!(%{"stats" => %{"enabled" => true, "token" => {:env, "sekrit"}}})
+          Config.options!(%{
+            "url" => %{"allow_unsigned" => true},
+            "stats" => %{"enabled" => true, "token" => {:env, "sekrit"}}
+          })
         )
 
       assert config.stats_token_hash == :crypto.hash(:sha256, "sekrit")
@@ -406,55 +504,106 @@ defmodule ImagePipeServer.ConfigTest do
             %{"token" => "sekrit"},
             %{"enabled" => false, "token" => "sekrit"}
           ] do
-        message = error(fn -> Config.build!(Config.options!(%{"stats" => stats})) end)
+        message =
+          error(fn ->
+            Config.build!(
+              Config.options!(%{"url" => %{"allow_unsigned" => true}, "stats" => stats})
+            )
+          end)
+
         assert message =~ "stats."
         refute message =~ "sekrit"
       end
     end
 
     test "rejects an empty auth token" do
-      assert error(fn -> Config.build!(Config.options!(%{"server" => %{"auth_token" => ""}})) end) =~
+      assert error(fn ->
+               Config.build!(
+                 Config.options!(%{
+                   "url" => %{"allow_unsigned" => true},
+                   "server" => %{"auth_token" => ""}
+                 })
+               )
+             end) =~
                "server.auth_token"
     end
 
     test "rejects a port above 65535" do
-      assert error(fn -> Config.build!(Config.options!(%{"server" => %{"port" => 70_000}})) end) =~
+      assert error(fn ->
+               Config.build!(
+                 Config.options!(%{
+                   "url" => %{"allow_unsigned" => true},
+                   "server" => %{"port" => 70_000}
+                 })
+               )
+             end) =~
                "server.port"
 
-      assert Config.build!(Config.options!(%{"server" => %{"port" => 65_535}})).server[:port] ==
+      assert Config.build!(
+               Config.options!(%{
+                 "url" => %{"allow_unsigned" => true},
+                 "server" => %{"port" => 65_535}
+               })
+             ).server[:port] ==
                65_535
     end
 
     test "rejects a health_port equal to port" do
-      assert error(fn -> Config.build!(server: [port: 9000, health_port: 9000]) end) ==
+      assert error(fn ->
+               Config.build!(url: [allow_unsigned: true], server: [port: 9000, health_port: 9000])
+             end) ==
                "invalid configuration: server.health_port: must differ from server.port"
 
-      assert Config.build!(server: [port: 0, health_port: 0]).server[:health_port] == 0
+      assert Config.build!(url: [allow_unsigned: true], server: [port: 0, health_port: 0]).server[
+               :health_port
+             ] == 0
     end
 
     test "takes the shutdown grace period from [server]" do
-      config = Config.build!(Config.options!(%{"server" => %{"shutdown_timeout" => 30_000}}))
+      config =
+        Config.build!(
+          Config.options!(%{
+            "url" => %{"allow_unsigned" => true},
+            "server" => %{"shutdown_timeout" => 30_000}
+          })
+        )
+
       assert config.server[:shutdown_timeout] == 30_000
     end
 
     test "rejects a required detector the build doesn't have" do
       assert error(fn ->
-               Config.build!(Config.options!(%{"processing" => %{"detector_required" => true}}))
+               Config.build!(
+                 Config.options!(%{
+                   "url" => %{"allow_unsigned" => true},
+                   "processing" => %{"detector_required" => true}
+                 })
+               )
              end) =~ "detector_required: the detector is not available in this build"
     end
 
     test "takes detector warmup from [processing], loading every model by default" do
-      assert Config.build!([]).detector_warmup == :all
+      assert Config.build!(url: [allow_unsigned: true]).detector_warmup == :all
 
       for {value, expected} <- [{false, false}, {["face"], ["face"]}, {"all", :all}] do
-        config = Config.build!(Config.options!(%{"processing" => %{"detector_warmup" => value}}))
+        config =
+          Config.build!(
+            Config.options!(%{
+              "url" => %{"allow_unsigned" => true},
+              "processing" => %{"detector_warmup" => value}
+            })
+          )
+
         assert config.detector_warmup == expected
       end
     end
 
     test "rejects a detector warmup that isn't all, false, or a list" do
       assert error(fn ->
-               Config.options!(%{"processing" => %{"detector_warmup" => true}})
+               Config.options!(%{
+                 "url" => %{"allow_unsigned" => true},
+                 "processing" => %{"detector_warmup" => true}
+               })
              end) =~ "processing.detector_warmup: invalid value"
     end
 
@@ -464,6 +613,7 @@ defmodule ImagePipeServer.ConfigTest do
       config =
         Config.build!(
           Config.options!(%{
+            "url" => %{"allow_unsigned" => true},
             "sources" => %{
               "media" => %{
                 "adapter" => "s3",
@@ -515,6 +665,9 @@ defmodule ImagePipeServer.ConfigTest do
       [server]
       port = 9000
 
+      [url]
+      allow_unsigned = true
+
       [processing]
       quality = 82
 
@@ -552,7 +705,8 @@ defmodule ImagePipeServer.ConfigTest do
     end
 
     defp warmup_options(path, env) do
-      [warmup] = Config.load!(Map.put(env, "IPS_CONFIG", path), "absent.toml").credential_warmups
+      env = Map.merge(env, %{"IPS_CONFIG" => path, "IPS_URL__ALLOW_UNSIGNED" => "true"})
+      [warmup] = Config.load!(env, "absent.toml").credential_warmups
       Keyword.fetch!(warmup, :opts)
     end
 

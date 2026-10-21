@@ -5,6 +5,9 @@ port = 0
 bind = "127.0.0.1"
 shutdown_delay = 0
 
+[url]
+allow_unsigned = true
+
 [sources.static]
 adapter = "file"
 match = "path"

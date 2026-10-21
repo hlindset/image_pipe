@@ -86,19 +86,35 @@ defmodule ImagePipeServer.ApplicationTest do
 
   describe "tracer_options/1" do
     test "ignores an inbound traceparent by default" do
-      assert App.tracer_options(Config.build!([])) == [extract_inbound: false]
+      assert App.tracer_options(Config.build!(url: [allow_unsigned: true])) == [
+               extract_inbound: false
+             ]
     end
 
     test "continues an inbound traceparent with trust_traceparent" do
-      config = Config.build!(Config.options!(%{"telemetry" => %{"trust_traceparent" => true}}))
+      config =
+        Config.build!(
+          Config.options!(%{
+            "url" => %{"allow_unsigned" => true},
+            "telemetry" => %{"trust_traceparent" => true}
+          })
+        )
+
       assert App.tracer_options(config)[:extract_inbound] == true
     end
   end
 
   describe "router_options/2" do
     test "has the router log its own answers when log_requests is on" do
-      on = Config.build!([])
-      off = Config.build!(Config.options!(%{"telemetry" => %{"log_requests" => false}}))
+      on = Config.build!(url: [allow_unsigned: true])
+
+      off =
+        Config.build!(
+          Config.options!(%{
+            "url" => %{"allow_unsigned" => true},
+            "telemetry" => %{"log_requests" => false}
+          })
+        )
 
       assert App.router_options(on, Health.new())[:log_requests] == true
       assert App.router_options(off, Health.new())[:log_requests] == false
@@ -111,6 +127,7 @@ defmodule ImagePipeServer.ApplicationTest do
     } do
       config =
         Config.build!(
+          url: [allow_unsigned: true],
           pool: [max_concurrency: 2],
           cache: [
             cache: [root: Path.join(dir, "out"), max_size_bytes: 1_000_000],
@@ -133,6 +150,7 @@ defmodule ImagePipeServer.ApplicationTest do
       config =
         Config.build!(
           Config.options!(%{
+            "url" => %{"allow_unsigned" => true},
             "sources" => %{
               "media" => %{
                 "adapter" => "s3",
@@ -161,12 +179,14 @@ defmodule ImagePipeServer.ApplicationTest do
                {ImagePipeServer.Warmup, _warmup},
                {Bandit, _http},
                %{id: :serving}
-             ] = App.children(Config.build!([]), Health.new())
+             ] = App.children(Config.build!(url: [allow_unsigned: true]), Health.new())
     end
 
     test "turns readiness on after the listener starts" do
       drain = Health.new()
-      %{start: {module, function, args}} = List.last(App.children(Config.build!([]), drain))
+
+      %{start: {module, function, args}} =
+        List.last(App.children(Config.build!(url: [allow_unsigned: true]), drain))
 
       assert apply(module, function, args) == :ignore
       assert Health.serving?(drain)
@@ -215,7 +235,12 @@ defmodule ImagePipeServer.ApplicationTest do
 
   describe "http_child/2" do
     test "caps connections on one acceptor and sets the read timeout" do
-      config = Config.build!(server: [max_connections: 2048, read_timeout: 5_000])
+      config =
+        Config.build!(
+          url: [allow_unsigned: true],
+          server: [max_connections: 2048, read_timeout: 5_000]
+        )
+
       {Bandit, opts} = App.http_child(config, {ImagePipeServer.Router, []})
       island = opts[:thousand_island_options]
 
@@ -226,7 +251,12 @@ defmodule ImagePipeServer.ApplicationTest do
     end
 
     test "serves a new connection while another is held below max_connections" do
-      config = Config.build!(server: [port: 0, bind: "127.0.0.1", max_connections: 2])
+      config =
+        Config.build!(
+          url: [allow_unsigned: true],
+          server: [port: 0, bind: "127.0.0.1", max_connections: 2]
+        )
+
       {Bandit, opts} = App.http_child(config, {Health, drain: Health.new()})
       name = :"listener_#{System.unique_integer([:positive])}"
 
@@ -257,7 +287,7 @@ defmodule ImagePipeServer.ApplicationTest do
 
   describe "HTTP versions" do
     test "serves HTTP/1.1 and refuses HTTP/2 prior knowledge" do
-      config = Config.build!(server: [port: 0, bind: "127.0.0.1"])
+      config = Config.build!(url: [allow_unsigned: true], server: [port: 0, bind: "127.0.0.1"])
       {Bandit, opts} = App.http_child(config, {Health, drain: Health.new()})
       name = :"listener_#{System.unique_integer([:positive])}"
       opts = put_in(opts, [:thousand_island_options, :supervisor_options], name: name)
@@ -309,12 +339,15 @@ defmodule ImagePipeServer.ApplicationTest do
     end
 
     test "starts only with health_port" do
-      refute App.health_child(Config.build!([]), Health.new())
+      refute App.health_child(Config.build!(url: [allow_unsigned: true]), Health.new())
     end
 
     test "answers liveness while the main listener is at its connection cap" do
       config =
-        Config.build!(server: [port: 0, bind: "127.0.0.1", max_connections: 1, health_port: 0])
+        Config.build!(
+          url: [allow_unsigned: true],
+          server: [port: 0, bind: "127.0.0.1", max_connections: 1, health_port: 0]
+        )
 
       drain = Health.new()
       main = start_named(App.http_child(config, {Health, drain: drain}), :main_listener)
@@ -347,7 +380,11 @@ defmodule ImagePipeServer.ApplicationTest do
   describe "read timeout" do
     @tag :capture_log
     test "closes connections that stay silent" do
-      config = Config.build!(server: [port: 0, bind: "127.0.0.1", read_timeout: 100])
+      config =
+        Config.build!(
+          url: [allow_unsigned: true],
+          server: [port: 0, bind: "127.0.0.1", read_timeout: 100]
+        )
 
       {Bandit, opts} =
         App.http_child(config, {ImagePipeServer.Router, App.router_options(config, Health.new())})
@@ -384,7 +421,10 @@ defmodule ImagePipeServer.ApplicationTest do
 
     defp start_listener(shutdown_timeout) do
       config =
-        Config.build!(server: [port: 0, bind: "127.0.0.1", shutdown_timeout: shutdown_timeout])
+        Config.build!(
+          url: [allow_unsigned: true],
+          server: [port: 0, bind: "127.0.0.1", shutdown_timeout: shutdown_timeout]
+        )
 
       {Bandit, opts} = App.http_child(config, {SlowPlug, self()})
       name = :"listener_#{System.unique_integer([:positive])}"
