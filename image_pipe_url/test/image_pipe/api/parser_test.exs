@@ -1530,6 +1530,21 @@ defmodule ImagePipe.API.ParserTest do
       end
     end
 
+    test "a group holding only request options doesn't make a pipeline preset" do
+      config = [
+        presets: %{
+          "p" => "w=100/-/format=webp",
+          "webp" => "format=webp",
+          "nested" => "w=100/-/preset=webp"
+        }
+      ]
+
+      for preset <- ["p", "nested"] do
+        assert parse(["preset=#{preset}", "blur=1"], "images/cat.jpg", config) ==
+                 parse(["w=100", "blur=1", "format=webp"])
+      end
+    end
+
     test "unset keeps inherited options whose requirement still holds" do
       config = [
         presets: %{
