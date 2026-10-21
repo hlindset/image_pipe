@@ -195,7 +195,14 @@ defmodule ImagePipe.Telemetry.Summary do
 
   defp put_cache_outcome(summary), do: Map.delete(summary, :coalesced)
 
-  defp fields([:parse], _duration, meta), do: take(meta, sig_key: :sig_key_index)
+  defp fields([:parse], _duration, meta),
+    do:
+      take(meta,
+        sig_key: :sig_key_index,
+        source_url: :source_url,
+        watermark_source_urls: :watermark_source_urls
+      )
+
   defp fields([:source, :resolve], _duration, meta), do: take(meta, source: :source_name)
 
   defp fields([:source, :fetch], duration, meta),

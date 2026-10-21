@@ -83,9 +83,13 @@ that isn't a string, number, or boolean becomes its `inspect/1` text.
 
 - `http.request.method`, `url.path`, and `url.query`: the request's method,
   path, and query string, under OpenTelemetry's HTTP names. They come from
-  the [`[:request]`](telemetry-events.md#request) start. The path is as
-  sent, including its URL signature, with a presigned source URL's
-  credentials [redacted](telemetry-events.md#request).
+  the [`[:request]`](telemetry-events.md#request) start. The path ends at
+  the source, as in `/w=200/src/REDACTED`, and keeps the URL signature.
+  `url.query` is present only for a path without a source.
+- `source_url` and `watermark_source_urls`: the sources as ImagePipe parsed
+  them, with credentials replaced with `REDACTED`, as on the
+  [`[:request]`](telemetry-events.md#request) stop. The
+  `image_pipe.parse` span has the same attributes.
 - `request_id`, when Logger metadata has a `:request_id`, such as the one
   `Plug.RequestId` sets, so you can find a request's trace from its log
   lines.

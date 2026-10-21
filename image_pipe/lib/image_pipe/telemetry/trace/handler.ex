@@ -24,9 +24,9 @@ defmodule ImagePipe.Telemetry.Trace.Handler do
   #
   # Never allow keys, tokens, or other secret-bearing data. The request's
   # method and path go on the request span under OTel's names (see
-  # start_attributes/2): the path arrives with a presigned source URL's
-  # credentials redacted. An ImagePipe URL signature authorizes only that URL, and source
-  # concealment hides the source from the requester, not the operator.
+  # start_attributes/2): the path arrives cut at its source marker. An
+  # ImagePipe URL signature authorizes only that URL, and source concealment
+  # hides the source from the requester, not the operator.
   # Keep :params opaque: matching concrete transform structs here would invert
   # the telemetry dependency boundary.
   @safe_keys [
@@ -62,6 +62,10 @@ defmodule ImagePipe.Telemetry.Trace.Handler do
     # metadata (nil when the request is legitimately unsigned) — a small
     # integer, never a secret
     :sig_key_index,
+    # the parsed source and watermark sources, which arrive with their
+    # credentials redacted (ImagePipe.Telemetry.source_url/1)
+    :source_url,
+    :watermark_source_urls,
     # preset lookup: host-chosen preset names and counts
     :names,
     # URL keys of the inert options a request wrote, never their values

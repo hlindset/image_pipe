@@ -289,267 +289,57 @@ defmodule ImagePipe.Telemetry do
                         x-amz-signature x-amz-credential x-amz-security-token)
 
   @doc false
-  # A request's path and query for telemetry, as sent, unless a source URL in
-  # it carries credentials:
-  #
-  #   * the query string's credential values become `REDACTED`
-  #   * a `src` URL carrying them is logged decoded, as the source parser reads
-  #     it, with those values `REDACTED`
-  #   * a `src64` or `wm-src64` URL carrying them, in any base64 spelling,
-  #     percent-encoded or not, becomes `REDACTED` whole
-  #
-  # It runs on every request before the signature is checked, so its work
-  # stays linear in the path's length.
+  # A request's path and query for telemetry, cut at the source: the first
+  # `src`, `src64`, or `enc` segment with anything after it is followed by
+  # `REDACTED`, and nothing after it is kept. `wm-src64=` tokens become
+  # `REDACTED`. A query after a source is the source's own, so it's dropped.
+  # Without a source, credential values in the query become `REDACTED`.
+  # Nothing is decoded, so the work stays linear in the path's length.
   @spec request_path(String.t(), String.t()) :: String.t()
-  def request_path(path, ""), do: redact_path(path)
-  def request_path(path, query), do: redact_path(path) <> "?" <> redact_params(query)
+  def request_path(path, query) do
+    case cut_path(String.split(path, "/"), []) do
+      {:cut, segments} -> Enum.join(segments, "/")
+      {:whole, segments} when query == "" -> Enum.join(segments, "/")
+      {:whole, segments} -> Enum.join(segments, "/") <> "?" <> redact_params(query)
+    end
+  end
 
   @source_markers ~w(src src64 enc)
 
-  # The source is the path's tail and can hold `/`, so it's split off before
-  # the option segments are checked one by one.
-  defp redact_path(path) do
-    case split_source(String.split(path, "/"), []) do
-      {options, marker, tail} ->
-        Enum.join(redact_segment_list(options), "/") <>
-          "/" <> marker <> "/" <> redact_tail(marker, tail)
+  defp cut_path([marker | tail], acc) when marker in @source_markers and tail not in [[], [""]],
+    do: {:cut, Enum.reverse(["REDACTED", marker | acc])}
 
-      :none ->
-        path |> String.split("/") |> redact_segment_list() |> Enum.join("/")
-    end
+  defp cut_path(["wm-src64=" <> _token | rest], acc),
+    do: cut_path(rest, ["wm-src64=REDACTED" | acc])
+
+  defp cut_path([segment | rest], acc), do: cut_path(rest, [segment | acc])
+  defp cut_path([], acc), do: {:whole, Enum.reverse(acc)}
+
+  @doc false
+  # A parsed source for telemetry: credential values in its query, and any
+  # userinfo, become `REDACTED`. The query runs from the first `?` to a `#`,
+  # as the origin reads it. A source is decoded from the request without a
+  # UTF-8 check, so invalid bytes are replaced and control characters
+  # percent-encoded, keeping log lines whole and valid.
+  @spec source_url(String.t()) :: String.t()
+  def source_url(source) do
+    source =
+      source
+      |> String.replace_invalid()
+      |> then(&Regex.replace(~r/[\x00-\x1F\x7F]/, &1, fn char -> "%" <> Base.encode16(char) end))
+
+    {resource, fragment} = split_once(source, "#")
+    {base, query} = split_once(resource, "?")
+    base = Regex.replace(~r{\A((?:[A-Za-z][A-Za-z0-9+.-]*:)?//)[^/]*@}, base, "\\1REDACTED@")
+    query = if query, do: "?" <> redact_params(query), else: ""
+    fragment = if fragment, do: "#" <> fragment, else: ""
+    base <> query <> fragment
   end
 
-  # The first marker segment that follows another segment and has a tail.
-  defp split_source([segment, marker | [_ | _] = tail], options) when marker in @source_markers,
-    do: {Enum.reverse([segment | options]), marker, Enum.join(tail, "/")}
-
-  defp split_source([segment | rest], options), do: split_source(rest, [segment | options])
-  defp split_source([], _options), do: :none
-
-  # Standard base64 can hold `/`, so a `wm-src64=` token is also tried joined
-  # with the base64-looking segments after it, as many as a request can hold.
-  @max_joined_segments 64
-
-  defp redact_segment_list(["wm-src64=" <> token = segment | rest]) do
-    taken = if base64_presigned?(token), do: 0, else: joined_presigned(token, rest)
-
-    case taken do
-      nil -> [segment | redact_segment_list(rest)]
-      taken -> ["wm-src64=REDACTED" | redact_segment_list(Enum.drop(rest, taken))]
-    end
-  end
-
-  defp redact_segment_list([segment | rest]), do: [segment | redact_segment_list(rest)]
-  defp redact_segment_list([]), do: []
-
-  # The fewest following segments that make the token a presigned URL, or
-  # nil. A joined candidate holds a `/`, so only standard base64 can decode
-  # it, as sent or percent-decoded. While a spelling's segments are all
-  # standard base64 characters, each candidate decodes to a prefix of one
-  # stream, and a prefix is presigned once it reaches the end of the stream's
-  # first credential name. So the stream is decoded once per spelling, and
-  # only a candidate whose last segment holds another character is decoded
-  # on its own, at most once per spelling.
-  defp joined_presigned(token, rest) do
-    case base64_run(token, rest, 0) do
-      [] ->
-        nil
-
-      pieces ->
-        segments = [token | pieces]
-
-        verdicts =
-          [segments, Enum.map(segments, &URI.decode/1)]
-          |> Enum.uniq()
-          |> Enum.map(&joined_verdicts/1)
-
-        first_presigned(segments, verdicts, 1)
-    end
-  end
-
-  defp base64_run(previous, [segment | rest], count) when count < @max_joined_segments do
-    if base64_open?(previous) and base64_piece?(segment),
-      do: [segment | base64_run(segment, rest, count + 1)],
-      else: []
-  end
-
-  defp base64_run(_previous, _segments, _count), do: []
-
-  # For each candidate from one following segment on: `true` when it's
-  # presigned, `:decode` when only decoding it can tell. A segment with a
-  # character outside standard base64 leaves every longer candidate invalid.
-  defp joined_verdicts([first | rest]) do
-    if base64_alphabet?(first) do
-      {pure, other} = Enum.split_while(rest, &base64_alphabet?/1)
-      reach = pure_stream_reach([first | pure])
-      verdicts = pure_verdicts(pure, byte_size(first), trailing_slashes(first), reach)
-      if other == [], do: verdicts, else: verdicts ++ [:decode]
-    else
-      []
-    end
-  end
-
-  # The decoded length a candidate needs to be presigned: the end of the
-  # first credential name in the whole stream, or nil. A credential whose
-  # value is already `REDACTED` counts too, which can only redact more.
-  defp pure_stream_reach(segments) do
-    chars = Enum.join(segments, "/")
-    {:ok, url} = Base.decode64(binary_part(chars, 0, div(byte_size(chars), 4) * 4))
-    presigned_reach(url)
-  end
-
-  # Each candidate is tried as sent and with its trailing slashes trimmed.
-  defp pure_verdicts([segment | rest], length, slashes, reach) do
-    length = length + 1 + byte_size(segment)
-
-    slashes =
-      if trailing_slashes(segment) == byte_size(segment),
-        do: slashes + 1 + byte_size(segment),
-        else: trailing_slashes(segment)
-
-    presigned =
-      reach != nil and
-        (decodes_past?(length, reach) or (slashes > 0 and decodes_past?(length - slashes, reach)))
-
-    [presigned | pure_verdicts(rest, length, slashes, reach)]
-  end
-
-  defp pure_verdicts([], _length, _slashes, _reach), do: []
-
-  defp decodes_past?(length, reach), do: rem(length, 4) == 0 and div(length, 4) * 3 >= reach
-
-  defp first_presigned(segments, verdicts, taken) do
-    heads = for [head | _tail] <- verdicts, do: head
-
-    cond do
-      heads == [] -> nil
-      true in heads -> taken
-      :decode in heads and joined_presigned?(segments, taken) -> taken
-      true -> first_presigned(segments, for([_head | tail] <- verdicts, do: tail), taken + 1)
-    end
-  end
-
-  # A joined candidate's `/` leaves only standard base64. Trimming its
-  # trailing slashes back to the token alone gives a spelling already tried.
-  defp joined_presigned?(segments, taken),
-    do: segments |> Enum.take(taken + 1) |> Enum.join("/") |> base64_presigned?([:standard])
-
-  defp trailing_slashes(segment),
-    do: byte_size(segment) - byte_size(String.trim_trailing(segment, "/"))
-
-  # A segment that a later one could continue: base64 without padding or an
-  # extension. `%` allows a percent-escaped `+` or `=` beside a literal `/`.
-  defp base64_open?(segment), do: segment != "" and base64_chars?(segment, "")
-
-  # A segment that can continue a base64 token, possibly ending it.
-  defp base64_piece?(segment), do: segment != "" and base64_chars?(segment, "=.")
-
-  defp base64_chars?(<<char, rest::binary>>, extra)
-       when char in ?A..?Z or char in ?a..?z or char in ?0..?9 or char in [?+, ?%],
-       do: base64_chars?(rest, extra)
-
-  defp base64_chars?(<<char, rest::binary>>, extra) do
-    :binary.match(extra, <<char>>) != :nomatch and base64_chars?(rest, extra)
-  end
-
-  defp base64_chars?(<<>>, _extra), do: true
-
-  defp base64_alphabet?(<<char, rest::binary>>)
-       when char in ?A..?Z or char in ?a..?z or char in ?0..?9 or char in [?+, ?/],
-       do: base64_alphabet?(rest)
-
-  defp base64_alphabet?(<<>>), do: true
-  defp base64_alphabet?(_other), do: false
-
-  defp redact_tail("src", tail) do
-    with [base, query] <- String.split(String.replace_invalid(URI.decode(tail)), "?", parts: 2),
-         redacted when redacted != query <- redact_params(query) do
-      base <> "?" <> redacted
-    else
-      _as_sent -> tail
-    end
-  end
-
-  defp redact_tail("src64", tail), do: if(base64_presigned?(tail), do: "REDACTED", else: tail)
-  defp redact_tail("enc", tail), do: tail
-
-  # Every spelling a base64 source might use, valid or not, since a request
-  # the parser rejects is logged too.
-  @base64_decoders [:url_unpadded, :url, :standard]
-
-  defp base64_presigned?(token, decoders \\ @base64_decoders) do
-    Enum.any?(base64_spellings(token), fn candidate ->
-      Enum.any?(decoders, &presigned_decoding?(&1, candidate))
-    end)
-  end
-
-  defp base64_spellings(token) do
-    for spelling <- Enum.uniq([token, URI.decode(token)]),
-        spelling <- Enum.uniq([spelling, String.trim_trailing(spelling, "/")]),
-        spelling <- Enum.uniq([spelling, strip_extension(spelling)]),
-        uniq: true,
-        do: spelling
-  end
-
-  defp presigned_decoding?(decoder, candidate) do
-    case decode64(decoder, candidate) do
-      {:ok, url} -> presigned_url?(url)
-      :error -> false
-    end
-  end
-
-  defp decode64(:url_unpadded, candidate), do: Base.url_decode64(candidate, padding: false)
-  defp decode64(:url, candidate), do: Base.url_decode64(candidate)
-  defp decode64(:standard, candidate), do: Base.decode64(candidate)
-
-  defp strip_extension(token) do
-    with [_ | _] = dots <- :binary.matches(token, "."),
-         {position, 1} = List.last(dots),
-         extension = binary_part(token, position + 1, byte_size(token) - position - 1),
-         true <- extension != "" and alphanumeric?(extension) do
-      binary_part(token, 0, position)
-    else
-      _no_extension -> token
-    end
-  end
-
-  defp alphanumeric?(<<char, rest::binary>>)
-       when char in ?A..?Z or char in ?a..?z or char in ?0..?9,
-       do: alphanumeric?(rest)
-
-  defp alphanumeric?(<<>>), do: true
-  defp alphanumeric?(_other), do: false
-
-  defp presigned_url?(url) do
-    case String.split(url, "?", parts: 2) do
-      [_base, query] -> redact_params(query) != query
-      [_base] -> false
-    end
-  end
-
-  # How many bytes of `url` a prefix must hold to be presigned: up to the
-  # `=` after the first credential name in its query, or nil.
-  defp presigned_reach(url) do
-    case :binary.match(url, "?") do
-      {position, 1} -> credential_reach(url, position + 1)
-      :nomatch -> nil
-    end
-  end
-
-  defp credential_reach(url, start) do
-    size = byte_size(url)
-
-    {pair_end, next} =
-      case :binary.match(url, ["&", ";"], scope: {start, size - start}) do
-        {position, 1} -> {position, position + 1}
-        :nomatch -> {size, nil}
-      end
-
-    with {equals, 1} <- :binary.match(url, "=", scope: {start, pair_end - start}),
-         true <- credential_param?(binary_part(url, start, equals - start)) do
-      equals + 1
-    else
-      _not_credential -> if next, do: credential_reach(url, next)
+  defp split_once(string, separator) do
+    case :binary.split(string, separator) do
+      [before, rest] -> {before, rest}
+      [whole] -> {whole, nil}
     end
   end
 

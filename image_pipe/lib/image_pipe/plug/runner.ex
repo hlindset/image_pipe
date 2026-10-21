@@ -41,10 +41,9 @@ defmodule ImagePipe.Plug.Runner do
     |> abort_failed_stream()
   end
 
-  # Telemetry belongs to the operator, so the path is as sent, concealed
-  # source included. Only a presigned source URL's credentials are redacted,
-  # in the part after the mount path, which the redaction reads as ImagePipe
-  # options.
+  # The path is cut at its source, which the parse stop shows decoded with
+  # its credentials redacted. Only the part after the mount path is cut, so
+  # a mount segment such as `enc` isn't taken for a source marker.
   defp request_metadata(conn) do
     path = ParsedRequest.mount_relative_path(conn)
     mount = binary_part(conn.request_path, 0, byte_size(conn.request_path) - byte_size(path))
@@ -95,17 +94,20 @@ defmodule ImagePipe.Plug.Runner do
 
   defp route(%Plug.Conn{} = conn, config) do
     case parse(conn, config) do
-      {:ok, request, source} ->
-        handle_request(conn, request, source, config)
+      {{:ok, request, source}, sources} ->
+        {conn, metadata} = handle_request(conn, request, source, config)
+        {conn, Map.merge(metadata, sources)}
 
-      {:error, reason} ->
+      {{:error, reason}, _sources} ->
         send_error(conn, reason, config)
     end
   end
 
+  # The parsed sources go on the request span's stop too.
   defp parse(%Plug.Conn{} = conn, config) do
     Telemetry.span(config, [:parse], %{}, fn ->
-      ParsedRequest.parse(conn, config)
+      {result, metadata} = ParsedRequest.parse(conn, config)
+      {{result, Map.take(metadata, [:source_url, :watermark_source_urls])}, metadata}
     end)
   end
 

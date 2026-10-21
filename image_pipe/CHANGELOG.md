@@ -7,6 +7,15 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- The `[:parse]` and `[:request]` stops and the request summary carry
+  `:source_url`, the request's source as ImagePipe parsed it, decoded from
+  `src64` or decrypted from `enc`, and `:watermark_source_urls`, each
+  group's watermark source. Credential parameters, such as
+  `X-Amz-Signature`, and a URL's user name and password are replaced with
+  `REDACTED`. The default Logger writes them as `source_url=` and
+  `watermark_source_url=` fields, and the tracer records them on the
+  `image_pipe.parse` and `image_pipe.request` spans. See
+  [`[:parse]`](docs/telemetry-events.md#parse).
 - `ImagePipe.cache_stats/1` reports each cache's stored bytes and entries,
   its size cap, and its hits and misses since start, or `refused: true` for
   a cache whose root another node owns. A cache that doesn't report its
@@ -48,6 +57,19 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Breaking:** The `[:request]` event's `:path`, the request summary's
+  path, and the `url.path` trace attribute end at the source: the first
+  `src`, `src64`, or `enc` segment is followed by `REDACTED`, and the rest
+  of the path and the query string are left out, as in
+  `/w=200/src/REDACTED`. Each `wm-src64=` value is `REDACTED` too. Read
+  the source from the new `:source_url` instead. Before, the path was as
+  sent, with only a presigned source's credentials redacted.
+- **Breaking:** `enc` and `wm-enc=` sources are now visible to telemetry
+  handlers, logs, and traces, decrypted, in `:source_url` and
+  `:watermark_source_urls`. Source encryption hides a source from whoever
+  requests the image, not from whoever reads your telemetry. If you send
+  telemetry somewhere you don't want your source URLs, drop these keys in
+  your handler.
 - A request with `crop=100pct,100pct` and no `crop-ratio`, or with
   `region=0,0,100pct,100pct`, is processed as the same request without them,
   since they keep the whole image, and gets its cache key and ETag. Cached
@@ -257,9 +279,6 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   instead of `:pool_timeout`. When the source's host resolves to several
   addresses, a fetch no longer tries the next one with less than 100 ms of
   `fetch_timeout` left.
-- A presigned `src64` or `wm-src64` source is now redacted from the
-  `[:request]` span's `:path` when its base64 is percent-encoded or ends
-  in a `/`.
 - A request with `format=webp` while WebP is lossless no longer fails with
   `400` when it, a preset, or the request defaults set `autoquality` or
   `max-bytes`. The options are ignored, as with `format=png`.

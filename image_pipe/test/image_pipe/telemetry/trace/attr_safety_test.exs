@@ -17,7 +17,7 @@ defmodule ImagePipe.Telemetry.Trace.AttrSafetyTest do
       [],
       [:source, :fetch],
       %{
-        source_url: signed,
+        origin_url: signed,
         source_path: "/img.jpg?sig=SECRET123",
         source_name: :media
       },
@@ -39,7 +39,7 @@ defmodule ImagePipe.Telemetry.Trace.AttrSafetyTest do
             body <- StreamData.string(:alphanumeric, min_length: 1),
             key <-
               StreamData.member_of([
-                :source_url,
+                :origin_url,
                 :source_path,
                 :signature,
                 :token,

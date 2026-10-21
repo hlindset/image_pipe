@@ -7,6 +7,7 @@ defmodule ImagePipe.Plug.Request do
   alias ImagePipe.Plan.Spec
   alias ImagePipe.Presets
   alias ImagePipe.Security
+  alias ImagePipe.Telemetry
 
   # Verify → lex → decrypt → parse. Returns the telemetry stop metadata with
   # the result so the Runner's parse span can report the signing key index.
@@ -26,17 +27,34 @@ defmodule ImagePipe.Plug.Request do
       end
 
     case result do
-      {%Spec{} = request, source, nil} ->
-        {{:ok, request, source}, %{result: :ok}}
-
       {%Spec{} = request, source, key_index} ->
-        {{:ok, request, source}, %{result: :ok, sig_key_index: key_index}}
+        sources = source_metadata(request, source)
+
+        metadata =
+          %{result: :ok, sig_key_index: key_index}
+          |> Map.merge(sources)
+          |> Map.reject(fn {_key, value} -> is_nil(value) end)
+
+        {{:ok, request, source}, metadata}
 
       {:error, _reason} = error ->
         # The request span reports the error's tag, so the parse span's stop
         # carries only the result.
         {error, %{result: :error}}
     end
+  end
+
+  # The parsed sources for telemetry, credentials redacted: the request's
+  # source, and each group's watermark source, decoded or decrypted.
+  defp source_metadata(%Spec{groups: groups}, source) do
+    watermarks =
+      for %{watermark: %{asset: {:src, watermark}}} <- groups,
+          do: Telemetry.source_url(watermark)
+
+    %{
+      source_url: Telemetry.source_url(source),
+      watermark_source_urls: if(watermarks != [], do: watermarks)
+    }
   end
 
   # The presets this request's parse sees: the static map, or with a

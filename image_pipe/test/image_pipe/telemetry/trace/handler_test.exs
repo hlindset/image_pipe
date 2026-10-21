@@ -472,6 +472,21 @@ defmodule ImagePipe.Telemetry.Trace.HandlerTest do
     assert span.attributes[:sig_key_index] == 1
   end
 
+  test "captures the parsed sources on the [:parse] and [:request] stops" do
+    sources = %{source_url: "a.jpg?sig=REDACTED", watermark_source_urls: ["m.png", "l.png"]}
+
+    Telemetry.span([], [:request], %{method: "GET", path: "/src/REDACTED"}, fn ->
+      Telemetry.span([], [:parse], %{}, fn -> {:ok, Map.put(sources, :result, :ok)} end)
+      {:ok, Map.put(sources, :result, :ok)}
+    end)
+
+    for name <- ["image_pipe.parse", "image_pipe.request"] do
+      assert_receive {:span, %Span{name: ^name} = span}
+      assert span.attributes[:source_url] == "a.jpg?sig=REDACTED"
+      assert span.attributes[:watermark_source_urls] == ["m.png", "l.png"]
+    end
+  end
+
   test "captures the preset lookup span with its names and counts" do
     Telemetry.span([], [:preset, :lookup], %{names: ["default", "card"]}, fn ->
       {:ok, %{result: :ok, fetched: 2, batches: 2}}
@@ -751,11 +766,11 @@ defmodule ImagePipe.Telemetry.Trace.HandlerTest do
 
   test "drops non-allowlisted stop-metadata keys" do
     Telemetry.span([], [:request], %{}, fn ->
-      {:ok, %{result: :ok, source_url: "https://secret.example/signed?sig=abc"}}
+      {:ok, %{result: :ok, origin_url: "https://secret.example/signed?sig=abc"}}
     end)
 
     assert_receive {:span, %Span{name: "image_pipe.request"} = span}
-    refute Map.has_key?(span.attributes, :source_url)
+    refute Map.has_key?(span.attributes, :origin_url)
   end
 
   test "captures the input color management span with its working_space/imported? attributes" do
@@ -838,13 +853,13 @@ defmodule ImagePipe.Telemetry.Trace.HandlerTest do
   end
 
   test "a request span carries its method, path, and query under OTel's names" do
-    Telemetry.span([], [:request], %{method: "GET", path: "/w=40/src/a.jpg?sig=REDACTED"}, fn ->
+    Telemetry.span([], [:request], %{method: "GET", path: "/w=40?sig=REDACTED"}, fn ->
       {:ok, %{result: :ok}}
     end)
 
     assert_receive {:span, %Span{name: "image_pipe.request"} = request}
     assert request.attributes[:"http.request.method"] == "GET"
-    assert request.attributes[:"url.path"] == "/w=40/src/a.jpg"
+    assert request.attributes[:"url.path"] == "/w=40"
     assert request.attributes[:"url.query"] == "sig=REDACTED"
     refute Map.has_key?(request.attributes, :path)
   end

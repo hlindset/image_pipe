@@ -813,6 +813,30 @@ defmodule ImagePipe.Telemetry.LoggerTest do
     assert log =~ "[info] GET /w=40/src/a.jpg 200 3ms staging=memory staging_reason=dir"
   end
 
+  test "a summary line shows the source first, and one field per watermark source" do
+    prefix = [__MODULE__, :summary_sources]
+    Telemetry.attach_default_logger(prefix: prefix, level: :info)
+
+    log =
+      capture_log(fn ->
+        :telemetry.execute(prefix ++ [:request, :summary], %{duration: 0}, %{
+          method: "GET",
+          path: "/wm-src64=REDACTED/-/wm-src64=REDACTED/src/REDACTED",
+          status: 200,
+          result: :ok,
+          duration_ms: 3,
+          cache: :miss,
+          source_url: "https://o.test/a.jpg?sig=REDACTED",
+          watermark_source_urls: ["mark.png", "logo,v2.png"]
+        })
+      end)
+
+    assert log =~
+             "[info] GET /wm-src64=REDACTED/-/wm-src64=REDACTED/src/REDACTED 200 3ms " <>
+               ~s(source_url="https://o.test/a.jpg?sig=REDACTED" ) <>
+               "watermark_source_url=mark.png watermark_source_url=logo,v2.png cache=miss"
+  end
+
   test "a summary line logs a 4xx at warning and a 5xx or failed stream at error" do
     prefix = [__MODULE__, :summary_levels]
     Telemetry.attach_default_logger(prefix: prefix, level: :info)

@@ -25,8 +25,8 @@ Each request then logs one line: the method, path, status, duration, and
 bytes sent, then what the request did as `key=value` fields:
 
 ```text
-[info] GET /w=200/src/beach.jpg 200 79ms 4.7kB cache=miss source=images source_fetch=ok fetch_ms=1 input=jpeg input_size=4000x2667 decode_ms=4 ops=resize output=jpeg output_size=200x133 encode_ms=6 admission=admitted queue_ms=0
-[warning] GET /w=200/src/missing.jpg 404 1ms error=source reason="source not found" source=images source_fetch=source_error fetch_ms=0
+[info] GET /w=200/src/REDACTED 200 79ms 4.7kB source_url=beach.jpg cache=miss source=images source_fetch=ok fetch_ms=1 input=jpeg input_size=4000x2667 decode_ms=4 ops=resize output=jpeg output_size=200x133 encode_ms=6 admission=admitted queue_ms=0
+[warning] GET /w=200/src/REDACTED 404 1ms source_url=missing.jpg error=source reason="source not found" source=images source_fetch=source_error fetch_ms=0
 ```
 
 A `5xx`, or a response that failed partway through sending, logs at
@@ -45,8 +45,9 @@ fields. The fields are also in the line's Logger metadata, as a map under
 `image_pipe` object. One key keeps them clear of the fields a log collector
 reserves, such as Datadog's `status`.
 
-The path is logged as sent, apart from
-[presigned source credentials](#what-events-contain).
+The path ends at the source, as in `/w=200/src/REDACTED`, and the source
+follows as a `source_url=` field, without
+[its credentials](#what-events-contain).
 
 To debug a request, pass `stages: true` to also log one line for each of its
 stages, such as each cache lookup, the decode, and the encode. If you set a
@@ -113,12 +114,18 @@ correlate by trace ID instead (see [request tracing](tracing.md)).
 
 Event metadata leaves out origin credentials and the signing and encryption
 keys. The path on [`[:request]`](telemetry-events.md#request) and the summary
-is as sent, including its URL signature, which authorizes only that URL. A
-presigned source URL's credentials, such as an `X-Amz-Signature` value, are
+ends at the source, as in `/w=200/src/REDACTED`, and each `wm-src64=` value
+is `REDACTED`. It keeps the URL signature, which authorizes only that URL.
+
+Once a request parses, `:source_url` and `:watermark_source_urls` show its
+sources as ImagePipe parsed them: decoded from `src64`, or decrypted from
+`enc`, so an encrypted source is visible to anyone who reads your telemetry.
+A presigned URL's credentials, such as an `X-Amz-Signature` value, are
 replaced with `REDACTED`
-([parameters](telemetry-events.md#request)). A `src64` or `wm-src64` source
-that carries them is replaced whole, as `src64/REDACTED` or
-`wm-src64=REDACTED`. Metadata does include values
+([parameters](telemetry-events.md#request)). A request that fails before it
+parses, such as one with a bad signature, has only the path.
+
+Metadata does include values
 that can have many distinct values, such as paths, preset names, operation
 parameters, and image sizes. Choose which ones become metrics tags.
 

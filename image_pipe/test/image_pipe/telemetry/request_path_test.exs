@@ -4,59 +4,112 @@ defmodule ImagePipe.Telemetry.RequestPathTest do
 
   alias ImagePipe.Telemetry
 
-  @credentials ~w(X-Amz-Signature x-goog-credential sig AWSAccessKeyId)
+  @credentials ~w(X-Amz-Signature x-goog-credential sig AWSAccessKeyId X-Amz-Security-Token)
 
-  describe "work per byte" do
-    # A path up to Bandit's 10,000-byte request line, built from one repeated
-    # unit, each unit a `wm-src64=` token and the segments it could join.
-    defp crafted(unit) do
-      unit = "/wm-src64=AAA" <> unit
-      String.duplicate(unit, div(10_000, byte_size(unit))) <> "/src/x.jpg"
+  describe "request_path/2" do
+    test "ends the path at the source marker" do
+      for marker <- ~w(src src64 enc) do
+        assert Telemetry.request_path("/w=40/#{marker}/a/b.jpg", "") ==
+                 "/w=40/#{marker}/REDACTED"
+      end
+
+      assert Telemetry.request_path("/src/https%3A%2F%2Fo.test%2Fa.jpg", "") == "/src/REDACTED"
     end
 
-    test "stays within a small constant for crafted paths" do
-      reaching = Base.encode64("https://a/b?sig=") |> binary_part(0, 20)
+    test "keeps a marker with nothing after it" do
+      assert Telemetry.request_path("/w=40/src", "") == "/w=40/src"
+      assert Telemetry.request_path("/w=40/src/", "") == "/w=40/src/"
+    end
 
+    test "cuts at the first marker, wherever the path came from" do
+      # A request sent under the wrong prefix, outside the mount.
+      path = "/enc/w=2/src/https%3A%2F%2Fo.test%2Fa.jpg%3FX-Amz-Signature%3Dsecret"
+
+      assert Telemetry.request_path(path, "") == "/enc/REDACTED"
+      assert Telemetry.request_path("/src64/x/w=2/src/a.jpg", "") == "/src64/REDACTED"
+    end
+
+    test "replaces every wm-src64 token" do
+      token = Base.url_encode64("https://o.test/mark.png", padding: false)
+
+      assert Telemetry.request_path("/wm-src64=#{token}/w=40/src/a.jpg", "") ==
+               "/wm-src64=REDACTED/w=40/src/REDACTED"
+
+      assert Telemetry.request_path("/wm-src64=a/-/wm-src64=b", "") ==
+               "/wm-src64=REDACTED/-/wm-src64=REDACTED"
+    end
+
+    test "keeps the URL signature, wm-enc tokens, and other options" do
+      path = "/sig=abc/wm-enc=AQRTMotB/w=40/rs=fill:10:10/src/a.jpg"
+
+      assert Telemetry.request_path(path, "") ==
+               "/sig=abc/wm-enc=AQRTMotB/w=40/rs=fill:10:10/src/REDACTED"
+    end
+
+    test "drops the query string after a marker" do
+      assert Telemetry.request_path("/w=40/src/https://o.test/a.jpg", "X-Amz-Signature=s&a=1") ==
+               "/w=40/src/REDACTED"
+    end
+
+    test "redacts credential values in the query string of a path without a marker" do
+      assert Telemetry.request_path(
+               "/w=40",
+               "X-Amz-Signature=abc&x-amz-credential=key;%73ig=s&keep=1"
+             ) ==
+               "/w=40?X-Amz-Signature=REDACTED&x-amz-credential=REDACTED;%73ig=REDACTED&keep=1"
+
+      assert Telemetry.request_path("/favicon.ico", "v=2") == "/favicon.ico?v=2"
+      assert Telemetry.request_path("/w=40", "") == "/w=40"
+    end
+  end
+
+  describe "no credential survives" do
+    property "in a path with a source, wherever the client put it" do
+      check all(
+              secret <- secret(),
+              before <- list_of(option_segment(secret), max_length: 6),
+              marker <- member_of(~w(src src64 enc)),
+              tail <- list_of(tail_segment(secret), min_length: 1, max_length: 6),
+              query <- query(secret)
+            ) do
+        path = "/" <> Enum.join(before ++ [marker | tail], "/")
+
+        refute_secret(Telemetry.request_path(path, query), secret)
+      end
+    end
+
+    property "in the query string of a path without a source" do
+      check all(
+              secret <- secret(),
+              before <- list_of(option_segment(secret), max_length: 6),
+              query <- query(secret)
+            ) do
+        path = "/" <> Enum.join(before, "/")
+
+        refute_secret(Telemetry.request_path(path, query), secret)
+      end
+    end
+  end
+
+  describe "work per byte" do
+    test "stays within a small constant" do
       paths = [
-        crafted(String.duplicate("/AAAA", 64)),
-        crafted(String.duplicate("/AAAA", 63) <> "/AAA="),
-        crafted(String.duplicate("/AAAA", 63) <> "/A.jpg"),
-        crafted("/A%3DA" <> String.duplicate("/AAAA", 62)),
-        crafted(String.duplicate("/A%41A", 63) <> "/AA%3D"),
-        crafted(String.duplicate("/A", 63) <> "/A.jpg"),
-        crafted(String.duplicate("/A", 63) <> "/A="),
-        crafted(String.duplicate("/A", 62) <> "/A%2B/A%3D"),
-        String.duplicate("/wm-src64=" <> reaching <> String.duplicate("/AAA", 64), 7) <>
-          "/src/x.jpg",
+        String.duplicate("/a", 5_000),
         String.duplicate("/wm-src64=A", 900) <> "/src/x.jpg",
-        "/w=40/src64/" <> String.duplicate("A", 9_900)
+        "/w=40/src64/" <> String.duplicate("A", 9_900),
+        "/w=40/src/" <> String.duplicate("a/", 4_900),
+        "/enc" <> String.duplicate("/src/a%3Fb", 900)
       ]
 
       for path <- paths do
         assert reductions(fn -> Telemetry.request_path(path, "") end) < 100 * byte_size(path),
                binary_part(path, 0, 60)
       end
-    end
-  end
 
-  describe "wm-src64 tokens split by `/`" do
-    property "are redacted as decoding every joined candidate would" do
-      check all(token <- presigned_token(), tail <- tail_segments()) do
-        options = ["wm-src64=" <> token | tail]
+      query = String.duplicate("sig=a&", 1_600)
 
-        assert Telemetry.request_path(path(options), "") == path(expected(options))
-      end
-    end
-
-    property "base64-looking segments without credentials are logged as sent" do
-      check all(
-              segments <- list_of(junk_segment(), min_length: 1, max_length: 70),
-              tail <- tail_segments()
-            ) do
-        options = ["wm-src64=" <> Enum.join(segments, "/") | tail]
-
-        assert Telemetry.request_path(path(options), "") == path(expected(options))
-      end
+      assert reductions(fn -> Telemetry.request_path("/w=40", query) end) <
+               100 * byte_size(query)
     end
   end
 
@@ -67,119 +120,76 @@ defmodule ImagePipe.Telemetry.RequestPathTest do
     later - before
   end
 
-  # A presigned URL in standard base64, which holds `/`, in a spelling a
-  # client might send. Bytes above 0x7F put a `/` at any offset, so a joined
-  # prefix can decode too.
-  defp presigned_token do
-    gen all(
-          path <-
-            map(
-              list_of(member_of([?a, ?z, ?~, ?>, ??, ?/, 0xBF, 0xFB, 0xFF]),
-                min_length: 1,
-                max_length: 60
-              ),
-              &:binary.list_to_bin/1
-            ),
-          name <- member_of(@credentials),
-          value <- string(:alphanumeric, min_length: 1, max_length: 40),
-          spelling <- member_of([:plain, :escaped, :extension, :python])
-        ) do
-      token = Base.encode64("https://b.example/" <> path <> "?" <> name <> "=" <> value)
+  # A credential value no other generator produces: lowercase letters never
+  # appear in the other segments' alphabets.
+  defp secret, do: map(string(?j..?q, min_length: 8, max_length: 16), &("zz" <> &1))
 
+  defp presigned_url(secret) do
+    gen all(
+          name <- member_of(@credentials),
+          spelling <- member_of([:as_is, :downcased, :escaped_name])
+        ) do
+      name =
+        case spelling do
+          :as_is -> name
+          :downcased -> String.downcase(name)
+          :escaped_name -> "%" <> Base.encode16(binary_part(name, 0, 1)) <> tail_of(name)
+        end
+
+      "https://o.test/a.jpg?w=1&" <> name <> "=" <> secret
+    end
+  end
+
+  defp tail_of(name), do: binary_part(name, 1, byte_size(name) - 1)
+
+  # A presigned URL in each spelling a client might put in one segment.
+  defp encoded_url(secret) do
+    gen all(
+          url <- presigned_url(secret),
+          spelling <- member_of([:escaped, :base64url, :base64url_padded, :base64_escaped])
+        ) do
       case spelling do
-        :plain -> token
-        :escaped -> URI.encode_www_form(token)
-        :extension -> token <> ".jpg"
-        :python -> token |> String.replace("+", "%2B") |> String.replace("=", "%3D")
+        :escaped -> URI.encode_www_form(url)
+        :base64url -> Base.url_encode64(url, padding: false)
+        :base64url_padded -> Base.url_encode64(url)
+        :base64_escaped -> URI.encode_www_form(Base.encode64(url))
       end
     end
   end
 
-  defp junk_segment do
+  defp option_segment(secret) do
     one_of([
-      filter(
-        string([?A..?Z, ?a..?z, ?0..?9, ?+], min_length: 1, max_length: 8),
-        &(&1 not in ~w(src src64 enc))
-      ),
-      map(string([?A..?Z, ?0..?9], min_length: 1, max_length: 4), &(&1 <> "%2B")),
-      constant("AAA="),
-      constant("A.jpg")
+      member_of(["w=40", "rs=fill:10:10", "-", "sig=AbC", "wm-enc=AQRTMotB"]),
+      map(encoded_url(secret), &("wm-src64=" <> &1))
     ])
   end
 
-  defp tail_segments do
-    list_of(member_of(["w=40", "AAAA", "Zm9v", "rs=fill:10:10", "AB%3D", "%2F"]), max_length: 4)
+  defp tail_segment(secret) do
+    one_of([
+      member_of(["a.jpg", "https:", "", "o.test", "src", "src64"]),
+      presigned_url(secret),
+      encoded_url(secret),
+      map(encoded_url(secret), &("wm-src64=" <> &1))
+    ])
   end
 
-  # The redacted path from trying every candidate the way the redaction is
-  # specified: the token alone, then joined with each following segment that
-  # can continue it, in every spelling and base64 alphabet.
-  defp path(options), do: Enum.map_join(options, &("/" <> &1)) <> "/src/a.jpg"
-
-  defp expected(options) do
-    ["wm-src64=" <> token | segments] = options |> Enum.join("/") |> String.split("/")
-
-    case Enum.find(0..length(joinable(token, segments)), &presigned?([token | segments], &1)) do
-      nil -> options
-      taken -> ["wm-src64=REDACTED" | Enum.drop(segments, taken)]
-    end
+  defp query(secret) do
+    one_of([
+      constant(""),
+      map(presigned_url(secret), fn url -> url |> String.split("?") |> List.last() end)
+    ])
   end
 
-  defp joinable(previous, [segment | rest]) do
-    if previous =~ ~r/\A[A-Za-z0-9+%]+\z/ and segment =~ ~r/\A[A-Za-z0-9+%=.]+\z/,
-      do: Enum.take([segment | joinable(segment, rest)], 64),
-      else: []
-  end
+  # The secret in any spelling the output could hold: as is, percent-encoded,
+  # or inside a base64 token.
+  defp refute_secret(output, secret) do
+    refute output =~ secret
 
-  defp joinable(_previous, []), do: []
-
-  defp presigned?(segments, taken) do
-    candidate = segments |> Enum.take(taken + 1) |> Enum.join("/")
-
-    decoded =
-      try do
-        URI.decode(candidate)
-      rescue
-        ArgumentError -> candidate
-      end
-
-    for spelling <- [candidate, decoded],
-        spelling <- [spelling, String.trim_trailing(spelling, "/")],
-        spelling <- [spelling, String.replace(spelling, ~r/\.[A-Za-z0-9]+\z/, "")],
+    for piece <- String.split(output, ["/", "=", "?", "&", ";"]),
+        piece = URI.decode(piece),
         decode <- [&Base.url_decode64(&1, padding: false), &Base.url_decode64/1, &Base.decode64/1],
-        {:ok, url} <- [decode.(spelling)] do
-      url
+        {:ok, decoded} <- [decode.(piece)] do
+      refute decoded =~ secret
     end
-    |> Enum.any?(&credential_query?/1)
-  end
-
-  defp credential_query?(url) do
-    case String.split(url, "?", parts: 2) do
-      [_base, query] ->
-        query |> String.split(["&", ";"]) |> Enum.any?(&credential_pair?/1)
-
-      [_base] ->
-        false
-    end
-  end
-
-  defp credential_pair?(pair) do
-    case String.split(pair, "=", parts: 2) do
-      [name, value] -> credential?(name) and value != "REDACTED"
-      [_name] -> false
-    end
-  end
-
-  defp credential?(name) do
-    decoded =
-      try do
-        URI.decode(name)
-      rescue
-        ArgumentError -> name
-      end
-
-    String.downcase(decoded) in ~w(awsaccesskeyid signature sig x-goog-signature
-                                  x-goog-credential x-amz-signature x-amz-credential
-                                  x-amz-security-token)
   end
 end
