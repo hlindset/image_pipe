@@ -285,9 +285,8 @@ defmodule ImagePipe.Cache do
     )
   end
 
-  # `facts` describe the entry being stored: its generation cost (`:cost_us`),
-  # debug facts (`:debug`) and the source record it was made from
-  # (`:source_record`). Each is optional.
+  # `facts` describe the entry being stored: its generation cost (`:cost_us`)
+  # and debug facts (`:debug`). Each is optional.
   @doc false
   @spec open_sink(
           Key.t() | nil,

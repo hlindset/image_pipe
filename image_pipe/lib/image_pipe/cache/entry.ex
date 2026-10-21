@@ -15,7 +15,7 @@ defmodule ImagePipe.Cache.Entry do
 
   defguardp control?(byte) when byte < 0x20 or byte == 0x7F
 
-  defstruct @enforce_keys ++ [representation: nil, debug: nil, source_record: nil]
+  defstruct @enforce_keys ++ [representation: nil, debug: nil]
 
   @type header :: {String.t(), String.t()}
   # `representation` tags what an entry's `content_type`/`body` mean:
@@ -31,19 +31,8 @@ defmodule ImagePipe.Cache.Entry do
           headers: [header()],
           created_at: DateTime.t(),
           representation: representation() | nil,
-          debug: Info.t() | nil,
-          source_record: ImagePipe.Source.Record.t() | nil
+          debug: Info.t() | nil
         }
-
-  @doc false
-  def validate_source_record(nil), do: :ok
-
-  def validate_source_record(record) do
-    case ImagePipe.Source.Record.valid?(record) do
-      true -> :ok
-      false -> {:error, :invalid_source_record}
-    end
-  end
 
   @doc false
   @spec validate_content_type(String.t()) :: :ok | {:error, term()}

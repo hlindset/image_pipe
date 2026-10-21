@@ -7,7 +7,6 @@ defmodule ImagePipe.Cache.FileSystemTest do
   alias ImagePipe.Cache.FileSystem.PeriodicSweep
   alias ImagePipe.Cache.FileSystem.Store
   alias ImagePipe.Cache.Key
-  alias ImagePipe.Source.Origin
   alias ImagePipe.Source.Record
 
   @max_size_bytes 1_000_000_000
@@ -569,7 +568,7 @@ defmodule ImagePipe.Cache.FileSystemTest do
     refute File.ls!(paths.dir) |> Enum.any?(&String.ends_with?(&1, ".tmp"))
   end
 
-  test "a stored source record whose origin lacks a field is invalid, not a crash", %{
+  test "an entry stores no source record, and one an earlier version stored is ignored", %{
     root: root
   } do
     cache_key = key()
@@ -578,27 +577,20 @@ defmodule ImagePipe.Cache.FileSystemTest do
     {:ok, state} = FileSystem.write_chunk(state, "record", opts)
     :ok = FileSystem.commit_sink(state, opts)
 
-    origin = %Origin{
-      status: 200,
-      headers: %{},
-      requested_at: 1,
-      received_at: 1,
-      resource: :crypto.hash(:sha256, "origin"),
-      vary: %{}
-    }
+    {:ok, paths} = FileSystem.paths(cache_key, opts)
+    meta = paths.meta_path |> File.read!() |> :erlang.binary_to_term()
+    refute Map.has_key?(meta, :source_record)
 
+    # A record whose origin lacks a field, as an earlier version could leave.
     record = %Record{
       byte_identity: {:strong, "digest"},
-      origin: Map.delete(origin, :vary),
+      origin: %{status: 200, headers: %{}},
       received_at: 1
     }
 
-    {:ok, paths} = FileSystem.paths(cache_key, opts)
-    meta = paths.meta_path |> File.read!() |> :erlang.binary_to_term()
-    File.write!(paths.meta_path, :erlang.term_to_binary(%{meta | source_record: record}))
+    File.write!(paths.meta_path, :erlang.term_to_binary(Map.put(meta, :source_record, record)))
 
-    assert {:error, {:invalid_metadata, :invalid_source_record}} =
-             FileSystem.get(cache_key, opts)
+    assert {:hit, %{body: "record"}} = FileSystem.get(cache_key, opts)
   end
 
   describe "cost_us metadata" do

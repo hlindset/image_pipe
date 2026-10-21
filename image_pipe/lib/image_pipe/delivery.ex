@@ -65,9 +65,9 @@ defmodule ImagePipe.Delivery do
   includes this debug data in the prepared stream and staged cache entry,
   adding measured generation cost as the `:total` timing.
 
-  `session` carries this request's data for the session: the `:output_lease`
-  it holds for the output (released when the entry is stored or abandoned),
-  and the `:source_record` the staged entry records. Both are optional.
+  `session` carries this request's data for the session: the optional
+  `:output_lease` it holds for the output, released when the entry is stored
+  or abandoned.
   """
   @spec stream(build_fun(), Key.t() | nil, keyword(), keyword()) ::
           {:ok, PreparedStream.t()} | {:error, term()}

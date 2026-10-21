@@ -30,9 +30,8 @@ defmodule ImagePipe.Delivery.Coordinator do
     :owner,
     :owner_monitor,
     :cache_key,
-    # This request's output lease and source record (see Delivery.stream/4).
+    # This request's output lease (see Delivery.stream/4).
     :output_lease,
-    :source_record,
     :request_context,
     :config,
     :producer,
@@ -103,7 +102,6 @@ defmodule ImagePipe.Delivery.Coordinator do
        owner_monitor: Process.monitor(owner),
        cache_key: cache_key,
        output_lease: output_lease,
-       source_record: Keyword.get(session, :source_record),
        request_context: request_context,
        config: config
      }}
@@ -309,8 +307,7 @@ defmodule ImagePipe.Delivery.Coordinator do
           resolved_output,
           [
             cost_us: cost(debug, resolved_output),
-            debug: debug,
-            source_record: state.source_record
+            debug: debug
           ],
           config
         )

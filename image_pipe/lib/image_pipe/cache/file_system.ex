@@ -102,7 +102,6 @@ defmodule ImagePipe.Cache.FileSystem do
 
   defp decode_entry(file, metadata) do
     with {:ok, meta} <- validate_metadata(metadata),
-         :ok <- Entry.validate_source_record(Map.get(metadata, :source_record)),
          {:ok, created_at} <- parse_created_at(meta.created_at) do
       {:hit,
        %Entry{
@@ -111,8 +110,7 @@ defmodule ImagePipe.Cache.FileSystem do
          headers: meta.headers,
          created_at: created_at,
          representation: meta.representation,
-         debug: meta.debug,
-         source_record: Map.get(metadata, :source_record)
+         debug: meta.debug
        }}
     else
       {:error, reason} ->
