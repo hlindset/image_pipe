@@ -23,7 +23,9 @@ defmodule ImagePipe.Cache.FileSystem.Store do
                       doc: """
                       Directory that holds the cache files. Must be an absolute path. \
                       The `cache` and `input_cache` roots must be separate, neither \
-                      inside the other. Plug initialization fails otherwise.
+                      inside the other. Plug initialization fails otherwise. An instance \
+                      whose root another instance in the VM already uses raises \
+                      `ArgumentError` when it starts.
                       """
                     ],
                     pool: [

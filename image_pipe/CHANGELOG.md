@@ -202,6 +202,10 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `ImagePipe.Plug` is mounted at, such as `/images` for
   `forward "/images", ImagePipe.Plug`. Before, the mount path was left out.
 
+- A second instance whose cache `root` another instance in the VM already
+  uses raises `ArgumentError` naming the root when it starts. Before, its
+  start failed with `{:already_started, pid}`.
+
 ### Removed
 
 - **Breaking:** The instance option `mounts:`, and `mount:` on

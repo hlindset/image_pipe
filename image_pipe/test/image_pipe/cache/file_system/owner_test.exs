@@ -98,13 +98,25 @@ defmodule ImagePipe.Cache.FileSystem.OwnerTest do
     start_supervised!({Root, root: root, max_size_bytes: 1_000_000, host: "this-host"})
     claimed = File.read!(path)
 
-    assert {:error, {:already_started, _pid}} =
+    assert {:error, {{:EXIT, {%ArgumentError{message: message}, _stacktrace}}, _child}} =
              start_supervised(
                Supervisor.child_spec({Root, root: root, max_size_bytes: 1_000_000}, id: :second)
              )
 
+    assert message =~ "cache root #{root} is already used by another cache in this VM"
     assert File.read!(path) == claimed
     refute Owner.refused?(root)
+  end
+
+  test "a second instance on a root another instance uses fails to start", %{tmp_dir: root} do
+    cache = [root: root, max_size_bytes: 1_000_000]
+    name = :"#{__MODULE__}.Instance#{System.unique_integer([:positive])}"
+    start_supervised!({ImagePipe, name: name, sources: [], cache: cache})
+
+    assert {:error, reason} =
+             start_supervised({ImagePipe, name: :"#{name}.Second", sources: [], cache: cache})
+
+    assert inspect(reason) =~ "cache root #{root} is already used by another cache in this VM"
   end
 
   test "an instance claims its cache roots while it runs", %{tmp_dir: root, path: path} do
