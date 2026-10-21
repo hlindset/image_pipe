@@ -264,6 +264,22 @@ defmodule ImagePipe.Test.Golden.Cases do
         native: "crop=1001,801/w=10",
         tolerance: {2, 64}
       },
+      # A WebP decodes at the power of two below the target, as a JPEG does,
+      # where imgproxy decodes straight to the target.
+      %{
+        id: "webp_cover_residual",
+        kind: :png,
+        source: "high_freq.webp",
+        native: "w=233/h=151/fit=cover",
+        tolerance: {2, 64}
+      },
+      %{
+        id: "webp_contain_extend",
+        kind: :png,
+        source: "high_freq.webp",
+        native: "w=500/h=200/fit=contain/extend",
+        tolerance: {2, 64}
+      },
       # Attention scoring runs in the displayed frame.
       %{
         id: "exif_smart_crop",

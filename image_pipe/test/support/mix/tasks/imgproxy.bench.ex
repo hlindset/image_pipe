@@ -136,7 +136,7 @@ defmodule Mix.Tasks.Imgproxy.Bench do
   # and offset variants that cost the same. `--only nightly` adds the rest of
   # `PerfCases`.
   @perf_set ~w(
-    rs_fill_zone rs_fill_webp_residual cover_smart_marker
+    rs_fill_zone webp_cover_offset cover_smart_marker
     alpha_resize cmyk_import palette_fit enlarge_small
     crop_gravity_placement crop_smart_marker region_odd_origin
     extend_small padding_border alpha_extend_bg

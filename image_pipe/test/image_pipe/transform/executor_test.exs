@@ -77,9 +77,9 @@ defmodule ImagePipe.Transform.ExecutorTest do
   end
 
   test "plans the decode from the first group's crop extent and the terminal reduction" do
-    # The 640x320 region shrinks toward the 32x32 placeholder frame:
-    # min(640/32, 320/32) = 10. The full 800x600 frame would give 18.75.
-    request = request!("region=0,0,640,320/output=blurhash")
+    # The 256x128 region shrinks toward the 32x32 placeholder frame:
+    # min(256/32, 128/32) = 4. The full 800x600 frame would give 18.75, so 8.
+    request = request!("region=0,0,256,128/output=blurhash")
 
     geometry = %SourceGeometry{
       storage_dimensions: {800, 600},
@@ -88,12 +88,12 @@ defmodule ImagePipe.Transform.ExecutorTest do
       source_format: :webp
     }
 
-    assert_in_delta Executor.decode_options(request, geometry)[:scale], 0.1, 1.0e-12
+    assert_in_delta Executor.decode_options(request, geometry)[:scale], 0.25, 1.0e-12
   end
 
   # A contained image fills the box on one axis only, so the decode is planned
   # from the size the resize produces: 1600x1200 into 400x400 is 400x300, a
-  # shrink of 4 on both axes, not min(4, 3) from the box.
+  # shrink of 4 on both axes, not min(4, 3) from the box, which gives 2.
   test "plans a contain resize's decode from the fitted size" do
     geometry = %SourceGeometry{
       storage_dimensions: {1600, 1200},
@@ -106,8 +106,8 @@ defmodule ImagePipe.Transform.ExecutorTest do
 
     assert_in_delta scale.("w=400/h=400/fit=contain"), 1 / 4, 1.0e-12
     assert_in_delta scale.("w=200/h=200/fit=contain/dpr=2"), 1 / 4, 1.0e-12
-    # Cover fills the 400x400 box: min(1600/400, 1200/400) = 3.
-    assert_in_delta scale.("w=400/h=400/fit=cover"), 1 / 3, 1.0e-12
+    # Cover fills the 400x400 box: min(1600/400, 1200/400) = 3, so 2.
+    assert_in_delta scale.("w=400/h=400/fit=cover"), 1 / 2, 1.0e-12
   end
 
   test "reduces parsed blurhash output to its fixed contain frame" do

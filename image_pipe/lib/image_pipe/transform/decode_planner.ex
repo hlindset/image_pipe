@@ -98,13 +98,17 @@ defmodule ImagePipe.Transform.DecodePlanner do
     if n >= 2, do: base ++ [shrink: n], else: base
   end
 
-  defp append_load_option(base, format, load_shrink) when format in [:webp] do
-    if load_shrink > 1.0, do: base ++ [scale: 1.0 / load_shrink], else: base
+  # libwebp's scaler is coarse at large reductions, so a WebP stops where a
+  # JPEG shrink would, and the resize kernel does the rest.
+  defp append_load_option(base, :webp, load_shrink) do
+    n = jpeg_shrink_n(load_shrink)
+    if n >= 2, do: base ++ [scale: 1.0 / n], else: base
   end
 
   defp append_load_option(base, _format, _load_shrink), do: base
 
   # JPEG block-level IDCT shrink factors: largest power-of-2 in {1,2,4,8} ≤ load_shrink.
+  # WebP uses the same factors.
   defp jpeg_shrink_n(load_shrink) when load_shrink >= 8, do: 8
   defp jpeg_shrink_n(load_shrink) when load_shrink >= 4, do: 4
   defp jpeg_shrink_n(load_shrink) when load_shrink >= 2, do: 2

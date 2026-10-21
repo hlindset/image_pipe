@@ -52,9 +52,9 @@ defmodule ImagePipe.Transform.ExecutorDecodeOptionsTest do
 
     refute_shrink(options("region=0,804,2000,8/w=50", jpeg))
     refute_shrink(options("crop=2000,8/w=50", jpeg))
-    # 40 / 8 = 5, so JPEG takes its largest shrink under 5.
+    # 40 / 8 = 5, so JPEG and WebP take their largest shrink under 5.
     assert options("region=0,800,2000,40/w=50", jpeg)[:shrink] == 4
-    assert options("region=0,800,2000,40/w=50", webp)[:scale] == 0.2
+    assert options("region=0,800,2000,40/w=50", webp)[:scale] == 0.25
     assert options("region=0,800,2000,100/w=50", jpeg)[:shrink] == 8
   end
 
@@ -69,14 +69,15 @@ defmodule ImagePipe.Transform.ExecutorDecodeOptionsTest do
 
   test "a crop clamps to the display frame before choosing the shrink" do
     # The 4096x4096 region clamps to 4096x4000; covering 512x512 gives
-    # min(4096/512, 4000/512) = 7.8125. The unclamped region would give 8.
+    # min(4096/512, 4000/512) = 7.8125, so shrink 4. The unclamped region would
+    # give 8.
     opts =
       options(
         "region=0,0,4096,4096/w=512/h=512/fit=cover",
         geometry({6000, 4000}, {6000, 4000}, :webp)
       )
 
-    assert_in_delta opts[:scale], 512 / 4000, 1.0e-12
+    assert opts[:scale] == 0.25
   end
 
   # An asymmetric 200x50 stretch target makes the frame's orientation decide
@@ -144,11 +145,11 @@ defmodule ImagePipe.Transform.ExecutorDecodeOptionsTest do
     # output=blurhash with no resize: min(3200/32, 2400/32) = 75.
     assert options("output=blurhash", geometry({3200, 2400}, {3200, 2400}, :jpeg))[:shrink] == 8
 
-    assert_in_delta options("output=blurhash", geometry({3200, 2400}, {3200, 2400}, :webp))[
-                      :scale
-                    ],
-                    1 / 75,
-                    1.0e-12
+    assert options("output=blurhash", geometry({3200, 2400}, {3200, 2400}, :webp))[:scale] ==
+             0.125
+
+    # min(512/32, 128/32) = 4. The larger ratio, 16, would give 8.
+    assert options("output=blurhash", geometry({512, 128}, {512, 128}, :webp))[:scale] == 0.25
   end
 
   test "a resize target governs over the terminal reduction" do
@@ -180,7 +181,7 @@ defmodule ImagePipe.Transform.ExecutorDecodeOptionsTest do
         )
 
       assert plan.(:jpeg)[:shrink] == 2
-      assert_in_delta plan.(:webp)[:scale], 1 / 3.75, 1.0e-12
+      assert plan.(:webp)[:scale] == 0.5
       refute_shrink(plan.(:png))
     end
   end

@@ -42,15 +42,17 @@ defmodule ImagePipe.Transform.DecodePlannerTest do
     refute_shrink(DecodePlanner.open_options(:svg, {100, 50}, nil))
   end
 
-  test "WebP uses the exact fractional scale" do
+  test "WebP scales by JPEG's shrink factors" do
     opts = DecodePlanner.open_options(:webp, {1600, 1200}, {333 * 1.1, nil})
 
-    assert_in_delta opts[:scale], 366.3 / 1600, 1.0e-12
+    assert opts[:scale] == 0.25
     refute Keyword.has_key?(opts, :shrink)
+    assert DecodePlanner.open_options(:webp, {1600, 1200}, {100, nil})[:scale] == 0.125
   end
 
-  test "WebP emits no load scale when the target is larger than the source" do
+  test "WebP emits no load scale under a shrink of 2" do
     refute_shrink(DecodePlanner.open_options(:webp, {600, 400}, {800, nil}))
+    refute_shrink(DecodePlanner.open_options(:webp, {600, 400}, {400, nil}))
   end
 
   test "DPR and zoom inflated targets prevent over-shrinking" do

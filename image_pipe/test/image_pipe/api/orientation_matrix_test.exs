@@ -194,8 +194,8 @@ defmodule ImagePipe.API.OrientationMatrixTest do
 
     test "decode_options/2 plans a single-axis target against the display width alone" do
       # `w=200` targets one axis, so the planner takes the display width's
-      # ratio alone: 1200/200 = 6 (WebP's exact scale shows it). The storage
-      # width would give 1600/200 = 8. The sibling test below checks that the
+      # ratio alone: 1200/200 = 6, so WebP's shrink 4. The storage width would
+      # give 1600/200 = 8. The sibling test below checks that the
       # real decode shrinks the storage axes consistently with this plan.
       request = parse!(["w=200"])
 
@@ -206,7 +206,7 @@ defmodule ImagePipe.API.OrientationMatrixTest do
         source_format: :webp
       }
 
-      assert_in_delta Executor.decode_options(request, geometry)[:scale], 1 / 6, 1.0e-12
+      assert_in_delta Executor.decode_options(request, geometry)[:scale], 1 / 4, 1.0e-12
     end
 
     test "the real decode shrinks the STORAGE axes consistently with that display-frame plan" do

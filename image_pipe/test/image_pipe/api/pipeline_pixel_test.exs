@@ -277,12 +277,12 @@ defmodule ImagePipe.API.PipelinePixelTest do
     end
 
     test "output=blurhash shrinks toward the terminal reduction for a single-group request" do
-      # min(1600/32, 1200/32) = 37.5
-      assert_in_delta decode_options(request("output=blurhash"))[:scale], 32 / 1200, 1.0e-12
+      # min(1600/32, 1200/32) = 37.5, so the largest shrink, 8.
+      assert_in_delta decode_options(request("output=blurhash"))[:scale], 1 / 8, 1.0e-12
     end
 
     test "output=lqip-css shrinks toward the terminal reduction for a single-group request" do
-      assert_in_delta decode_options(request("output=lqip-css"))[:scale], 32 / 1200, 1.0e-12
+      assert_in_delta decode_options(request("output=lqip-css"))[:scale], 1 / 8, 1.0e-12
     end
 
     # These effects take sizes in pixels, which a reduced decode would make
@@ -301,9 +301,9 @@ defmodule ImagePipe.API.PipelinePixelTest do
     end
 
     test "a resize governs a placeholder decode instead of the terminal reduction" do
-      # 1600/60, not the terminal's 1200/32.
-      assert_in_delta decode_options(request("w=60/output=lqip-css"))[:scale],
-                      60 / 1600,
+      # 1600/300 gives shrink 4, where the terminal's 1200/32 would give 8.
+      assert_in_delta decode_options(request("w=300/output=lqip-css"))[:scale],
+                      1 / 4,
                       1.0e-12
     end
 

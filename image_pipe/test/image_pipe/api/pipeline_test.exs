@@ -127,14 +127,11 @@ defmodule ImagePipe.API.PipelineTest do
     end
 
     # The default fit contains a portrait source in a landscape box, so the
-    # decode is planned from the 143x190 image it produces, not the box.
+    # decode is planned from the 570x760 image it produces, not the box.
     test "a two-axis contained resize plans from the fitted size" do
-      # Fitted: min(2401/143, 3199/190) = 2401/143; the box would give 2401/250.
-      assert_in_delta preflight_options(["w=250", "h=190"], {2401, 3199}, :webp)[:scale],
-                      143 / 2401,
-                      1.0e-12
-
-      assert preflight_options(["w=250", "h=190"], {2401, 3199}, :jpeg)[:shrink] == 8
+      # Fitted: 3199/760 = 4.2, so shrink 4. The box would give 2401/1000 = 2.4.
+      assert preflight_options(["w=1000", "h=760"], {2401, 3199}, :webp)[:scale] == 0.25
+      assert preflight_options(["w=1000", "h=760"], {2401, 3199}, :jpeg)[:shrink] == 4
     end
   end
 end
