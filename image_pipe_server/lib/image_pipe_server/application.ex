@@ -149,7 +149,8 @@ defmodule ImagePipeServer.Application do
       image_pipe: ImagePipe.Plug.init([instance: @instance] ++ config.http),
       auth_token_hash: Keyword.fetch!(config.server, :auth_token_hash),
       trust_request_id: config.trust_request_id,
-      stats: stats_options(config)
+      stats: stats_options(config),
+      log_requests: config.telemetry != nil
     ]
   end
 

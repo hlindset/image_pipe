@@ -1,6 +1,7 @@
 defmodule ImagePipeServer.RouterTest do
   use ExUnit.Case, async: true
 
+  import ExUnit.CaptureLog
   import Plug.Conn
   import Plug.Test
 
@@ -197,6 +198,83 @@ defmodule ImagePipeServer.RouterTest do
         assert conn(:get, path) |> Router.call(Router.init(opts)) |> Map.fetch!(:status) == 200
       end
     end
+  end
+
+  describe "with log_requests" do
+    setup %{image_pipe: image_pipe} do
+      %{
+        opts: [
+          mount_path: "/img",
+          image_pipe: image_pipe,
+          auth_token_hash: :crypto.hash(:sha256, "t0k"),
+          drain: serving(),
+          log_requests: true
+        ]
+      }
+    end
+
+    test "logs a rejected token at warning, with the request ID", %{opts: opts} do
+      log =
+        capture_log([level: :info, metadata: [:request_id]], fn ->
+          conn = call(:get, "/img/w=2/src/pic.png?X-Amz-Signature=secret", opts)
+          assert conn.status == 401
+          send(self(), {:request_id, get_resp_header(conn, "x-request-id")})
+        end)
+
+      assert_received {:request_id, [request_id]}
+      assert log =~ "request_id=#{request_id}"
+      assert log =~ ~r"\[warning\] GET /img/w=2/src/pic.png\?X-Amz-Signature=REDACTED 401 \d+ms"
+      refute log =~ "secret"
+    end
+
+    test "redacts a presigned source after a mount path named like a source marker", %{
+      opts: opts
+    } do
+      for mount <- ["/enc", "/src64", "/src"] do
+        log =
+          capture_log([level: :info], fn ->
+            path = mount <> "/w=2/src/https%3A%2F%2Fo.test%2Fa.jpg%3FX-Amz-Signature%3Dsecret"
+            assert call(:get, path, Keyword.put(opts, :mount_path, mount)).status == 401
+          end)
+
+        assert log =~ "GET #{mount}/w=2/src/https://o.test/a.jpg?X-Amz-Signature=REDACTED 401"
+        refute log =~ "secret"
+      end
+    end
+
+    test "logs a path outside the mount at info", %{opts: opts} do
+      log =
+        capture_log([level: :info], fn ->
+          conn =
+            conn(:get, "/other/x")
+            |> put_req_header("authorization", "Bearer t0k")
+            |> Router.call(Router.init(opts))
+
+          assert conn.status == 404
+        end)
+
+      assert log =~ ~r"\[info\] GET /other/x 404 \d+ms"
+    end
+
+    test "leaves the health checks out", %{opts: opts} do
+      log =
+        capture_log([level: :info], fn ->
+          for path <- ["/health/live", "/health/ready"] do
+            assert call(:get, path, opts).status == 200
+          end
+        end)
+
+      refute log =~ "/health/"
+    end
+  end
+
+  test "logs nothing of its own without log_requests", %{image_pipe: image_pipe} do
+    log =
+      capture_log([level: :info], fn ->
+        assert call(:get, "/other/x", mount_path: "/img", image_pipe: image_pipe).status == 404
+      end)
+
+    refute log =~ "/other/x"
   end
 
   defp serving do

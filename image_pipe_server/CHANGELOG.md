@@ -23,6 +23,10 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   answer within a second has `"available": false`. Turn them on with
   `[stats] enabled = true` and a `[stats] token` that requests send as a
   bearer token. See [cache stats](docs/server-deployment.md#cache-stats).
+- With `[telemetry] log_requests`, a request without a valid
+  `[server] auth_token` logs its `401` at `warning`, and a request outside
+  `mount_path` logs its `404` at `info`, each with the method, path, status,
+  and duration. Before, the server logged neither.
 
 ### Changed
 
