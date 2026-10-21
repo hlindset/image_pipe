@@ -122,17 +122,6 @@ defmodule ImagePipe.Telemetry.SummaryTest do
                      }}
   end
 
-  test "a URL naming too many presets is a parser error", ctx do
-    lookup = {ImagePipe.Test.PresetLookup, presets: %{"a" => "w=30", "b" => "blur=1"}}
-    options = start(ctx, preset_lookup: lookup, max_preset_lookups: 1)
-    config = Caches.plug(options)
-
-    assert request("/preset=a,b/src/beach.jpg", config, options).status == 400
-
-    assert_received {:summary, _m,
-                     %{status: 400, result: :parser_error, reason: "too many presets"}}
-  end
-
   test "client errors log at warning", ctx do
     options = start(ctx, max_input_pixels: 100)
     config = Caches.plug(options)

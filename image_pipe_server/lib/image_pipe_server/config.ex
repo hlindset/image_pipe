@@ -290,7 +290,7 @@ defmodule ImagePipeServer.Config do
   defp processing_schema do
     ImagePipe.Config.processing_schema()
     |> Keyword.drop([:sources, :processing_pool])
-    |> elixir_only([:clock, :telemetry_prefix, :preset_lookup, :max_preset_lookups])
+    |> elixir_only([:clock, :telemetry_prefix, :preset_lookup])
     |> put_type(:format_quality, {:map, :atom, :pos_integer})
     |> put_type(:autoquality_target, {:or, [:integer, :float]})
     |> Keyword.merge(

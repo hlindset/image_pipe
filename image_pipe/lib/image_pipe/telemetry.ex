@@ -266,7 +266,6 @@ defmodule ImagePipe.Telemetry do
 
   def request_result({:error, {:invalid_request, _}}), do: :parser_error
   def request_result({:error, {:invalid_source, _}}), do: :parser_error
-  def request_result({:error, {:preset, :too_many_presets}}), do: :parser_error
   def request_result({:error, {:invalid_output, _}}), do: :plan_error
   def request_result({:error, {:detector, :unavailable}}), do: :plan_error
   def request_result({:error, {:detector, :not_ready}}), do: :plan_error

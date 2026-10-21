@@ -231,6 +231,10 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Removed
 
+- **Breaking:** `max_preset_lookups`. A request may look up any number of
+  presets. Remove the option from your configuration. `ImagePipe.run/4`
+  no longer returns `{:preset, :too_many_presets}`, and `[:preset, :lookup]`
+  no longer reports that reason.
 - **Breaking:** The instance option `mounts:`, and `mount:` on
   `ImagePipe.Plug` and `ImagePipe.url_config/2`, which is now
   `ImagePipe.url_config/1`. An instance checks URLs against its own URL
@@ -413,10 +417,10 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the image, which the cache uses to choose what to evict and reports as
   `:estimated_cost_us` on `[:cache, :write]`.
 - The default Logger logs every `4xx` request line at `:warning`. Before, a
-  `4xx` for a failed decode, an input limit, a transform, an invalid
-  source, or too many presets logged at `:error`.
-- A request with an invalid source or too many presets has the result
-  `:parser_error`, not `:processing_error`. Like other parser errors, its
+  `4xx` for a failed decode, an input limit, a transform, or an invalid
+  source logged at `:error`.
+- A request with an invalid source has the result `:parser_error`, not
+  `:processing_error`. Like other parser errors, its
   `[:request]` stop from `ImagePipe.run/4` has no `:error`.
 - The request line for an invalid source or invalid output gives the
   reason: `reason="invalid source"` or `reason="invalid output"`.

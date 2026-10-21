@@ -170,7 +170,7 @@ defmodule ImagePipeServer.ConfigTest do
     end
 
     test "keeps Elixir-only processing settings out of the file" do
-      for key <- ["clock", "preset_lookup", "max_preset_lookups"] do
+      for key <- ["clock", "preset_lookup"] do
         assert error(fn ->
                  Config.options!(%{
                    "url" => %{"allow_unsigned" => true},

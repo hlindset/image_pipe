@@ -45,7 +45,7 @@ defmodule ImagePipe.Config do
           instance: atom() | nil
         }
 
-  @preset_keys [:presets, :request_defaults, :preset_lookup, :max_preset_lookups]
+  @preset_keys [:presets, :request_defaults, :preset_lookup]
 
   # The URL options are validated by `ImagePipe.URL.Config`, which also owns
   # `:validate_against`; this configuration fills that in itself.
@@ -501,13 +501,6 @@ defmodule ImagePipe.Config do
                   See `ImagePipe.PresetLookup` and \
                   [storing presets in a database](storing-presets-in-a-database.md).
                   """
-                ],
-                max_preset_lookups: [
-                  type: :pos_integer,
-                  doc: """
-                  Most distinct names one request may look up. Only with \
-                  `:preset_lookup`. The default value is `32`.
-                  """
                 ]
               ]
           )
@@ -593,7 +586,7 @@ defmodule ImagePipe.Config do
 
     case Presets.compile(presets, plan(options[:request_defaults]), watermarks) do
       {:ok, compiled} ->
-        lookup = lookup_options!(options)
+        lookup = lookup_options(options)
 
         {[presets: compiled.presets, request_defaults: compiled.request_defaults] ++ lookup,
          Map.put(compiled, :lookup?, lookup != [])}
@@ -643,17 +636,10 @@ defmodule ImagePipe.Config do
 
   defp watermark_tokens(nil), do: []
 
-  defp lookup_options!(options) do
-    case {options[:preset_lookup], options[:max_preset_lookups]} do
-      {nil, nil} ->
-        []
-
-      {nil, _max} ->
-        raise ArgumentError,
-              "invalid ImagePipe configuration: max_preset_lookups requires preset_lookup"
-
-      {lookup, max} ->
-        [preset_lookup: lookup, max_preset_lookups: max || 32]
+  defp lookup_options(options) do
+    case options[:preset_lookup] do
+      nil -> []
+      lookup -> [preset_lookup: lookup]
     end
   end
 
