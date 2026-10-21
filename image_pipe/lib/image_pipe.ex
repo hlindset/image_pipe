@@ -343,18 +343,23 @@ defmodule ImagePipe do
       #=> %{
       #=>   output: %{bytes: 812_345_678, entries: 5120, max_bytes: 1_073_741_824,
       #=>             counting?: false, hits: 9120, misses: 1310, read_errors: 0,
-      #=>             refused: false},
+      #=>             available: true, refused: false},
       #=>   input: %{...}
       #=> }
 
   The map has an `:output` entry for the `cache` option and an `:input` entry
-  for `input_cache`. It leaves out a cache that isn't configured, or whose
-  process is restarting or doesn't answer within 5 seconds. Raises
+  for `input_cache`. It leaves out a cache that isn't configured. Raises
   `ArgumentError` when no instance with the name is running.
 
   A cache whose `root` another node [owns](cache.md#cache-root-owner-file)
   isn't used by this node. Its entry has only `refused: true` and
-  `:max_bytes`. Every other entry has `refused: false` and these:
+  `:max_bytes`.
+
+  A cache whose process is restarting, or busy for more than a second, can't
+  report its size. Its entry has `available: false`, `refused: false`,
+  `:max_bytes`, `:hits`, `:misses`, and `:read_errors`.
+
+  Every other entry has `available: true`, `refused: false`, and these:
 
     * `:bytes` and `:entries` - what the cache stores now. The output cache's
       `:entries` also counts one small entry for each original that processed
