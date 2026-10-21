@@ -320,6 +320,13 @@ and entries already on disk are next in line for eviction, roughly those
 that took the least work for their size first, until they are requested
 again.
 
+The process also keeps the metadata of recently served entries in memory, so
+a repeated hit reads only the body file from disk. It holds one entry's
+metadata for each 50 KB of `max_size_bytes`, from 1,000 to 200,000 entries,
+at about 1.5 KB each: about 30 MB for a 1 GB cache, and at most about
+300 MB. This memory isn't counted against `max_size_bytes`. A restart empties
+it.
+
 ### Work to make an entry
 
 The work to make a processed image is estimated from what its request did:

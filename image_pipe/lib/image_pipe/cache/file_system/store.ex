@@ -5,6 +5,7 @@ defmodule ImagePipe.Cache.FileSystem.Store do
   alias ImagePipe.Cache.File, as: CacheFile
   alias ImagePipe.Cache.FileSystem.Admission
   alias ImagePipe.Cache.FileSystem.CheckedDirs
+  alias ImagePipe.Cache.FileSystem.Memo
   alias ImagePipe.Cache.FileSystem.PeriodicSweep
   alias ImagePipe.Cache.FileSystem.Root
   alias ImagePipe.Cache.FileSystem.Sweep
@@ -433,10 +434,34 @@ defmodule ImagePipe.Cache.FileSystem.Store do
   defp options_validation_error(%NimbleOptions.ValidationError{key: key, message: message}),
     do: {:invalid_option, key, message}
 
+  # A hit reads the metadata from the memo when it's there. A remembered
+  # entry whose body won't open is read again from disk, so the memo never
+  # turns a hit into anything a read from disk wouldn't.
   defp read_entry(paths) do
+    case Memo.get(paths.root, paths.hash) do
+      {metadata, body_path} -> read_remembered(paths, metadata, body_path)
+      nil -> read_stored(paths)
+    end
+  end
+
+  defp read_remembered(paths, metadata, body_path) do
+    case CacheFile.open(body_path, metadata.body_byte_size) do
+      {:ok, file} ->
+        {:hit, file, metadata}
+
+      _gone_or_changed ->
+        Memo.drop(paths.root, paths.hash)
+        read_stored(paths)
+    end
+  end
+
+  defp read_stored(paths) do
+    epoch = Memo.epoch(paths.root, paths.hash)
+
     with {:ok, metadata} <- read_metadata(paths),
          {:ok, body_path} <- body_path_from_metadata(paths, metadata),
          {:ok, file} <- CacheFile.open(body_path, metadata.body_byte_size) do
+      Memo.remember(paths.root, paths.hash, epoch, {metadata, body_path})
       {:hit, file, metadata}
     end
   end
