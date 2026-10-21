@@ -3,6 +3,7 @@ defmodule ImagePipe.Transform.ExecutorDecodeOptionsTest do
 
   alias ImagePipe.API.Parser
   alias ImagePipe.API.Path
+  alias ImagePipe.Test.DetectorFixtures.ColdFaceDetector
   alias ImagePipe.Test.DetectorFixtures.CornerObjectDetector
   alias ImagePipe.Test.DetectorFixtures.ObjectOnlyDetector
   alias ImagePipe.Transform.Executor
@@ -258,6 +259,16 @@ defmodule ImagePipe.Transform.ExecutorDecodeOptionsTest do
     assert options("w=64/h=64/fit=cover/detect=car,face", frame, detector: ObjectOnlyDetector)[
              :shrink
            ] == 2
+  end
+
+  test "a required detector that isn't ready keeps no floor for a smart-face crop" do
+    frame = geometry({2400, 1600}, {2400, 1600}, :jpeg)
+    plan = &options("w=64/h=64/fit=cover/anchor=smart-face", frame, &1)
+
+    # A required detector loads no models during a request, so the crop
+    # falls back to attention.
+    assert plan.(detector: ColdFaceDetector, detector_required: true)[:shrink] == 8
+    assert plan.(detector: ColdFaceDetector)[:shrink] == 2
   end
 
   test "a cover resize whose target has the frame's shape crops nothing, so it needs no floor" do
