@@ -160,7 +160,7 @@ defmodule ImagePipe.TelemetryTest do
 
       assert span_metadata(metadata) == %{
                method: "GET",
-               path: "/format=jpeg/src/images/beach.jpg"
+               path: "/format=jpeg/src/REDACTED"
              }
     end)
 
@@ -169,7 +169,8 @@ defmodule ImagePipe.TelemetryTest do
 
       assert span_metadata(metadata) == %{
                method: "GET",
-               path: "/format=jpeg/src/images/beach.jpg",
+               path: "/format=jpeg/src/REDACTED",
+               source_url: "images/beach.jpg",
                result: :ok,
                status: 200
              }

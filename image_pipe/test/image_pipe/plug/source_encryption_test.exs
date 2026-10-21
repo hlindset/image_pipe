@@ -35,7 +35,7 @@ defmodule ImagePipe.Plug.SourceEncryptionTest do
     conn = Plug.Test.conn(:get, "/w=12/src/a.jpg")
 
     assert {{:ok, _request, _source}, metadata} = ParsedRequest.parse(conn, config)
-    assert metadata == %{result: :ok}
+    assert metadata == %{result: :ok, source_url: "a.jpg"}
   end
 
   test "signature validation precedes token validation", %{config: config} do

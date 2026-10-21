@@ -223,11 +223,11 @@ defmodule ImagePipeServer.RouterTest do
 
       assert_received {:request_id, [request_id]}
       assert log =~ "request_id=#{request_id}"
-      assert log =~ ~r"\[warning\] GET /img/w=2/src/pic.png\?X-Amz-Signature=REDACTED 401 \d+ms"
+      assert log =~ ~r"\[warning\] GET /img/w=2/src/REDACTED 401 \d+ms"
       refute log =~ "secret"
     end
 
-    test "redacts a presigned source after a mount path named like a source marker", %{
+    test "cuts the path at the source after a mount path named like a source marker", %{
       opts: opts
     } do
       for mount <- ["/enc", "/src64", "/src"] do
@@ -237,9 +237,24 @@ defmodule ImagePipeServer.RouterTest do
             assert call(:get, path, Keyword.put(opts, :mount_path, mount)).status == 401
           end)
 
-        assert log =~ "GET #{mount}/w=2/src/https://o.test/a.jpg?X-Amz-Signature=REDACTED 401"
+        assert log =~ "GET #{mount}/w=2/src/REDACTED 401"
         refute log =~ "secret"
       end
+    end
+
+    test "cuts a path outside the mount at its first source marker", %{opts: opts} do
+      log =
+        capture_log([level: :info], fn ->
+          conn =
+            conn(:get, "/enc/w=2/src/https%3A%2F%2Fo.test%2Fa.jpg%3FX-Amz-Signature%3Dsecret")
+            |> put_req_header("authorization", "Bearer t0k")
+            |> Router.call(Router.init(opts))
+
+          assert conn.status == 404
+        end)
+
+      assert log =~ ~r"\[info\] GET /enc/REDACTED 404 \d+ms"
+      refute log =~ "secret"
     end
 
     test "logs a path outside the mount at info", %{opts: opts} do

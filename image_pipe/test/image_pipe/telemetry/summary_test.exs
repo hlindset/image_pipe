@@ -50,7 +50,8 @@ defmodule ImagePipe.Telemetry.SummaryTest do
 
     assert %{
              method: "GET",
-             path: "/w=40/format=png/src/beach.jpg",
+             path: "/w=40/format=png/src/REDACTED",
+             source_url: "beach.jpg",
              status: 200,
              result: :ok,
              cache: :miss,
@@ -144,9 +145,11 @@ defmodule ImagePipe.Telemetry.SummaryTest do
         assert request("/w=40/src/beach.jpg", config, options).status == 413
       end)
 
-    assert log =~ "[warning] GET /w=40/src/ftp://origin.test/beach.jpg 400"
-    assert log =~ "[warning] GET /w=40/src/notimage.jpg 415"
-    assert log =~ "[warning] GET /w=40/src/beach.jpg 413"
+    assert log =~
+             ~r"\[warning\] GET /w=40/src/REDACTED 400 .* source_url=ftp://origin.test/beach.jpg "
+
+    assert log =~ ~r"\[warning\] GET /w=40/src/REDACTED 415 .* source_url=notimage.jpg "
+    assert log =~ ~r"\[warning\] GET /w=40/src/REDACTED 413 .* source_url=beach.jpg "
     refute log =~ "[error]"
   end
 
@@ -164,7 +167,7 @@ defmodule ImagePipe.Telemetry.SummaryTest do
     send(holder, :release)
     assert_received {:summary, _m, %{status: 503, admission: :overloaded} = summary}
     refute Map.has_key?(summary, :priority)
-    assert log =~ "[error] GET /w=40/src/beach.jpg 503"
+    assert log =~ "[error] GET /w=40/src/REDACTED 503"
     assert log =~ "admission=overloaded"
   end
 
@@ -199,7 +202,7 @@ defmodule ImagePipe.Telemetry.SummaryTest do
       end)
 
     assert_received {:summary, _m, %{status: 200, degraded: true, detect: :error}}
-    assert log =~ "[warning] GET /w=50/h=50/fit=cover/detect=car/src/beach.jpg 200"
+    assert log =~ "[warning] GET /w=50/h=50/fit=cover/detect=car/src/REDACTED 200"
   end
 
   test "detection that falls back to attention logs at warning", ctx do
@@ -215,7 +218,7 @@ defmodule ImagePipe.Telemetry.SummaryTest do
 
     assert_received {:summary, _m, %{status: 200, detect: :unavailable} = summary}
     refute Map.has_key?(summary, :degraded)
-    assert log =~ "[warning] GET /w=50/h=50/fit=cover/detect=face/src/beach.jpg 200"
+    assert log =~ "[warning] GET /w=50/h=50/fit=cover/detect=face/src/REDACTED 200"
   end
 
   test "the default Logger writes one line per request with the fields as metadata", ctx do
@@ -233,9 +236,11 @@ defmodule ImagePipe.Telemetry.SummaryTest do
 
     # Other tests' lines can land in the capture, so pick out this request's.
     assert [line] =
-             log |> String.split("\n") |> Enum.filter(&(&1 =~ "/w=40/format=png/src/beach.jpg"))
+             log |> String.split("\n") |> Enum.filter(&(&1 =~ "/w=40/format=png/src/REDACTED"))
 
-    assert line =~ ~r/\[info\] GET \/w=40\/format=png\/src\/beach\.jpg 200 \d+ms [\d.]+kB /
+    assert line =~
+             ~r/\[info\] GET \/w=40\/format=png\/src\/REDACTED 200 \d+ms [\d.]+kB source_url=beach\.jpg /
+
     assert line =~ "source=path"
     assert line =~ "ops=resize"
     assert_received {:log, %{meta: %{image_pipe: %{status: 200, source: :path}}}}
@@ -341,7 +346,7 @@ defmodule ImagePipe.Telemetry.SummaryTest do
       end)
 
     assert_received {:summary, _m, %{status: 200, result: :processing_error}}
-    assert log =~ "[error] GET /w=40/format=png/src/beach.jpg 200"
+    assert log =~ "[error] GET /w=40/format=png/src/REDACTED 200"
   end
 
   test "the input cache's answer is recorded", ctx do
@@ -393,7 +398,10 @@ defmodule ImagePipe.Telemetry.SummaryTest do
 
     assert_received {:summary, _m, %{status: 200, staging: :memory, staging_reason: :dir}}
     assert_received {:summary, _m, %{status: 200, staging: :memory, staging_reason: :dir}}
-    assert log =~ "[info] GET /w=40/src/https://origin.test/beach.jpg 200"
+
+    assert log =~
+             ~r"\[info\] GET /w=40/src/REDACTED 200 \S+ \S+ source_url=https://origin.test/beach.jpg "
+
     assert log =~ "staging=memory staging_reason=dir"
 
     assert [_once] =
@@ -417,7 +425,7 @@ defmodule ImagePipe.Telemetry.SummaryTest do
       log = capture_log(fn -> assert request(path, config, options).status == 200 end)
       assert_received {:summary, _m, summary}
       assert Map.take(summary, Map.keys(fields)) == fields, path
-      assert log =~ "[warning] GET #{path} 200", path
+      assert log =~ "[warning] GET #{String.replace(path, "beach.jpg", "REDACTED")} 200", path
     end
   end
 
@@ -516,8 +524,8 @@ defmodule ImagePipe.Telemetry.SummaryTest do
     assert_received {:alias, nil}
   end
 
-  test "a presigned source URL in the path is logged with its credentials redacted", ctx do
-    options = start(ctx)
+  test "the path ends at the source, which is shown parsed with its credentials redacted", ctx do
+    options = start(ctx, extra_sources: [http: http_source()])
     config = Caches.plug(options)
 
     request(
@@ -526,112 +534,72 @@ defmodule ImagePipe.Telemetry.SummaryTest do
       options
     )
 
-    assert_received {:summary, _m, %{path: path}}
-    assert path == "/w=40/src/https://origin.test/beach.jpg?X-Amz-Signature=REDACTED&keep=1"
+    assert_received {:summary, _m, summary}
+    assert summary.path == "/w=40/src/REDACTED"
+    assert summary.source_url == "https://origin.test/beach.jpg?X-Amz-Signature=REDACTED&keep=1"
+    refute Map.has_key?(summary, :watermark_source_urls)
+  end
+
+  test "a src64 source is shown decoded and an enc source decrypted", ctx do
+    options =
+      start(ctx,
+        keys: [String.duplicate("a1", 32)],
+        source_encryption_keys: [String.duplicate("2a49", 16)]
+      )
+
+    config = Caches.plug(options)
+    instance = Caches.options(options)
+    {:ok, token} = ImagePipe.Security.encrypt_source("beach.jpg?sig=s", instance, [])
+
+    for tail <- [
+          "src64/" <> Base.url_encode64("beach.jpg?sig=s", padding: false),
+          "enc/" <> token
+        ] do
+      path = "/w=40/" <> tail
+      signature = ImagePipe.Security.sign(path, instance)
+      request("/sig=#{signature}" <> path, config, options)
+
+      assert_received {:summary, _m, summary}
+      marker = hd(String.split(tail, "/"))
+      assert summary.path == "/sig=#{signature}/w=40/#{marker}/REDACTED"
+      assert summary.source_url == "beach.jpg?sig=REDACTED"
+    end
+  end
+
+  test "each group's watermark source is listed", ctx do
+    options = start(ctx, request_watermarks: true)
+    config = Caches.plug(options)
+    first = Base.url_encode64("mark.png?sig=s", padding: false)
+    second = Base.url_encode64("logo.png", padding: false)
+
+    request("/wm-src64=#{first}/w=40/-/wm-src64=#{second}/src/beach.jpg", config, options)
+
+    assert_received {:summary, _m, summary}
+    assert summary.path == "/wm-src64=REDACTED/w=40/-/wm-src64=REDACTED/src/REDACTED"
+    assert summary.watermark_source_urls == ["mark.png?sig=REDACTED", "logo.png"]
+  end
+
+  test "a request that doesn't parse has no source fields", ctx do
+    options = start(ctx)
+    config = Caches.plug(options)
+
+    request("/w=40/bogus=1/src/beach.jpg", config, options)
+
+    assert_received {:summary, _m, summary}
+    assert summary.path == "/w=40/bogus=1/src/REDACTED"
+    refute Map.has_key?(summary, :source_url)
+    refute Map.has_key?(summary, :watermark_source_urls)
   end
 
   test "a mounted request's path includes the mount path", ctx do
     options = start(ctx)
     config = Caches.plug(options)
-
-    conn =
-      conn(
-        :get,
-        "/img/w=40/src/https%3A%2F%2Forigin.test%2Fbeach.jpg%3FX-Amz-Signature%3Dsecret"
-      )
+    conn = conn(:get, "/img/w=40/src/beach.jpg")
 
     Plug.forward(conn, tl(conn.path_info), ImagePipe.Plug, config)
     Caches.await_writes(options)
 
-    assert_received {:summary, _m, %{path: path}}
-    assert path == "/img/w=40/src/https://origin.test/beach.jpg?X-Amz-Signature=REDACTED"
-  end
-
-  test "credentials are redacted however a source spells them" do
-    redacted = "/w=40/src/https://b.example/a.jpg?X-Amz-Signature=REDACTED"
-
-    for spelling <- [
-          "https%3A%2F%2Fb.example%2Fa.jpg%3FX-Amz-Signature%3Ds",
-          "https%3A%2F%2Fb.example%2Fa.jpg%3FX-Amz%2DSignature%3Ds",
-          "https%3A%2F%2Fb.example%2Fa.jpg%3Fx-amz-%53ignature%3Ds",
-          "https://b.example/a.jpg%3FX-Amz-Signature%3Ds"
-        ] do
-      assert String.downcase(Telemetry.request_path("/w=40/src/" <> spelling, "")) ==
-               String.downcase(redacted),
-             spelling
-    end
-
-    assert Telemetry.request_path(
-             "/w=40/src/https://b/a.jpg%3FX-Amz-Credential%3DAKIA/2026/s3%3Bsig%3Ds",
-             ""
-           ) == "/w=40/src/https://b/a.jpg?X-Amz-Credential=REDACTED;sig=REDACTED"
-
-    presigned = "https://b.example/a.jpg?X-Goog-Credential=s"
-
-    for token <- [
-          Base.url_encode64(presigned, padding: false),
-          Base.url_encode64(presigned),
-          Base.encode64(presigned),
-          Base.url_encode64(presigned, padding: false) <> ".jpg"
-        ] do
-      assert Telemetry.request_path("/w=40/src64/" <> token, "") == "/w=40/src64/REDACTED", token
-
-      assert Telemetry.request_path("/wm-src64=#{token}/w=40/src/a.jpg", "") ==
-               "/wm-src64=REDACTED/w=40/src/a.jpg",
-             token
-    end
-  end
-
-  test "base64 credentials are redacted when the token is percent-encoded or ends in a slash" do
-    # Its standard base64 spelling holds `+`, `/`, and `=`.
-    token = Base.encode64("https://b.example/a>~b.jpg?X-Goog-Credential=s")
-    escaped = URI.encode_www_form(token)
-
-    for tail <- [escaped, escaped <> ".jpg", token <> "/", escaped <> "/"] do
-      assert Telemetry.request_path("/w=40/src64/" <> tail, "") == "/w=40/src64/REDACTED", tail
-    end
-
-    assert Telemetry.request_path("/wm-src64=#{escaped}/w=40/src/a.jpg", "") ==
-             "/wm-src64=REDACTED/w=40/src/a.jpg"
-
-    # Escaped as Python's `quote` does: `+` and `=` escaped, `/` kept.
-    token = Base.encode64("https://b.example/a~100?X-Amz-Signature=s&q=~?100")
-
-    for tail <- [String.replace(token, "+", "%2B"), String.replace(token, "=", "%3D")] do
-      assert Telemetry.request_path("/wm-src64=#{tail}/w=40/src/a.jpg", "") ==
-               "/wm-src64=REDACTED/w=40/src/a.jpg",
-             tail
-    end
-  end
-
-  test "a src URL that decodes to invalid UTF-8 is still logged as valid UTF-8" do
-    path = Telemetry.request_path("/w=40/src/https://b/%FF.jpg%3FX-Amz-Signature%3Ds", "")
-
-    assert String.valid?(path)
-    assert path =~ "X-Amz-Signature=REDACTED"
-  end
-
-  test "sources without credentials, and ImagePipe's own signature, are logged as sent" do
-    plain = Base.url_encode64("https://b.example/a.jpg?keep=1", padding: false)
-
-    for path <- [
-          "/sig=abc/w=40/src/https%3A%2F%2Fb.example%2Fa.jpg%3Fkeep%3D1",
-          "/w=40/src64/" <> plain,
-          "/w=40/enc/AQRTMotByNyaz"
-        ] do
-      assert Telemetry.request_path(path, "") == path
-    end
-  end
-
-  test "credential query values are redacted from the query string" do
-    assert Telemetry.request_path(
-             "/w=40/src/https://bucket.example/a.jpg",
-             "X-Amz-Signature=abc&x-amz-credential=key&sig=s&keep=1"
-           ) ==
-             "/w=40/src/https://bucket.example/a.jpg?" <>
-               "X-Amz-Signature=REDACTED&x-amz-credential=REDACTED&sig=REDACTED&keep=1"
-
-    assert Telemetry.request_path("/w=40/src/a.jpg", "") == "/w=40/src/a.jpg"
+    assert_received {:summary, _m, %{path: "/img/w=40/src/REDACTED", source_url: "beach.jpg"}}
   end
 
   # A `:logger` handler that sends this test each event, to read its metadata.

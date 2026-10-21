@@ -12,6 +12,8 @@ defmodule ImagePipe.Telemetry.Logger do
 
   # The summary fields after the line's head, in the order they're written.
   @summary_keys [
+    :source_url,
+    :watermark_source_urls,
     :error,
     :reason,
     :sig_key,
@@ -287,9 +289,11 @@ defmodule ImagePipe.Telemetry.Logger do
         List.wrap(if bytes = meta[:bytes], do: size(bytes))
 
     rest =
-      for key <- @summary_keys, value = Map.get(meta, key), value != nil do
-        "#{key}=#{summary_value(value)}"
-      end
+      for key <- @summary_keys,
+          value = Map.get(meta, key),
+          value != nil,
+          field <- summary_fields(key, value),
+          do: field
 
     Enum.join(Enum.reject(head, &is_nil/1) ++ rest, " ")
   end
@@ -567,6 +571,13 @@ defmodule ImagePipe.Telemetry.Logger do
   defp size(bytes), do: "#{Float.round(bytes / 1_000_000, 1)}MB"
 
   # Values with spaces or quotes are quoted, as in logfmt.
+  # A source URL can hold a comma, so each watermark source gets its own
+  # field rather than a joined list.
+  defp summary_fields(:watermark_source_urls, sources),
+    do: Enum.map(sources, &"watermark_source_url=#{summary_value(&1)}")
+
+  defp summary_fields(key, value), do: ["#{key}=#{summary_value(value)}"]
+
   defp summary_value(value) when is_binary(value) do
     if String.contains?(value, [" ", "\"", "="]), do: inspect(value), else: value
   end

@@ -98,8 +98,8 @@ defmodule ImagePipeServer.Router do
     end
   end
 
-  # The line and its fields match ImagePipe's request lines, with a presigned
-  # source URL's credentials redacted the same way.
+  # The line and its fields match ImagePipe's request lines, with the path
+  # cut at its source the same way.
   defp log_request(conn, level, %{log_requests: true} = opts, started) do
     Logger.log(level, fn ->
       fields = %{
@@ -119,8 +119,8 @@ defmodule ImagePipeServer.Router do
 
   defp log_request(conn, _level, _opts, _started), do: conn
 
-  # Under the mount, the redaction reads only the part after the mount path,
-  # as ImagePipe's own lines do, so a mount segment such as `enc` isn't taken
+  # Under the mount, only the part after the mount path is cut at its source,
+  # as in ImagePipe's own lines, so a mount segment such as `enc` isn't taken
   # for a source marker.
   defp log_path(conn, mount) do
     path = conn.request_path

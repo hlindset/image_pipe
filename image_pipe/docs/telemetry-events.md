@@ -55,9 +55,10 @@ would be `nil` is left out of the metadata.
 
 `:exception` events also carry `:kind`, `:reason`, and `:stacktrace`.
 
-Metadata never includes request paths, source URLs, signatures, or
-credentials. [What events contain](telemetry.md#what-events-contain)
-explains what to watch for in your own handlers.
+Metadata never includes signing or encryption keys. Source URLs carry a
+presigned URL's credential parameters, and a user name and password, as
+`REDACTED`. [What events contain](telemetry.md#what-events-contain) lists
+the paths and source URLs metadata includes.
 
 ## Result values
 
@@ -89,19 +90,20 @@ stages. `ImagePipe.write/5` writes its destination after the span closes.
 
 - Start metadata, Plug requests only:
   - `:method` (string): the HTTP method, such as `"GET"`.
-  - `:path` (string): the request path as sent, with the path the Plug is
-    mounted at and the query string. Credential parameters
-    (`AWSAccessKeyId`, `Signature`, `sig`, `X-Goog-Signature`,
-    `X-Goog-Credential`, `X-Amz-Signature`, `X-Amz-Credential`, and
-    `X-Amz-Security-Token`), matched in any case or percent-encoding, are
-    redacted:
-    - In the query string, their values are replaced with `REDACTED`.
-    - A `src` URL that carries them is shown decoded, as ImagePipe reads it,
-      with their values replaced with `REDACTED`.
-    - A `src64` or `wm-src64` URL that carries them is replaced whole, as
-      `src64/REDACTED` or `wm-src64=REDACTED`, whether or not ImagePipe
-      accepts its base64.
-    - ImagePipe's own `sig=` path segment, the URL signature, is kept.
+  - `:path` (string): the request path, with the path the Plug is mounted
+    at, cut at the source:
+    - The first `src`, `src64`, or `enc` segment that has a source after it
+      is followed by `REDACTED`, and the rest of the path and the query string
+      are left out, as in `/w=200/src/REDACTED`. Once the request parses,
+      the source is in `:source_url` on the `[:request]` stop.
+    - Each `wm-src64=` value is replaced with `REDACTED`.
+    - Without a source segment, the query string is kept, with the values
+      of credential parameters (`AWSAccessKeyId`, `Signature`, `sig`,
+      `X-Goog-Signature`, `X-Goog-Credential`, `X-Amz-Signature`,
+      `X-Amz-Credential`, and `X-Amz-Security-Token`, matched in any case or
+      percent-encoding) replaced with `REDACTED`.
+    - Other segments are kept as sent, including the URL signature (`sig=`)
+      and `wm-enc=` values.
 - Stop metadata:
   - `:result` (atom): a request [result value](#result-values). When a
     response fails after streaming has started, it matches the `[:send]`
@@ -109,6 +111,8 @@ stages. `ImagePipe.write/5` writes its destination after the span closes.
   - `:status` (integer): the response status. Plug requests only.
   - `:error` (atom): the error category, on failure. `ImagePipe.run/4`
     leaves it out for `:parser_error` and `:plan_error`.
+  - `:source_url` and `:watermark_source_urls`: as on the
+    [`[:parse]`](#parse) stop. Plug requests that parsed only.
 
 ### `[:request, :summary]`
 
@@ -125,6 +129,10 @@ one line, and the tracer doesn't use it.
   that produces it:
   - `:method` and `:path`: as on the `[:request]` start.
   - `:status`, `:result`, and `:error`: as on the `[:request]` stop.
+  - `:source_url` and `:watermark_source_urls`: as on the
+    [`[:parse]`](#parse) stop. The default Logger writes them first among
+    the `key=value` fields, as `source_url=` and one
+    `watermark_source_url=` for each watermark source.
   - `:duration_ms` (integer): the request's duration in milliseconds.
   - `:reason` (string): the message the error response's body gives, on
     failure. Plug requests only.
@@ -194,6 +202,17 @@ preset lookup, and URL parsing. Why a request was rejected is on the
   - `:sig_key_index` (integer): the position in the key list of the key that
     verified the signature (`0` for the first key), on success. Absent for an unsigned request.
     With `stages: true`, the default Logger shows it as `(signing key 1)`.
+  - `:source_url` (string): the request's source as ImagePipe parsed it, on
+    success: a `src` source percent-decoded, a `src64` source decoded from
+    base64, or an `enc` source decrypted. It's a URL or a path, such as
+    `photos/cat.jpg`. The values of credential parameters in its query
+    string (listed under [`[:request]`](#request)) are replaced with
+    `REDACTED`, and so is a user name and password, as in
+    `https://REDACTED@origin.example/cat.jpg`.
+  - `:watermark_source_urls` (list of strings): the watermark source of each
+    group that has one, set with `wm-src64=` or `wm-enc=` or by a preset, in
+    group order, with credentials replaced the same way. Absent when no
+    group has a watermark source.
 
 ### `[:request, :ignored_options]`
 
