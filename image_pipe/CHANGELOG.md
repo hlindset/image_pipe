@@ -184,6 +184,10 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   operation cache off, this saves about 7 ms on a small JPEG resize and up
   to about 220 ms on a large `trim` request. Some pixels can differ from
   before by 1 out of 255.
+- The `[:request]` event's `:path`, and the request line and the
+  `url.path` trace attribute that come from it, include the path that
+  `ImagePipe.Plug` is mounted at, such as `/images` for
+  `forward "/images", ImagePipe.Plug`. Before, the mount path was left out.
 
 ### Fixed
 

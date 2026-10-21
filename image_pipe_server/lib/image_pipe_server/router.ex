@@ -14,6 +14,11 @@ defmodule ImagePipeServer.Router do
   `ImagePipeServer.Stats`), `/stats` and `/metrics` answer with the cache
   stats, behind their own token.
 
+  With `:log_requests`, the 401 and the 404 outside the mount path, which
+  the router answers itself, each log a request line like ImagePipe's: the
+  401 at `warning`, the 404 at `info`. Health checks and stats requests log
+  nothing.
+
   Every response carries an `x-request-id`, which is also the `:request_id`
   Logger metadata for the request. With `:trust_request_id`, an incoming ID
   of 1 to 200 letters, digits, and `-_.:+/=` is kept. Otherwise the router
@@ -23,6 +28,8 @@ defmodule ImagePipeServer.Router do
   @behaviour Plug
 
   import Plug.Conn
+
+  require Logger
 
   alias ImagePipeServer.Auth
   alias ImagePipeServer.Health
@@ -38,7 +45,8 @@ defmodule ImagePipeServer.Router do
       mount: Plug.Router.Utils.split(Keyword.fetch!(opts, :mount_path)),
       image_pipe: Keyword.fetch!(opts, :image_pipe),
       auth_token_hash: Keyword.get(opts, :auth_token_hash),
-      stats: Keyword.get(opts, :stats)
+      stats: Keyword.get(opts, :stats),
+      log_requests: Keyword.get(opts, :log_requests, false)
     }
   end
 
@@ -72,21 +80,77 @@ defmodule ImagePipeServer.Router do
     cond do
       Health.check?(conn) -> Health.respond(conn, opts.drain)
       opts.stats != nil and Stats.check?(conn) -> Stats.respond(conn, opts.stats)
-      is_binary(opts.auth_token_hash) -> authorize(conn, opts)
-      true -> route(conn, opts)
+      is_binary(opts.auth_token_hash) -> authorize(conn, opts, System.monotonic_time())
+      true -> route(conn, opts, System.monotonic_time())
     end
   end
 
-  defp authorize(conn, %{auth_token_hash: hash} = opts) do
+  defp authorize(conn, %{auth_token_hash: hash} = opts, started) do
     if Auth.authorized?(conn, hash),
-      do: route(conn, opts),
-      else: Auth.challenge(conn)
+      do: route(conn, opts, started),
+      else: conn |> Auth.challenge() |> log_request(:warning, opts, started)
   end
 
-  defp route(conn, %{mount: mount, image_pipe: image_pipe}) do
+  defp route(conn, %{mount: mount, image_pipe: image_pipe} = opts, started) do
     case strip_prefix(conn.path_info, mount) do
       {:ok, rest} -> Plug.forward(conn, rest, ImagePipe.Plug, image_pipe)
-      :error -> send_resp(conn, 404, "")
+      :error -> conn |> send_resp(404, "") |> log_request(:info, opts, started)
+    end
+  end
+
+  # The line and its fields match ImagePipe's request lines, with a presigned
+  # source URL's credentials redacted the same way.
+  defp log_request(conn, level, %{log_requests: true} = opts, started) do
+    Logger.log(level, fn ->
+      fields = %{
+        method: conn.method,
+        path: log_path(conn, opts.mount),
+        status: conn.status,
+        duration_ms:
+          System.convert_time_unit(System.monotonic_time() - started, :native, :millisecond)
+      }
+
+      {"#{fields.method} #{fields.path} #{fields.status} #{fields.duration_ms}ms",
+       image_pipe: fields}
+    end)
+
+    conn
+  end
+
+  defp log_request(conn, _level, _opts, _started), do: conn
+
+  # Under the mount, the redaction reads only the part after the mount path,
+  # as ImagePipe's own lines do, so a mount segment such as `enc` isn't taken
+  # for a source marker.
+  defp log_path(conn, mount) do
+    path = conn.request_path
+
+    rest =
+      case strip_prefix(conn.path_info, mount) do
+        {:ok, _rest} -> drop_segments(path, length(mount))
+        :error -> path
+      end
+
+    binary_part(path, 0, byte_size(path) - byte_size(rest)) <>
+      ImagePipe.Telemetry.request_path(rest, conn.query_string)
+  end
+
+  # Drops the first `count` segments by their raw bytes, skipping empty ones
+  # as `path_info` does.
+  defp drop_segments(path, 0), do: path
+
+  defp drop_segments(path, count) do
+    segment_and_rest = String.trim_leading(path, "/")
+
+    case :binary.match(segment_and_rest, "/") do
+      {offset, _length} ->
+        drop_segments(
+          binary_part(segment_and_rest, offset, byte_size(segment_and_rest) - offset),
+          count - 1
+        )
+
+      :nomatch ->
+        ""
     end
   end
 

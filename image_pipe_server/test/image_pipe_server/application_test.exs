@@ -95,6 +95,16 @@ defmodule ImagePipeServer.ApplicationTest do
     end
   end
 
+  describe "router_options/2" do
+    test "has the router log its own answers when log_requests is on" do
+      on = Config.build!([])
+      off = Config.build!(Config.options!(%{"telemetry" => %{"log_requests" => false}}))
+
+      assert App.router_options(on, Health.new())[:log_requests] == true
+      assert App.router_options(off, Health.new())[:log_requests] == false
+    end
+  end
+
   describe "children/1" do
     test "starts the pool and the ImagePipe instance before the listener", %{
       tmp_dir: dir

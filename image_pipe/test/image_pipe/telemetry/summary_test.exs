@@ -530,6 +530,23 @@ defmodule ImagePipe.Telemetry.SummaryTest do
     assert path == "/w=40/src/https://origin.test/beach.jpg?X-Amz-Signature=REDACTED&keep=1"
   end
 
+  test "a mounted request's path includes the mount path", ctx do
+    options = start(ctx)
+    config = Caches.plug(options)
+
+    conn =
+      conn(
+        :get,
+        "/img/w=40/src/https%3A%2F%2Forigin.test%2Fbeach.jpg%3FX-Amz-Signature%3Dsecret"
+      )
+
+    Plug.forward(conn, tl(conn.path_info), ImagePipe.Plug, config)
+    Caches.await_writes(options)
+
+    assert_received {:summary, _m, %{path: path}}
+    assert path == "/img/w=40/src/https://origin.test/beach.jpg?X-Amz-Signature=REDACTED"
+  end
+
   test "credentials are redacted however a source spells them" do
     redacted = "/w=40/src/https://b.example/a.jpg?X-Amz-Signature=REDACTED"
 

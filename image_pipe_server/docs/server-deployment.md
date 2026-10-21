@@ -447,9 +447,14 @@ A `5xx`, or a response that failed partway through sending, logs at
 `error`. A `4xx` logs at `warning`, and so does a result that didn't come
 out as requested, such as a crop that used attention because detection
 failed or no detector is configured, or an image scaled down to the limits.
-Health checks aren't logged. The
+A request without a valid
+[`auth_token`](server-configuration.md#server) logs its `401` at `warning`,
+and a path outside [`mount_path`](server-configuration.md#server) logs its
+`404` at `info`. These two lines have only the method, path, status, and
+duration. Health checks and stats requests aren't logged. The
 [`[:request, :summary]`](../../image_pipe/docs/telemetry-events.md#request-summary)
-event lists the fields. The path is logged as sent, except that a presigned
+event lists the fields. The path is logged as sent, `mount_path` included,
+except that a presigned
 source URL's credentials, such as an `X-Amz-Signature` value, are replaced
 with `REDACTED`. A `src64` or `wm-src64` source that carries them is
 replaced whole, as `src64/REDACTED` or `wm-src64=REDACTED`. The
