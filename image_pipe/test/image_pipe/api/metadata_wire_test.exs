@@ -107,6 +107,7 @@ defmodule ImagePipe.API.MetadataWireTest do
       assert_density(response("format=jpeg", config), :jpeg, 72)
       assert_density(response("format=jpeg/meta=strip", config), :jpeg, 72)
       assert_density(response("w=50/format=jpeg/meta=keep", config), :jpeg, 300)
+      assert_density(response("gradient=0.5,black/format=jpeg/meta=keep", config), :jpeg, 300)
 
       host = mount(stripped_dpi: 96)
       assert_density(response("format=jpeg", host), :jpeg, 96)
