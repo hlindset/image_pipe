@@ -7,6 +7,7 @@ defmodule ImagePipe.API.ObjectCropWireTest do
   alias ImagePipe.SourceTest.RootHTTPAdapter
   alias ImagePipe.Test.CacheObserver
   alias ImagePipe.Test.Caches
+  alias ImagePipe.Test.DetectorFixtures.ColdFaceDetector
   alias ImagePipe.Test.DetectorFixtures.CornerObjectDetector
   alias ImagePipe.Test.DetectorFixtures.PartialDetector
   alias ImagePipe.Test.DetectorFixtures.RecordingDetector
@@ -54,6 +55,34 @@ defmodule ImagePipe.API.ObjectCropWireTest do
 
     assert response("w=50/h=50/fit=cover/detect=car", opts).status == 200
     assert Enum.any?(materialized(), fn {width, height} -> max(width, height) > 50 end)
+  end
+
+  test "a required detector that isn't ready buffers no frame for a smart-face crop" do
+    prefix = [:object_crop_cold_detector]
+    handler = {__MODULE__, make_ref()}
+    test = self()
+
+    :ok =
+      :telemetry.attach(
+        handler,
+        prefix ++ [:transform, :materialize, :stop],
+        fn _event, _measurements, metadata, _config ->
+          send(test, {:materialized, metadata[:dims]})
+        end,
+        nil
+      )
+
+    on_exit(fn -> :telemetry.detach(handler) end)
+
+    cold =
+      mount(detector: ColdFaceDetector, detector_required: true, telemetry_prefix: prefix)
+
+    plain = mount(telemetry_prefix: prefix)
+
+    assert response("w=50/h=50/fit=cover/anchor=smart-face", cold).status == 200
+    buffered = materialized()
+    assert response("w=50/h=50/fit=cover/anchor=smart-face", plain).status == 200
+    assert buffered == materialized()
   end
 
   defp materialized do

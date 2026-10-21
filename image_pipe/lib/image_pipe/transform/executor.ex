@@ -14,6 +14,7 @@ defmodule ImagePipe.Transform.Executor do
   alias ImagePipe.Plan.Spec.Output
   alias ImagePipe.Transform.Alpha
   alias ImagePipe.Transform.DecodePlanner
+  alias ImagePipe.Transform.Detector
   alias ImagePipe.Transform.Executor.Geometry
   alias ImagePipe.Transform.Executor.Step
   alias ImagePipe.Transform.Geometry, as: TransformGeometry
@@ -72,7 +73,9 @@ defmodule ImagePipe.Transform.Executor do
   With a `:detector` available for the classes a first group detects, that
   group keeps enough pixels for the detector however small the output is: a
   detect crop keeps the decoded frame's long edge at the detection floor, and
-  a cover resize's crop that can move keeps the decoded extent's.
+  a cover resize's crop that can move keeps the decoded extent's. With
+  `:detector_required`, a smart-face crop keeps no floor until the detector
+  is ready, since it uses attention cropping until then.
   """
   @spec decode_options(Spec.t(), SourceGeometry.t(), keyword()) :: keyword()
   def decode_options(
@@ -89,8 +92,12 @@ defmodule ImagePipe.Transform.Executor do
     target = if vector?, do: target || render_target(group, extent, headroom), else: target
 
     floor =
-      if detection_runs?(Keyword.get(opts, :detector), group.guide),
-        do: detection_floor(group, extent, crop_frame)
+      if detection_runs?(
+           Keyword.get(opts, :detector),
+           Keyword.get(opts, :detector_required, false),
+           group.guide
+         ),
+         do: detection_floor(group, extent, crop_frame)
 
     # A decoded axis can't fall under one pixel, which an arbitrary rotation's
     # bounding box doesn't bound, so the source's short side caps the shrink
@@ -120,10 +127,19 @@ defmodule ImagePipe.Transform.Executor do
     |> Enum.max(fn -> nil end)
   end
 
-  # Detection runs when the detector can find any class the guide asks for.
-  defp detection_runs?(nil, _guide), do: false
+  # Detection runs when the detector can find any class the guide asks for. A
+  # required detector loads no models during a request, so a smart-face crop
+  # uses attention until its face model is ready. The crop checks readiness
+  # again, so a request that starts as warmup finishes can detect faces on
+  # the smaller frame.
+  defp detection_runs?(nil, _required?, _guide), do: false
 
-  defp detection_runs?(detector, guide) do
+  defp detection_runs?(detector, true, {:smart, :face_assist} = guide),
+    do: Detector.ready?(detector, classes: ["face"]) and finds_guide_class?(detector, guide)
+
+  defp detection_runs?(detector, _required?, guide), do: finds_guide_class?(detector, guide)
+
+  defp finds_guide_class?(detector, guide) do
     case guide_classes(guide, detector) do
       nil -> false
       classes -> Enum.any?(classes, &detector.available?(classes: [&1]))
@@ -497,7 +513,7 @@ defmodule ImagePipe.Transform.Executor do
        )
        when max(width, height) < @detection_floor and
               {crop_width, crop_height} != {width, height} do
-    if detection_runs?(state.detector, gravity),
+    if detection_runs?(state.detector, state.detector_required, gravity),
       do: buffer_detection_frame(state, kernel, opts),
       else: {:ok, state}
   end

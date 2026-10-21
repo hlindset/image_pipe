@@ -167,11 +167,15 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - A downloaded original is written to disk in 64 KiB batches instead of one
   write per network read, which takes less CPU for a large original.
 - A `detect` or `anchor=smart-face` request decodes and buffers less when no
-  detection will run: when the detector isn't available for any of the
-  requested classes, or when the image already has the `fit=cover` target's
-  aspect ratio, so the crop can't move. With an unavailable detector, the
-  attention crop it falls back to runs on the smaller decode, so it can
-  differ slightly.
+  detection will run:
+  - The detector isn't available for any of the requested classes.
+  - With `detector_required: true`, the detector's face model isn't ready
+    yet, and the request uses `anchor=smart-face`.
+  - The image already has the `fit=cover` target's aspect ratio, so the crop
+    can't move.
+
+  When the crop falls back to attention cropping, it runs on the smaller
+  decode, so its result can differ slightly.
 - Pixels of a source whose embedded RGB profile matches sRGB to within 1
   level are used as sRGB, without converting them through the profile, for
   the output, for placeholders, and for `bg`, `gray`, `bitonal`,
