@@ -58,7 +58,6 @@ defmodule ImagePipe.Cache.Sink do
 
     case response_metadata(resolved_output, cost_us, debug) do
       {:ok, metadata} ->
-        metadata = %{metadata | source_record: Keyword.get(facts, :source_record)}
         start(key, metadata, cache_opts, opts)
 
       {:error, reason} ->
@@ -74,11 +73,7 @@ defmodule ImagePipe.Cache.Sink do
     cost_us = Keyword.get(facts, :cost_us, 0)
     debug = Keyword.get(facts, :debug)
 
-    metadata = %{
-      complete_body_metadata(content_type, cost_us, debug)
-      | source_record: Keyword.get(facts, :source_record)
-    }
-
+    metadata = complete_body_metadata(content_type, cost_us, debug)
     start(key, metadata, cache_opts, opts)
   end
 
@@ -137,10 +132,7 @@ defmodule ImagePipe.Cache.Sink do
   # Stores a complete body from the calling process, without a writer, for a
   # caller that already runs off the request. Returns the commit's result.
   def store(%Key{} = key, content_type, body, cache_opts, facts, opts) do
-    metadata = %{
-      complete_body_metadata(content_type, Keyword.get(facts, :cost_us, 0), nil)
-      | source_record: Keyword.get(facts, :source_record)
-    }
+    metadata = complete_body_metadata(content_type, Keyword.get(facts, :cost_us, 0), nil)
 
     start_metadata = %{pool: :output, cache_key: key.hash}
 

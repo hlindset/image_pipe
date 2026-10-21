@@ -299,9 +299,7 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - A `trim` tolerance with hundreds of digits no longer fails with a 500.
   Tolerances above `2147483647` now fail with a 400.
 - A processed-image cache entry whose stored details about its original are
-  incomplete is now logged and treated as a miss, like other
-  [invalid metadata](docs/cache.md#files-on-disk). Before, a request that
-  read it failed with a 500.
+  incomplete is now served. Before, a request that read it failed with a 500.
 - Resizing a JPEG or WebP image only a few pixels high or wide, such as a
   2000×3 image at `w=100`, no longer fails with a 415. Neither does shrinking
   a WebP so far that its short side would be under one pixel, such as

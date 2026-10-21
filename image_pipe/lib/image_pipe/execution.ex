@@ -567,7 +567,7 @@ defmodule ImagePipe.Execution do
   defp generate_uncoalesced(context, lease, store?) do
     result =
       with {:ok, watermark_inputs} <- watermark_inputs(context) do
-        session = [source_record: context.acquisition.record, output_lease: lease]
+        session = [output_lease: lease]
         key = if store? and storable?(context), do: context.representation.cache_key
         generate(context, watermark_inputs, session, key)
       end
@@ -640,7 +640,7 @@ defmodule ImagePipe.Execution do
         if(degraded?, do: nil, else: key),
         type,
         body,
-        facts(session, debug, Cache.Cost.terminal(context.request.output.terminal)),
+        [cost_us: Cache.Cost.terminal(context.request.output.terminal), debug: debug],
         Keyword.get(session, :output_lease),
         config
       )
@@ -663,9 +663,6 @@ defmodule ImagePipe.Execution do
   end
 
   defp decode_input(context), do: context.acquisition.response || context.source
-
-  defp facts(session, debug, cost),
-    do: [cost_us: cost, debug: debug, source_record: Keyword.get(session, :source_record)]
 
   defp store_body(nil, _type, _body, _facts, _lease, _config), do: :ok
 
