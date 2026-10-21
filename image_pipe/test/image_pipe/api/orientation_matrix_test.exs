@@ -23,7 +23,7 @@ defmodule ImagePipe.API.OrientationMatrixTest do
   alias ImagePipe.Transform.PendingOrientation
   alias ImagePipe.Transform.SourceGeometry
 
-  # ── the matrix: {label, api-dialect option segments} ───────────────────
+  # ── the matrix: {label, URL option segments} ───────────────────────────
   #
   # Every op's target window is sized/positioned to land on non-flat content
   # in `fixture_base/0` below (quadrant seams + the two white stripes), so a

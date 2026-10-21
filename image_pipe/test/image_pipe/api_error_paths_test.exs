@@ -76,7 +76,7 @@ defmodule ImagePipe.APIErrorPathsTest do
   end
 
   # A lazy `stream!/2` seam that raises on the FIRST pull, before any chunk is
-  # emitted. Because the dialect forces the first chunk inside `build_fun`'s
+  # emitted. Because `Processing.build_fun/5` forces the first chunk inside the
   # producer (before ever calling `pump`), this surfaces as a pre-header 500,
   # not a mid-stream abort of an already-committed 200 — the
   # `ImagePipe.PlugTest.FailingStreamBeforeHeaderImage` pin. The lazy
@@ -95,10 +95,9 @@ defmodule ImagePipe.APIErrorPathsTest do
   end
 
   # A `Clamp.clamp/3` `clamp_resampler` seam whose `resample/4` raises. Clamp is a
-  # shared post-transform stage with no rescue of its own (AGENTS.md: only a
-  # dialect's own pipeline run is a trusted-callback boundary the runner must
-  # not launder) — the raise is expected to escape the producer process,
-  # surface to the coordinator as a `:DOWN`, and render 500-class.
+  # shared post-transform stage with no rescue of its own — the raise is
+  # expected to escape the producer process, surface to the coordinator as a
+  # `:DOWN`, and render 500-class.
   defmodule RaisingClampResampler do
     @moduledoc false
     def resample(_image, _scale, _vscale, _kernel), do: raise("boom during clamp resize")

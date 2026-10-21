@@ -1,7 +1,7 @@
 defmodule ImagePipe.Delivery.ContractTest do
   @moduledoc """
   The `ImagePipe.Delivery` primitive's contract, exercised directly with a
-  synthetic `build_fun` — the surface a calling dialect builds against.
+  synthetic `build_fun` — the surface `ImagePipe.Execution` builds against.
 
   Trace-context propagation is the one part of the contract not covered here;
   it needs the global trace exporter and so lives in
@@ -114,7 +114,7 @@ defmodule ImagePipe.Delivery.ContractTest do
     end
   end
 
-  # ── a nil cache key: the calling dialect has caching off ─────────────────
+  # ── a nil cache key: the request has caching off ─────────────────────────
 
   describe "nil cache key" do
     test "streams normally, stages nothing, and reports no cache key" do
