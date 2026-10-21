@@ -91,21 +91,26 @@ format at 80, whatever qualities `print` sets.
 
 ## Single-group and pipeline presets
 
-A preset without `-` is a single-group preset. It works like an ingredient:
-a set of options you could have written yourself, applied to the group it is
-written in. In `/w=800/-/trim=auto/preset=frame`, `frame` pads the image
-after the trim, in the second group.
+A preset that sets options in at most one group is a single-group preset.
+It works like an ingredient: a set of options you could have written yourself,
+applied to the group it is written in. In `/w=800/-/trim=auto/preset=frame`,
+`frame` pads the image after the trim, in the second group.
 
-A preset containing `-` is a pipeline preset: a complete recipe that
-supplies every group of the request. Building recipes from ingredients keeps
-the ingredients available for requests that need something slightly
-different:
+A preset that sets options in several groups is a pipeline preset: a
+complete recipe that supplies every group of the request. Building recipes
+from ingredients keeps the ingredients available for requests that need
+something slightly different:
 
 ```text
 card   = w=400/h=300/fit=cover
 frame  = pad=20/bg=fff
 framed = preset=card/-/preset=frame/format=webp
 ```
+
+As in a URL, [request-wide options](requesting-images.md#processing-groups)
+such as `format` belong to no group, so `w=400/-/format=webp` is a
+single-group preset. An `unset` counts as an option, so `w=400/-/blur=unset`
+is a pipeline preset.
 
 A preset named inside another preset applies to the group it is written in,
 so `frame` pads the second group of `framed`. Request-wide options can still
