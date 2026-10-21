@@ -1272,6 +1272,45 @@ defmodule ImagePipe.API.ParserTest do
   end
 
   describe "presets [API §Presets, trimmed to probe]" do
+    # Empty request defaults change nothing, but the parse merges them, so it
+    # takes the full expansion even when the URL names no preset.
+    property "a parse with nothing to expand matches one that merges empty defaults" do
+      segments =
+        StreamData.member_of([
+          "w=100",
+          "h=50",
+          "fit=cover",
+          "anchor=smart",
+          "anchor-offset=5,5",
+          "crop=10,10",
+          "region=0,0,50,50",
+          "blur=1",
+          "blur=2",
+          "blur=bad",
+          "nope=1",
+          "format=webp",
+          "q=80",
+          "jpeg-options=progressive",
+          "w=unset",
+          "jpeg-options=unset,progressive",
+          "-"
+        ])
+
+      check all options <- StreamData.list_of(segments, min_length: 1, max_length: 8),
+                max_runs: 300 do
+        path = Enum.join(["" | options] ++ ["src", "images/cat.jpg"], "/")
+
+        case ImagePipe.API.Path.extract(path, "") do
+          {:ok, lexed} ->
+            assert Parser.parse(lexed, mount([])) ==
+                     Parser.parse(lexed, mount(request_defaults: ""))
+
+          {:error, _diagnostics} ->
+            :ok
+        end
+      end
+    end
+
     test "a named preset contributes options the URL never states" do
       config = [presets: %{"card" => "w=300/fit=cover"}]
 

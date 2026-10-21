@@ -7,6 +7,8 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Parsing a URL takes less time, most of all for a URL without presets or
+  `unset` when no request defaults are set.
 - A `watermark_source:` loses an optional leading `/`, as the main source
   does, so its `wm-src64` value and its deterministic `wm-enc` token change.
 - A URL's `anchor-offset`, `extend-at`, or `extend-offset` no longer
