@@ -222,8 +222,9 @@ defmodule ImagePipe.API.ColorManagementWireTest do
     assert VipsImage.format(kept) == :VIPS_FORMAT_USHORT
     assert VipsImage.format(mapped) == :VIPS_FORMAT_UCHAR
     assert pixels(alpha(kept)) == pixels(alpha(input))
-    {:ok, expected} = Operation.colourspace(input, :VIPS_INTERPRETATION_sRGB)
-    assert pixels(alpha(mapped)) == pixels(alpha(expected))
+    {:ok, input_alpha} = pixels(alpha(input))
+    expected = for <<value::native-16 <- input_alpha>>, into: <<>>, do: <<round(value / 257)>>
+    assert pixels(alpha(mapped)) == {:ok, expected}
   end
 
   for effect <- ["gray", "bitonal"], profile <- ["", "profile=preserve/"] do

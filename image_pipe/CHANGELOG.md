@@ -368,6 +368,10 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `[:request]` stop from `ImagePipe.run/4` has no `:error`.
 - The request line for an invalid source or invalid output gives the
   reason: `reason="invalid source"` or `reason="invalid output"`.
+- A 16-bit original delivered at 8 bits per channel has each value rounded
+  to the nearest 8-bit level. Before, about a quarter of the values were one
+  level off, so 65400 became 255 instead of 254. This also applies to
+  `png-options=bitdepth:8` with `hdr=preserve`.
 
 ## [0.3.0] - 2026-10-18
 

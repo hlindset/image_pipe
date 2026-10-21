@@ -7,6 +7,7 @@ defmodule ImagePipe.Transform.InputColorManagement do
   # policy and output format's capabilities.
   @moduledoc false
 
+  alias ImagePipe.BitDepth
   alias ImagePipe.Telemetry
   alias ImagePipe.Transform.Materializer
   alias ImagePipe.Transform.State
@@ -124,6 +125,21 @@ defmodule ImagePipe.Transform.InputColorManagement do
   # Import to PCS float.
   defp icc_import(image, profile),
     do: Operation.icc_import(image, embedded: true, pcs: pcs(profile))
+
+  # libvips narrows 16-bit values by truncating, so narrow them here first,
+  # rounding.
+  defp to_colorspace(image, target)
+       when target in [:VIPS_INTERPRETATION_sRGB, :VIPS_INTERPRETATION_B_W] do
+    case VixImage.interpretation(image) do
+      interp when interp in [:VIPS_INTERPRETATION_RGB16, :VIPS_INTERPRETATION_GREY16] ->
+        with {:ok, narrow} <- BitDepth.narrow_to_8_bits(image) do
+          Operation.colourspace(narrow, target)
+        end
+
+      _other ->
+        Operation.colourspace(image, target)
+    end
+  end
 
   defp to_colorspace(image, target), do: Operation.colourspace(image, target)
 

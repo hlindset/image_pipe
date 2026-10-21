@@ -1,6 +1,7 @@
 defmodule ImagePipe.Output.Encoder do
   @moduledoc false
 
+  alias ImagePipe.BitDepth
   alias ImagePipe.Format
   alias ImagePipe.Output.ColorProfile
   alias ImagePipe.Output.EncodeSearch
@@ -253,29 +254,19 @@ defmodule ImagePipe.Output.Encoder do
     end
   end
 
+  defp fit_png_depth(
+         image,
+         %Resolved{format: :png, encoder_options: %PngOptions{bitdepth: 8}} = resolved
+       ) do
+    with {:ok, image} <- narrow_to_8_bits(image), do: {:ok, image, resolved}
+  end
+
   defp fit_png_depth(image, resolved), do: {:ok, image, resolved}
 
-  # Workaround for libvips 8.18: its saver narrows 16-bit gray and alpha by
-  # truncating, so 64 × 257 becomes 63. Narrowing here first rounds.
   defp narrow_to_8_bits(image) do
-    case VixImage.format(image) do
-      :VIPS_FORMAT_USHORT ->
-        interpretation =
-          if Image.bands(image) < 3,
-            do: :VIPS_INTERPRETATION_B_W,
-            else: :VIPS_INTERPRETATION_sRGB
-
-        with {:ok, scaled} <- Operation.linear(image, [1 / 257], [0.0]),
-             {:ok, rounded} <- Operation.round(scaled, :VIPS_OPERATION_ROUND_RINT),
-             {:ok, narrow} <- Operation.cast(rounded, :VIPS_FORMAT_UCHAR),
-             {:ok, narrow} <- Operation.copy(narrow, interpretation: interpretation) do
-          {:ok, narrow}
-        else
-          {:error, reason} -> {:error, {:encode, encode_error(reason), []}}
-        end
-
-      _other ->
-        {:ok, image}
+    case BitDepth.narrow_to_8_bits(image) do
+      {:ok, image} -> {:ok, image}
+      {:error, reason} -> {:error, {:encode, encode_error(reason), []}}
     end
   end
 

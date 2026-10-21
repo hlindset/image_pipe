@@ -4,6 +4,7 @@ defmodule ImagePipe.Output do
   use Boundary,
     top_level?: true,
     deps: [
+      ImagePipe.BitDepth,
       ImagePipe.Format,
       ImagePipe.Plan,
       ImagePipe.SrgbProfile,
