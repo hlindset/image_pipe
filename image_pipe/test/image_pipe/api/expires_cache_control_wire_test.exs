@@ -69,8 +69,8 @@ defmodule ImagePipe.API.ExpiresCacheControlWireTest do
     assert get_resp_header(response, "cache-control") == ["max-age=0, private, must-revalidate"]
   end
 
-  test "cookie storage inputs keep the bounded Cache-Control private", ctx do
-    config = mount(ctx, http_cache: :validators, storage_inputs: [{:cookie, "session"}])
+  test "cookie vary_on inputs keep the bounded Cache-Control private", ctx do
+    config = mount(ctx, http_cache: :validators, vary_on: [{:cookie, "session"}])
 
     response = get(@path, config, [{"cookie", "session=a"}])
 

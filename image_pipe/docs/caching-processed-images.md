@@ -135,8 +135,8 @@ If `[server]` sets `auth_token`, add `-H "Authorization: Bearer <token>"`.
 
 <!-- tabs-close -->
 
-If `storage_inputs` keeps separate copies per request header or cookie, send
-those values too (see [cache key inputs](cache.md#cache-key-inputs)).
+If `vary_on` names request headers or cookies, send those values too (see
+[cache key inputs](cache.md#cache-key-inputs)).
 
 ## Confirm caching works
 

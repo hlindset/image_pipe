@@ -14,7 +14,7 @@ defmodule ImagePipe.Representation do
   #
   #   * the **key** is storage identity — every input that can select a
   #     different stored variant, including `storage_only` (cachebuster +
-  #     configured storage-vary values);
+  #     `vary_on` values);
   #   * the **ETag** is a strong byte-identity validator — deliberately
   #     narrower, excluding `storage_only` so that changing a cachebuster or a
   #     vary-only input busts storage without forcing clients to re-download
@@ -79,17 +79,19 @@ defmodule ImagePipe.Representation do
 
   `fetch_context` describes the effective origin request, including headers
   and credentials that can select different source bytes. It is digested
-  before entering key data. The cachebuster and configured storage partitions
-  are shared with output storage; format, geometry, and output negotiation
-  never enter this key. Origin Vary matching uses the effective fetch context,
-  not headers from the downstream image request.
+  before entering key data. The cachebuster is shared with output storage, so
+  a new one downloads the original again. `vary_on` values never reach the
+  source, so they stay out, and every value shares one stored original.
+  Format, geometry, and output negotiation never enter this key. Origin Vary
+  matching uses the effective fetch context, not headers from the downstream
+  image request.
   """
   @spec input_key(keyword(), IdentityMaterial.t(), term()) :: Key.t()
   def input_key(source_identity, %IdentityMaterial{} = material, fetch_context) do
     data = [
       source_identity: source_identity,
       fetch_context: digest_hex(fetch_context),
-      storage_only: material.storage_only
+      storage_only: Keyword.take(material.storage_only, [:cachebuster])
     ]
 
     %Key{hash: digest_hex([pool: :input] ++ data), data: data}

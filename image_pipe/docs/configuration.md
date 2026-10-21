@@ -35,7 +35,7 @@ configuration. Invalid options raise `ArgumentError` when you build it.
 | A mount | CORS, HTTP cache headers | `ImagePipe.Plug` options on the `forward` |
 | An instance | Its name, and which detection models load at startup (`detector_warmup:`) | `ImagePipe.child_spec/1` |
 | A request | Size, crop, effects, format, quality | URL options, or `ImagePipe.URL.group/2` and `ImagePipe.URL.output/2` |
-| A direct call | The `Accept` value, header and cookie values for cached copies | `accept:` and `request_inputs:` on `ImagePipe.run/4` |
+| A direct call | The `Accept` value, header and cookie values for cached copies | `accept:` and `vary_values:` on `ImagePipe.run/4` |
 
 A mount checks request URLs against the configuration's URL settings. To
 build URLs in the same app, get those settings with `ImagePipe.url_config/1`.

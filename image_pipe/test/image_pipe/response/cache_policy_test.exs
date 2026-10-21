@@ -72,15 +72,15 @@ defmodule ImagePipe.Response.CachePolicyTest do
              generate(conn(:get, "/x"), representation(), facts(storage: :deny), :validators)
   end
 
-  test ":private generates private Cache-Control without cookie storage inputs" do
+  test ":private generates private Cache-Control without a cookie in vary_on" do
     assert %CacheHeaders{headers: headers} =
              generate(conn(:get, "/x"), representation(), facts(), :private)
 
     assert {"cache-control", "private, max-age=31536000, immutable"} in headers
   end
 
-  test ":auto turns private with cookie storage inputs and :public keeps it public" do
-    config = config(storage_inputs: [{:cookie, "session"}])
+  test ":auto turns private with a cookie in vary_on and :public keeps it public" do
+    config = config(vary_on: [{:cookie, "session"}])
 
     assert %CacheHeaders{headers: auto} =
              generate(conn(:get, "/x"), representation(), facts(), :auto, config)

@@ -96,7 +96,7 @@ defmodule ImagePipe.API.CacheContractTest do
   end
 
   defp storage_only_case(base_opts) do
-    opts = Keyword.put(base_opts, :storage_inputs, [{:header, "x-tenant"}])
+    opts = Keyword.put(base_opts, :vary_on, [{:header, "x-tenant"}])
 
     variants = [
       {:header, "x-tenant", "team-a"},

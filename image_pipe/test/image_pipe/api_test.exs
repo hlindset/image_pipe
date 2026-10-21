@@ -13,7 +13,7 @@ defmodule ImagePipe.APITest do
 
       assert Signature.verify(nil, "/src/a.jpg", opts) == {:ok, nil}
       assert Keyword.fetch!(opts, :presets) == %{}
-      assert Keyword.fetch!(opts, :storage_inputs) == []
+      assert Keyword.fetch!(opts, :vary_on) == []
       assert Keyword.fetch!(opts, :max_body_bytes) == 10_000_000
       assert Keyword.fetch!(opts, :max_input_pixels) == 40_000_000
     end
@@ -131,7 +131,7 @@ defmodule ImagePipe.APITest do
               ]
             ]
           ],
-          storage_inputs: [{:header, "X-Tenant"}]
+          vary_on: [{:header, "X-Tenant"}]
         )
 
       conn =

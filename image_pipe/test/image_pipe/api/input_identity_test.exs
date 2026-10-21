@@ -7,7 +7,7 @@ defmodule ImagePipe.API.InputIdentityTest do
   alias ImagePipe.Representation
 
   defp identity(path, headers \\ []) do
-    config = ImagePipe.Plug.init(allow_unsigned: true, storage_inputs: [{:header, "x-tenant"}])
+    config = ImagePipe.Plug.init(allow_unsigned: true, vary_on: [{:header, "x-tenant"}])
 
     conn =
       Enum.reduce(headers, Plug.Test.conn(:get, path), fn {key, value}, conn ->
@@ -62,12 +62,12 @@ defmodule ImagePipe.API.InputIdentityTest do
     assert output_a.etag == output_b.etag
   end
 
-  property "storage partitions invalidate both pools without changing the ETag" do
+  property "vary_on values select processed copies but share one original, keeping the ETag" do
     check all tenant <- string(:alphanumeric, min_length: 1) do
       a = identity("/src/cat.jpg", [{"x-tenant", tenant}])
       b = identity("/src/cat.jpg", [{"x-tenant", tenant <> "x"}])
 
-      refute Representation.input_key([source: "cat"], a, []).hash ==
+      assert Representation.input_key([source: "cat"], a, []).hash ==
                Representation.input_key([source: "cat"], b, []).hash
 
       output_a = Representation.build([source: "cat"], a, {:strong, "bytes"})

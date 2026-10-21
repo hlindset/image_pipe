@@ -17,7 +17,7 @@ defmodule ImagePipeServer.Config do
     * `[sources.<name>]` - named sources
       (see `ImagePipeServer.Config.Sources`).
     * `[cache]` - `output` and `input` file system caches, and
-      `storage_inputs` as `[{ header = "..." }, { cookie = "..." }]`.
+      `vary_on` as `[{ header = "..." }, { cookie = "..." }]`.
     * `[processing]` - the processing options of `ImagePipe.config/1`,
       including `watermarks.<name>` asset tables, `presets.<name>` option
       fragments, `request_defaults`, and `detector_warmup`, the instance
@@ -246,7 +246,7 @@ defmodule ImagePipeServer.Config do
     [
       output: [type: {:convert, &file_system(&1, output_schema(), &2), output_schema()}],
       input: [type: {:convert, &file_system(&1, store_schema(), &2), store_schema()}],
-      storage_inputs: [type: {:list, {:tuple, [{:in, [:header, :cookie]}, :string]}}],
+      vary_on: [type: {:list, {:tuple, [{:in, [:header, :cookie]}, :string]}}],
       max_remembered_originals: [type: :pos_integer]
     ]
   end

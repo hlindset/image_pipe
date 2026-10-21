@@ -88,7 +88,7 @@ IPS_PROCESSING__QUALITY=82
   as `IPS_SERVICE_HOST` and `IPS_PORT`, are ignored. Every setting has a
   `__` in its name, and these never do.
 - Settings that are awkward as variables, such as S3 `buckets`,
-  `address_policy`, or `storage_inputs`, belong in the file.
+  `address_policy`, or `vary_on`, belong in the file.
 
 ## Values
 
@@ -327,7 +327,7 @@ table leaves out, from `AWS_WEB_IDENTITY_TOKEN_FILE`, `AWS_ROLE_ARN`,
 
 ### `[cache]`
 
-Caches on the local filesystem: `output` for processed images, `input` for originals. Their `root` directories must be separate, neither inside the other. Each cache needs `root` and `max_size_bytes`. See [caching processed images](../../image_pipe/docs/caching-processed-images.md). `max_remembered_originals` is how many originals the server remembers in memory, with or without a cache: about 700 bytes for each local file and 1 KB for each image from an origin. It defaults to one for each 50 KB of `output.max_size_bytes`, at least 10,000 and at most 1,000,000. See [originals and processed images](../../image_pipe/docs/caching-and-freshness.md#originals-and-processed-images) for what happens when an original is forgotten.
+Caches on the local filesystem: `output` for processed images, `input` for originals. Their `root` directories must be separate, neither inside the other. Each cache needs `root` and `max_size_bytes`. `vary_on` names request headers and cookies whose values select separate processed copies (see [Vary](../../image_pipe/docs/cdn-http-cache.md#vary)). See [caching processed images](../../image_pipe/docs/caching-processed-images.md). `max_remembered_originals` is how many originals the server remembers in memory, with or without a cache: about 700 bytes for each local file and 1 KB for each image from an origin. It defaults to one for each 50 KB of `output.max_size_bytes`, at least 10,000 and at most 1,000,000. See [originals and processed images](../../image_pipe/docs/caching-and-freshness.md#originals-and-processed-images) for what happens when an original is forgotten.
 
 | Key | Type | Default |
 | --- | --- | --- |
@@ -336,7 +336,7 @@ Caches on the local filesystem: `output` for processed images, `input` for origi
 | `output.max_body_bytes` | integer ≥ 0 |  |
 | `input.max_size_bytes` | integer > 0 |  |
 | `input.root` | string (absolute path) |  |
-| `storage_inputs` | array of `{ header = … }` or `{ cookie = … }` (string) |  |
+| `vary_on` | array of `{ header = … }` or `{ cookie = … }` (string) |  |
 | `max_remembered_originals` | integer > 0 |  |
 
 ### `[processing]`

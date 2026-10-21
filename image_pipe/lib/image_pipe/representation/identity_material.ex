@@ -7,7 +7,7 @@ defmodule ImagePipe.Representation.IdentityMaterial do
   #   * `representation` — byte-affecting data (feeds both the key and the
   #     ETag). Includes the canonical, normalized negotiation *outcome* (e.g.
   #     `{:image, :avif}`), never a raw header value.
-  #   * `storage_only` — cachebuster plus configured storage-vary values (feeds
+  #   * `storage_only` — cachebuster plus `vary_on` values (feeds
   #     the key only; excluded from the ETag, since it partitions storage
   #     without changing the bytes).
   #

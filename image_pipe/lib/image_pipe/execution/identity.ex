@@ -6,8 +6,8 @@ defmodule ImagePipe.Execution.Identity do
   # carries the placeholders it includes, and the result limits of an explicit
   # format whose encoder lowers them.
   #
-  # The cachebuster and configured request-header/cookie storage inputs partition
-  # cache storage without changing the ETag. Expiry, signatures, filenames,
+  # The cachebuster and the `vary_on` header and cookie values partition cache
+  # storage without changing the ETag. Expiry, signatures, filenames,
   # attachment, and debug presentation do not enter identity. The caller passes
   # source byte identity separately to `ImagePipe.Representation.build/3`.
   #
@@ -28,16 +28,16 @@ defmodule ImagePipe.Execution.Identity do
   @doc """
   Builds the representation identity material for `request`, given the negotiation
   outcome, the normalized request inputs (consulted only for configured
-  `storage_inputs`), and mount `config`.
+  `vary_on`), and mount `config`.
   """
   @spec material(Spec.t(), Policy.t() | nil, Inputs.t(), keyword(), term() | nil) ::
           IdentityMaterial.t()
   def material(%Spec{} = request, policy, %Inputs{} = inputs, config, detector_identity)
       when is_list(config) do
-    {configured_storage_only, storage_vary_names} =
-      Inputs.storage_material(inputs, Keyword.get(config, :storage_inputs, []))
+    {vary_material, vary_names} =
+      Inputs.vary_material(inputs, Keyword.get(config, :vary_on, []))
 
-    storage_only = cachebuster_material(request.cachebuster) ++ configured_storage_only
+    storage_only = cachebuster_material(request.cachebuster) ++ vary_material
 
     representation =
       representation_material(
@@ -49,9 +49,9 @@ defmodule ImagePipe.Execution.Identity do
 
     vary_header_names =
       if varies_by_accept?(policy) do
-        Enum.uniq(storage_vary_names ++ ["Accept"])
+        Enum.uniq(vary_names ++ ["Accept"])
       else
-        storage_vary_names
+        vary_names
       end
 
     %IdentityMaterial{

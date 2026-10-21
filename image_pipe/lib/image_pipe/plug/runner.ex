@@ -132,10 +132,10 @@ defmodule ImagePipe.Plug.Runner do
          do: {:ok, source, config}
   end
 
-  # Only `storage_inputs` reads cookies, and parsing a large Cookie header
+  # Only `vary_on` reads cookies, and parsing a large Cookie header
   # is a measurable share of a warm cache hit.
   defp storage_cookies(conn, config) do
-    if Enum.any?(Keyword.get(config, :storage_inputs, []), &match?({:cookie, _}, &1)),
+    if Enum.any?(Keyword.get(config, :vary_on, []), &match?({:cookie, _}, &1)),
       do: Plug.Conn.fetch_cookies(conn).req_cookies,
       else: %{}
   end

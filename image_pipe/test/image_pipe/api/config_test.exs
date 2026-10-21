@@ -218,13 +218,13 @@ defmodule ImagePipe.Plug.ConfigTest do
       Config.validate!(
         telemetry_prefix: [:private, :image_pipe],
         allow_origin: "https://images.example",
-        storage_inputs: [{:header, "accept-language"}, {:cookie, "variant"}]
+        vary_on: [{:header, "accept-language"}, {:cookie, "variant"}]
       )
 
     assert config[:telemetry_prefix] == [:private, :image_pipe]
     assert config[:allow_origin] == "https://images.example"
 
-    assert config[:storage_inputs] == [
+    assert config[:vary_on] == [
              {:header, "accept-language"},
              {:cookie, "variant"}
            ]
@@ -241,8 +241,8 @@ defmodule ImagePipe.Plug.ConfigTest do
       end
     end
 
-    assert_raise ArgumentError, ~r/storage_inputs/, fn ->
-      Config.validate!(storage_inputs: [{:header, ""}])
+    assert_raise ArgumentError, ~r/vary_on/, fn ->
+      Config.validate!(vary_on: [{:header, ""}])
     end
   end
 

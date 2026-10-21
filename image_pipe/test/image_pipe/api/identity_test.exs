@@ -479,10 +479,10 @@ defmodule ImagePipe.API.IdentityTest do
     defp contains_value?(_term, _value), do: false
   end
 
-  describe "storage_inputs integration (Task 9)" do
-    test "a configured storage_inputs header moves the key but not the ETag, and names Vary" do
+  describe "vary_on integration (Task 9)" do
+    test "a configured vary_on header moves the key but not the ETag, and names Vary" do
       request = request!(["w=300"])
-      config = [storage_inputs: [{:header, "Save-Data"}]]
+      config = [vary_on: [{:header, "Save-Data"}]]
 
       conn_a = :get |> conn("/") |> Plug.Conn.put_req_header("save-data", "on")
       conn_b = :get |> conn("/") |> Plug.Conn.put_req_header("save-data", "off")
