@@ -558,7 +558,7 @@ defmodule ImagePipe.Telemetry.SummaryTest do
   end
 
   test "each group's watermark source is listed", ctx do
-    options = start(ctx, request_watermarks: true)
+    options = start(ctx)
     config = Caches.plug(options)
     first = Base.url_encode64("mark.png?sig=s", padding: false)
     second = Base.url_encode64("logo.png", padding: false)

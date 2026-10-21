@@ -52,13 +52,10 @@ defmodule ImagePipe.Plan.Spec.Issue do
     * `:pipeline_preset_with_group_options`, `:pipeline_preset_with_preset`,
       `:multiple_pipeline_presets` - a preset that defines several groups is
       combined with options or presets it can't be combined with.
-    * `:unknown_watermark`, `:watermark_source_disabled` - the plan names a
-      watermark the server doesn't define, or uses `watermark_source` where
-      the server doesn't allow it. `ImagePipe.validate/2` and
-      `ImagePipe.run/4` return both. `ImagePipe.URL.validate/1` and
-      `ImagePipe.URL.url/3` return `:unknown_watermark` when the URL
-      configuration's `:validate_against` lists the watermark names, and
-      `:watermark_source_disabled` when it sets `request_watermarks: false`.
+    * `:unknown_watermark` - the plan names a watermark the server doesn't
+      define. `ImagePipe.validate/2` and `ImagePipe.run/4` return it.
+      `ImagePipe.URL.validate/1` and `ImagePipe.URL.url/3` return it when the
+      URL configuration's `:validate_against` lists the watermark names.
 
   `detail` describes the failed constraint, such as `{:requires, :resize}`
   or `%{preset: "card"}`, holds the builder's message for `:invalid_value`,

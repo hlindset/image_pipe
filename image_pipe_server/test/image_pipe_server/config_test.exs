@@ -251,14 +251,12 @@ defmodule ImagePipeServer.ConfigTest do
               }
             },
             "processing" => %{
-              "watermarks" => %{"logo" => %{"source" => "brand/logo.png", "opacity" => 0.5}},
-              "request_watermarks" => true
+              "watermarks" => %{"logo" => %{"source" => "brand/logo.png", "opacity" => 0.5}}
             }
           })
         )
 
       assert %{"logo" => %{opacity: 0.5}} = config.image_pipe.options[:watermarks]
-      assert config.image_pipe.options[:request_watermarks] == true
 
       assert error(fn ->
                Config.build!(

@@ -15,7 +15,7 @@ defmodule ImagePipe.API.Presets do
 
   @type compiled :: %{presets: map(), request_defaults: map() | nil}
 
-  # `watermarks` are the host's watermark facts, or nil when unknown.
+  # `watermarks` are the host's watermark names, or nil when unknown.
   @spec compile(term(), term(), Presets.watermarks()) ::
           {:ok, compiled()} | {:error, String.t()}
   def compile(presets, request_defaults, watermarks \\ nil) do
@@ -26,14 +26,6 @@ defmodule ImagePipe.API.Presets do
       {:ok, %{presets: compiled, request_defaults: defaults}}
     end
   end
-
-  # Watermark facts from the server's `watermarks` names and
-  # `request_watermarks` setting, each nil when unknown.
-  @spec watermarks([String.t()] | nil, boolean() | nil) :: Presets.watermarks()
-  def watermarks(nil, nil), do: nil
-
-  def watermarks(names, request_sources?),
-    do: %{names: names, request_sources?: request_sources? != false}
 
   # One looked-up fragment; `:error` when it does not parse.
   @spec parse_fragment(String.t()) :: {:ok, map()} | :error

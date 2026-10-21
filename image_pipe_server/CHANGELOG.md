@@ -50,6 +50,13 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   terminal, such as with `docker run -t`. Set `[telemetry] log_colors = true`
   to color them by level.
 
+### Removed
+
+- **Breaking:** `[processing] request_watermarks`. Requests may always name
+  their own watermark with `wm-src64` or `wm-enc`, and its image still has to
+  come from a configured source, like the main image. Remove the setting from
+  `config.toml`.
+
 ### Fixed
 
 - The lines the libraries the server uses log while it starts, such as the

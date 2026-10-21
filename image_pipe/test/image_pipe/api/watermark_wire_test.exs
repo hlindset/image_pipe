@@ -365,6 +365,15 @@ defmodule ImagePipe.API.WatermarkWireTest do
       assert etag(named) == etag(sourced)
     end
 
+    test "a request source that no configured source serves fails before any fetch",
+         %{config: config} do
+      for source <- ["http://169.254.169.254/latest/meta-data", "s3://bucket/mark.png"] do
+        response = response("wm-src64=#{Base.url_encode64(source, padding: false)}", config)
+        assert response.status in 400..499, source
+        refute_received {:origin_fetch, _path}
+      end
+    end
+
     test "a concealed source decrypts like the main source", %{origin: origin} do
       url_options = [keys: [@signing_key], source_encryption_keys: [@source_key]]
       url = ImagePipe.URL.config(url_options)
@@ -414,17 +423,9 @@ defmodule ImagePipe.API.WatermarkWireTest do
       refute_received {:origin_fetch, _path}
     end
 
-    test "parse failures return before any source access", %{origin: origin, config: config} do
-      gated = mount(origin, request_watermarks: false)
-      source = Base.url_encode64("mark.png", padding: false)
-
-      for {options, config} <- [
-            {"wm=unknown", config},
-            {"wm-src64=#{source}", gated}
-          ] do
-        assert response(options, config).status == 400, options
-        refute_received {:origin_fetch, _path}
-      end
+    test "parse failures return before any source access", %{config: config} do
+      assert response("wm=unknown", config).status == 400
+      refute_received {:origin_fetch, _path}
     end
   end
 
@@ -640,7 +641,6 @@ defmodule ImagePipe.API.WatermarkWireTest do
           turned: [source: "rotated.jpg"],
           corrupt: [source: "corrupt.png"]
         },
-        request_watermarks: true,
         http_cache: :auto
       ]
       |> Keyword.merge(options)

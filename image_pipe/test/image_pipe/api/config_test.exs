@@ -328,9 +328,7 @@ defmodule ImagePipe.Plug.ConfigTest do
                "badge" => %{opacity: 1.0}
              } = config[:watermarks]
 
-      assert config[:request_watermarks] == false
       assert Config.validate!([])[:watermarks] == %{}
-      assert Config.validate!(request_watermarks: true)[:request_watermarks] == true
     end
 
     test "rejects malformed entries" do
@@ -348,8 +346,6 @@ defmodule ImagePipe.Plug.ConfigTest do
           Config.validate!(@mounts ++ [watermarks: watermarks])
         end
       end
-
-      assert_raise ArgumentError, fn -> Config.validate!(request_watermarks: :yes) end
     end
   end
 
@@ -406,7 +402,6 @@ defmodule ImagePipe.Plug.ConfigTest do
           {[presets: %{"wm" => "wm-enc=AQID"}], ~s(preset "wm")},
           {[request_defaults: "wm-enc=AQID"], "request_defaults"}
         ] do
-      options = [request_watermarks: true] ++ options
       error = assert_raise ArgumentError, fn -> ImagePipe.config(options) end
       assert error.message =~ "#{owner} uses wm-enc, which needs source_encryption_keys"
     end
@@ -414,7 +409,7 @@ defmodule ImagePipe.Plug.ConfigTest do
 
   test "accepts a static wm-enc=unset without source encryption keys" do
     for options <- [[presets: %{"wm" => "wm-enc=unset"}], [request_defaults: "wm-enc=unset"]] do
-      assert %ImagePipe.Config{} = ImagePipe.config([request_watermarks: true] ++ options)
+      assert %ImagePipe.Config{} = ImagePipe.config(options)
     end
   end
 
@@ -426,9 +421,7 @@ defmodule ImagePipe.Plug.ConfigTest do
           {[presets: %{"wm" => "wm-enc=" <> token}], ~s(preset "wm")},
           {[request_defaults: "wm-enc=" <> token], "request_defaults"}
         ] do
-      options =
-        [keys: [@signing_key], source_encryption_keys: [@source_key], request_watermarks: true] ++
-          options
+      options = [keys: [@signing_key], source_encryption_keys: [@source_key]] ++ options
 
       error = assert_raise ArgumentError, fn -> ImagePipe.config(options) end
 
@@ -442,9 +435,7 @@ defmodule ImagePipe.Plug.ConfigTest do
     token = wm_token(instance, "logo.png")
 
     config =
-      ImagePipe.config(
-        instance ++ [request_watermarks: true, presets: %{"wm" => "wm-enc=" <> token}]
-      )
+      ImagePipe.config(instance ++ [presets: %{"wm" => "wm-enc=" <> token}])
 
     assert %ImagePipe.Config{} =
              ImagePipe.Config.override(config,

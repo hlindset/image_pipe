@@ -40,6 +40,9 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Removed
 
+- **Breaking:** `request_watermarks` in `validate_against`, and the
+  `:watermark_source_disabled` issue. Servers accept every watermark source
+  that a configured source serves. Remove the option from `validate_against`.
 - **Breaking:** `mount:` on `ImagePipe.URL.Helpers`. Start an instance with
   the mount's URL settings and pass its name as `instance:`.
 

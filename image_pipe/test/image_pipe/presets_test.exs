@@ -156,14 +156,8 @@ defmodule ImagePipe.PresetsTest do
       assert_raise ArgumentError, ~r/mutually_exclusive_options/, fn -> IP.config(options) end
     end
 
-    for options <- [
-          [presets: %{"card" => "wm=missing"}],
-          [
-            request_defaults: "wm-src64=#{Base.url_encode64("logo.png", padding: false)}",
-            request_watermarks: false
-          ]
-        ] do
-      assert_raise ArgumentError, ~r/watermark/, fn -> IP.config(options) end
+    assert_raise ArgumentError, ~r/watermark/, fn ->
+      IP.config(presets: %{"card" => "wm=missing"})
     end
   end
 

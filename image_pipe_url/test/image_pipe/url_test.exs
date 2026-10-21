@@ -535,26 +535,6 @@ defmodule ImagePipe.URLTest do
                |> IP.URL.validate()
     end
 
-    test "watermark sources are checked when validate_against says whether requests may name them" do
-      plan = &(IP.URL.new(&1) |> IP.URL.group(watermark_source: "brand/mark.png"))
-
-      for options <- [
-            [request_watermarks: false],
-            [request_watermarks: false, watermarks: [:logo]]
-          ] do
-        assert {:error, [%{reason: :watermark_source_disabled}]} =
-                 IP.URL.validate(plan.(IP.URL.config(validate_against: options)))
-      end
-
-      assert {:ok, []} =
-               IP.URL.validate(plan.(IP.URL.config(validate_against: [request_watermarks: true])))
-
-      assert {:ok, []} =
-               IP.URL.new(IP.URL.config(validate_against: [request_watermarks: false]))
-               |> IP.URL.group(watermark: :anything)
-               |> IP.URL.validate()
-    end
-
     test "a preset with a group holding only unsets is a pipeline preset" do
       config = IP.URL.config(validate_against: [presets: %{"p" => "blur=unset/-/w=100"}])
 
@@ -603,11 +583,7 @@ defmodule ImagePipe.URLTest do
 
       for options <- [
             [presets: %{"card" => "wm=other"}, watermarks: [:logo]],
-            [request_defaults: "wm=other", watermarks: [:logo]],
-            [
-              presets: %{"card" => "wm-src64=#{Base.url_encode64("logo.png", padding: false)}"},
-              request_watermarks: false
-            ]
+            [request_defaults: "wm=other", watermarks: [:logo]]
           ] do
         assert_raise ArgumentError, ~r/validate_against.*watermark/, fn ->
           IP.URL.config(validate_against: options)

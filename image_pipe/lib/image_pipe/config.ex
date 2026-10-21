@@ -467,14 +467,6 @@ defmodule ImagePipe.Config do
                   [watermarks](processing/watermark.md).
                   """
                 ],
-                request_watermarks: [
-                  type: :boolean,
-                  default: false,
-                  doc: """
-                  Let requests overlay any image the configured sources serve, with \
-                  `wm-src64` or `wm-enc`, besides the named `:watermarks`.
-                  """
-                ],
                 presets: [
                   type: {:map, :string, :any},
                   type_doc: "map of `t:String.t/0` to fragment or `ImagePipe.URL` builder",
@@ -527,13 +519,9 @@ defmodule ImagePipe.Config do
           |> Keyword.put_new(:clock, &__MODULE__.system_time/0)
           |> Keyword.update!(:watermarks, &watermarks!(&1, validated))
 
-        known_watermarks = %{
-          watermarks: Map.keys(Keyword.fetch!(validated, :watermarks)),
-          request_watermarks: Keyword.fetch!(validated, :request_watermarks)
-        }
-
-        {presets, validate_against} = presets!(preset_options, known_watermarks)
-        validate_against = Map.merge(validate_against, known_watermarks)
+        watermarks = Map.keys(Keyword.fetch!(validated, :watermarks))
+        {presets, validate_against} = presets!(preset_options, watermarks)
+        validate_against = Map.put(validate_against, :watermarks, watermarks)
 
         url = URLConfig.put_validate_against(url, validate_against)
         concealed_watermarks!(presets, url)
@@ -577,12 +565,9 @@ defmodule ImagePipe.Config do
 
   # Compiles static presets and request defaults; returns the resolved options
   # and the builder's view of them for `ImagePipe.url_config/1`.
-  defp presets!(options, known_watermarks) do
+  defp presets!(options, watermarks) do
     presets =
       Map.new(Keyword.fetch!(options, :presets), fn {name, value} -> {name, plan(value)} end)
-
-    watermarks =
-      Presets.watermarks(known_watermarks.watermarks, known_watermarks.request_watermarks)
 
     case Presets.compile(presets, plan(options[:request_defaults]), watermarks) do
       {:ok, compiled} ->

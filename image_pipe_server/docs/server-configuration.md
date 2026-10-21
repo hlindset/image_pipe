@@ -396,7 +396,6 @@ Defaults and limits for every image the server processes. The limits on original
 | `avif_options.effort` | integer 0–9 | `3` |
 | `watermarks.<name>.source` | string |  |
 | `watermarks.<name>.opacity` | number | `1.0` |
-| `request_watermarks` | boolean | `false` |
 | `presets` | table of string |  |
 | `request_defaults` | string |  |
 | `detector_warmup` | `"all"` or `false` or array of string | `"all"` |

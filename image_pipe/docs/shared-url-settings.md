@@ -262,8 +262,7 @@ config =
     keys: keys,
     validate_against: [
       presets: %{"card" => "w=400/h=300/fit=cover"},
-      watermarks: [:logo],
-      request_watermarks: true
+      watermarks: [:logo]
     ]
   )
 
@@ -272,20 +271,14 @@ ImagePipe.URL.group(builder, watermark: :logo)
 ImagePipe.URL.group(builder, watermark_source: "brand/badge.png")
 ```
 
-`watermarks` and `request_watermarks` in [`validate_against`](#preset-names)
-are optional. With `watermarks`, `ImagePipe.URL.validate/1` and
-`ImagePipe.URL.url/3` check `watermark:` names against the server's. With
-`request_watermarks: false`, they reject `watermark_source:`, as a server
-without `request_watermarks` does. `true`, or leaving it out, lets watermark
-sources through. `validate_against` always checks presets too, so list the
-server's presets next to the watermark settings.
+`watermarks` in [`validate_against`](#preset-names) is optional. With it,
+`ImagePipe.URL.validate/1` and `ImagePipe.URL.url/3` check `watermark:` names
+against the server's. `validate_against` always checks presets too, so list
+the server's presets next to the watermark names.
 
 ### image_pipe_server
 
 ```toml
-[processing]
-request_watermarks = true
-
 [processing.watermarks.logo]
 source = "brand/logo.png"
 ```
@@ -294,18 +287,9 @@ See [`[processing]`](../../image_pipe_server/docs/server-configuration.md#proces
 
 <!-- tabs-close -->
 
-A Plug host defines them as `watermarks:` and `request_watermarks:` in
-`ImagePipe.config/1`, and its builder gets both filled in with
-`ImagePipe.url_config/1`. `request_watermarks` lets URLs name their own
-watermark source (`watermark_source:` in the builder, `wm-src64` or `wm-enc`
-in the URL).
+A Plug host defines them as `watermarks:` in `ImagePipe.config/1`, and its
+builder gets them filled in with `ImagePipe.url_config/1`.
 
-On a mismatch:
-
-- A name the server doesn't define answers `400`. The body points at the
-  `wm=` option with `unknown watermark`. A builder whose `validate_against`
-  lists the names returns an `:unknown_watermark` issue instead of a URL.
-- A watermark source in the URL, on a server without `request_watermarks`,
-  answers `400` with `request watermark sources are not enabled`. A builder
-  whose `validate_against` has `request_watermarks: false` returns a
-  `:watermark_source_disabled` issue instead of a URL.
+A name the server doesn't define answers `400`, and the body points at the
+`wm=` option with `unknown watermark`. A builder whose `validate_against`
+lists the names returns an `:unknown_watermark` issue instead of a URL.

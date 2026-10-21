@@ -29,11 +29,10 @@ defmodule ImagePipe.Plan.Spec.Validation do
   ]
 
   @typedoc """
-  Host watermark facts, or `nil` when the caller cannot know them (URL
-  generation): configured asset names and whether request sources are enabled.
+  The host's configured watermark names, or `nil` when the caller cannot know
+  them (URL generation).
   """
-  # `names` is nil when only whether requests may name sources is known.
-  @type watermarks :: nil | %{names: [String.t()] | nil, request_sources?: boolean()}
+  @type watermarks :: nil | [String.t()]
 
   @spec errors([map()], map(), MapSet.t(Issue.location()), watermarks()) :: [Issue.t()]
   def errors(groups, options, invalid, watermarks) do
@@ -60,24 +59,16 @@ defmodule ImagePipe.Plan.Spec.Validation do
 
   defp watermark_errors(_group, _index, nil), do: []
 
-  defp watermark_errors(group, index, %{names: names, request_sources?: request_sources?}) do
-    unknown =
-      case Map.fetch(group, :watermark) do
-        {:ok, name} ->
-          if names == nil or name in names,
-            do: [],
-            else: [issue(:unknown_watermark, index, [:watermark], :unknown_watermark)]
+  defp watermark_errors(group, index, names) do
+    case Map.fetch(group, :watermark) do
+      {:ok, name} ->
+        if name in names,
+          do: [],
+          else: [issue(:unknown_watermark, index, [:watermark], :unknown_watermark)]
 
-        :error ->
-          []
-      end
-
-    disabled =
-      for key <- [:watermark_source, :watermark_token],
-          Map.has_key?(group, key) and not request_sources?,
-          do: issue(:watermark_source_disabled, index, [key], :watermark_source_disabled)
-
-    unknown ++ disabled
+      :error ->
+        []
+    end
   end
 
   defp group_errors(group, index, invalid) do

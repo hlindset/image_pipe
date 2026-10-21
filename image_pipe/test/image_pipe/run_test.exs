@@ -53,16 +53,7 @@ defmodule ImagePipe.RunTest do
              |> IP.URL.validate()
 
     sourced = output.(watermark_source: "mark.png")
-
-    assert {:error, {:invalid_request, [%{reason: :watermark_source_disabled}]}} =
-             IP.run(config, sourced, {:binary, bytes})
-
-    assert {:error, [%{reason: :watermark_source_disabled}]} =
-             IP.URL.new(IP.url_config(config))
-             |> IP.URL.group(watermark_source: "mark.png")
-             |> IP.URL.validate()
-
-    assert {:ok, result} = IP.run(config, sourced, {:binary, bytes}, request_watermarks: true)
+    assert {:ok, result} = IP.run(config, sourced, {:binary, bytes})
     assert result.data == named.data
   end
 
@@ -123,7 +114,7 @@ defmodule ImagePipe.RunTest do
   end
 
   test "validate rejects a watermark source that run would reject before reading" do
-    config = IP.config(request_watermarks: true)
+    config = IP.config()
     plan = IP.URL.new() |> IP.URL.group(watermark_source: "ftp://x/y.png")
     error = {:error, {:invalid_source, {:unsupported_scheme, "ftp"}}}
 

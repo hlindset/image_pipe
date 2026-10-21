@@ -136,8 +136,7 @@ defmodule ImagePipeFiddle.Application do
         logo: [source: "watermarks/logo.png"],
         mark: [source: "watermarks/mark.png"],
         badge: [source: "watermarks/badge.png"]
-      },
-      request_watermarks: true
+      }
     ]
     |> maybe_put_cache(cache)
   end

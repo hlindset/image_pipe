@@ -19,9 +19,9 @@ defmodule ImagePipeServer.Config do
     * `[cache]` - `output` and `input` file system caches, and
       `storage_inputs` as `[{ header = "..." }, { cookie = "..." }]`.
     * `[processing]` - the processing options of `ImagePipe.config/1`,
-      including `watermarks.<name>` asset tables, `request_watermarks`,
-      `presets.<name>` option fragments, `request_defaults`, and
-      `detector_warmup`, the instance option of `ImagePipe`.
+      including `watermarks.<name>` asset tables, `presets.<name>` option
+      fragments, `request_defaults`, and `detector_warmup`, the instance
+      option of `ImagePipe`.
     * `[pool]` - `ImagePipe.ProcessingPool` options. `max_concurrency`
       defaults to the VM's online schedulers.
     * `[http]` - the delivery options of `ImagePipe.Plug.init/1`.
@@ -301,7 +301,6 @@ defmodule ImagePipeServer.Config do
       webp_options: [type: Convert.table(WebpOptions.schema())],
       avif_options: [type: Convert.table(AvifOptions.schema())],
       watermarks: [type: {:map, :string, Convert.table(@watermark_schema)}],
-      request_watermarks: [type: :boolean, default: false],
       presets: [type: {:map, :string, :string}],
       request_defaults: [type: :string],
       detector_warmup: [

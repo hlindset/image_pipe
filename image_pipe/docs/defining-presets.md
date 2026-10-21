@@ -60,10 +60,6 @@ the server, or makes `ImagePipe.config/1` raise `ArgumentError`:
   and `detect`.
 - A [`wm`](processing/watermark.md#wm) name that isn't a configured
   watermark.
-- [`wm-src64` or `wm-enc`](processing/watermark.md#wm-src64-and-wm-enc)
-  while `request_watermarks` is off. See
-  [`[processing]`](../../image_pipe_server/docs/server-configuration.md#processing)
-  for the server, or `ImagePipe.config/1` for the Plug.
 - A `wm-enc` token that the
   [source encryption keys](shared-url-settings.md#source-encryption-keys)
   can't decrypt, or a `wm-enc` token on a configuration without them.
