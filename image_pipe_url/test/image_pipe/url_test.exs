@@ -269,7 +269,7 @@ defmodule ImagePipe.URLTest do
   end
 
   property "arbitrary UTF-8 sources round trip without becoming URL syntax" do
-    check all source <- string(:utf8, min_length: 1, max_length: 100) do
+    check all source <- source_text() do
       source = "asset-" <> source
       path = IP.URL.url!(IP.URL.new(), source)
 
@@ -281,13 +281,19 @@ defmodule ImagePipe.URLTest do
   property "UTF-8 encrypted sources round trip across CBC block boundaries" do
     config = encrypted_config()
 
-    check all source <- string(:utf8, min_length: 1, max_length: 100),
+    check all source <- source_text(),
               iv <- binary(length: 16) do
       source = "asset-" <> source
       path = IP.URL.url!(IP.URL.new(config), source, iv: iv)
 
       assert decode(path, config) == {:ok, source}
     end
+  end
+
+  # Arbitrary UTF-8 without NUL, which the builder rightly rejects. Callers
+  # prefix it, so it is never empty or just `/`.
+  defp source_text do
+    map(string(:utf8, min_length: 1, max_length: 100), &String.replace(&1, <<0>>, ""))
   end
 
   defp encrypted_config(options \\ []) do
