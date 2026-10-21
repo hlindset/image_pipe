@@ -36,7 +36,7 @@ defmodule ImagePipe.API.IgnoredOptionsWireTest do
   end
 
   test "debug headers list the ignored options", %{body: body} do
-    config = mount(body, allow_debug_headers: true)
+    config = mount(body)
 
     response = request("w=16/fit=cover/-/zoom=2/debug", config)
     assert get_resp_header(response, "x-imagepipe-ignored-options") == ["zoom"]

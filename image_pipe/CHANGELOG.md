@@ -231,10 +231,13 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Removed
 
-- **Breaking:** `request_watermarks`. Requests may always name their own
-  watermark with `wm-src64` or `wm-enc`, and its image still has to come from
-  a configured source, like the main image. Remove the option from your
-  configuration.
+- **Breaking:** The `ImagePipe.Plug` option `allow_debug_headers`. A
+  request's `debug` option always adds the debug headers. Remove the option
+  from your configuration. With signed URLs, only your app can add `debug`.
+- **Breaking:** The `ImagePipe.config/1` option `request_watermarks`.
+  Requests may always name their own watermark with `wm-src64` or `wm-enc`,
+  and its image still has to come from a configured source, like the main
+  image. Remove the option from your configuration.
 - **Breaking:** `max_preset_lookups`. A request may look up any number of
   presets. Remove the option from your configuration. `ImagePipe.run/4`
   no longer returns `{:preset, :too_many_presets}`, and `[:preset, :lookup]`

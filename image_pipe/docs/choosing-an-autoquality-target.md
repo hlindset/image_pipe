@@ -105,8 +105,8 @@ pays for the search (see [caching processed images](caching-processed-images.md)
 
 ## Checking the result
 
-Turn on [debug headers](debug_headers.md) and add the
-[`debug`](processing/request.md#debug) option to a request:
+Add the [`debug`](processing/request.md#debug) option to a request.
+[Debug headers](debug_headers.md) lists what it adds:
 
 ```text
 /w=800/debug/src/photos/beach.jpg

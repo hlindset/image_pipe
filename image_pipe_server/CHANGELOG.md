@@ -52,6 +52,9 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Removed
 
+- **Breaking:** `[http] allow_debug_headers`. A request's `debug` option
+  always adds the debug headers. Remove the setting from `config.toml`. With
+  signed URLs, only your app can add `debug`.
 - **Breaking:** `[processing] request_watermarks`. Requests may always name
   their own watermark with `wm-src64` or `wm-enc`, and its image still has to
   come from a configured source, like the main image. Remove the setting from

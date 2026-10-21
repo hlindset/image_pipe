@@ -416,12 +416,11 @@ How many images are processed at once, and how long requests wait for a turn. Ti
 
 ### `[http]`
 
-Response settings: the CORS origin, whether requests may ask for debug headers, and the HTTP cache headers. See [serving images through a CDN](../../image_pipe/docs/serving-through-a-cdn.md).
+Response settings: the CORS origin and the HTTP cache headers. See [serving images through a CDN](../../image_pipe/docs/serving-through-a-cdn.md).
 
 | Key | Type | Default |
 | --- | --- | --- |
 | `allow_origin` | string |  |
-| `allow_debug_headers` | boolean | `false` |
 | `http_cache` | `"validators"` or `"auto"` or `"public"` or `"private"` | `"validators"` |
 
 ### `[telemetry]`

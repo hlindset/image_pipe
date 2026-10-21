@@ -140,26 +140,6 @@ those values too (see [cache key inputs](cache.md#cache-key-inputs)).
 
 ## Confirm caching works
 
-Allow debug headers for now:
-
-<!-- tabs-open -->
-
-### Plug
-
-```elixir
-# lib/my_app_web/router.ex
-forward "/images", ImagePipe.Plug, instance: MyApp.Images, allow_debug_headers: true
-```
-
-### image_pipe_server
-
-```toml
-[http]
-allow_debug_headers = true
-```
-
-<!-- tabs-close -->
-
 Request the same image twice with `debug` added to its options. If your URLs
 are signed, sign the URL with `debug` included.
 
@@ -192,10 +172,6 @@ If `[server]` sets `auth_token`, add `-H "Authorization: Bearer <token>"`.
 
 If the second request is still a `miss`, the origin may forbid storage (see
 [storage permission](caching-and-freshness.md#storage-permission)).
-
-Turn debug headers off again when you're done, since they
-[disclose details](debug_headers.md#security-and-disclosure) about your
-sources.
 
 ## Next steps
 

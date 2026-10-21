@@ -351,8 +351,8 @@ width or height for `fit` to use, so it serves the same image as
 `/src/photos/beach.jpg` and shares its cached copy. Each option's reference
 says what it needs.
 
-With the [`debug`](processing/request.md#debug) option, on a server that
-allows debug headers, the response lists the ignored options in
+With the [`debug`](processing/request.md#debug) option, the response lists
+the ignored options in
 `X-ImagePipe-Ignored-Options`. Options that a preset or the server's defaults
 supply are ignored without being listed.
 

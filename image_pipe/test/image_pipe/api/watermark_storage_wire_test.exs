@@ -94,7 +94,6 @@ defmodule ImagePipe.API.WatermarkStorageWireTest do
               options: [root: root, root_id: root, stable: :immutable] ++ unquote(options)
             ]
           ],
-          allow_debug_headers: true,
           clock: fn -> 1_000 end,
           watermarks: %{logo: [source: "marks/mark.png"]}
         )
@@ -117,7 +116,6 @@ defmodule ImagePipe.API.WatermarkStorageWireTest do
         url: http_source("https", "public, max-age=60", [cache_policy: [storage: :allow]], nil),
         marks: http_source("http", mark_control, mark_options, vary)
       ],
-      allow_debug_headers: true,
       clock: fn -> 1_000 end,
       watermarks: %{logo: [source: "http://origin.test/mark.png"]}
     ]

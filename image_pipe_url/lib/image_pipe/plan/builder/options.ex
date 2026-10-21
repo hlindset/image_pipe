@@ -82,8 +82,8 @@ defmodule ImagePipe.Plan.Builder.Options do
       debug: [
         type: :boolean,
         doc: """
-        Adds debug response headers when the server allows them with
-        `allow_debug_headers`. The URL option is [`debug`](#{@docs}/request.html#debug).
+        Adds debug response headers. The URL option is
+        [`debug`](#{@docs}/request.html#debug).
         """
       ]
     ]

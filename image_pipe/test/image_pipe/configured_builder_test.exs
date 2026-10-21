@@ -15,10 +15,9 @@ defmodule ImagePipe.ConfiguredBuilderTest do
     assert IP.URL.url!(client, "photo.png") == "/src/photo.png"
     assert IP.URL.url!(thumbnail, "photo.png") == "/w=30/format=png/src/photo.png"
 
-    mount = IP.Plug.init(config: config, allow_debug_headers: true)
+    mount = IP.Plug.init(config: config)
     assert mount[:quality] == 63
     assert mount[:max_result_width] == 12
-    assert mount[:allow_debug_headers]
     assert IP.Plug.init(config)[:quality] == 63
   end
 

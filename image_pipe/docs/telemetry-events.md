@@ -1017,7 +1017,7 @@ One-shot. Emitted when an output-cache hit is sent.
 
 One-shot. Emitted when reading the original's details for
 [debug headers](debug_headers.md) fails. The details are collected on every
-generation, whether or not debug headers are on. The request continues
+generation, whether or not the request has `debug`. The request continues
 without them.
 
 - Metadata: `:error` (atom), the error category.

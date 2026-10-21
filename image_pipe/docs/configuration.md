@@ -32,7 +32,7 @@ configuration. Invalid options raise `ArgumentError` when you build it.
 | --- | --- | --- |
 | Configuration | Sources, caches, limits, output defaults, presets, and URL settings (signing keys, source encryption keys, base URL) | `ImagePipe.config/1` |
 | A source | Root directory, allowed hosts, timeouts, S3 credentials | The source's `options:`, listed in its adapter's docs, such as `ImagePipe.Source.HTTP` |
-| A mount | CORS, HTTP cache headers, debug headers | `ImagePipe.Plug` options on the `forward` |
+| A mount | CORS, HTTP cache headers | `ImagePipe.Plug` options on the `forward` |
 | An instance | Its name, and which detection models load at startup (`detector_warmup:`) | `ImagePipe.child_spec/1` |
 | A request | Size, crop, effects, format, quality | URL options, or `ImagePipe.URL.group/2` and `ImagePipe.URL.output/2` |
 | A direct call | The `Accept` value, header and cookie values for cached copies | `accept:` and `request_inputs:` on `ImagePipe.run/4` |

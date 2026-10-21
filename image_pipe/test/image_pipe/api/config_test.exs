@@ -142,7 +142,6 @@ defmodule ImagePipe.Plug.ConfigTest do
     assert config[:max_result_pixels] == 40_000_000
     assert config[:auto_avif] == true
     assert config[:auto_webp] == true
-    assert config[:allow_debug_headers] == false
     assert config[:quality] == 80
     assert config[:preserve_hdr] == false
     assert config[:format_quality] == %{webp: 79, avif: 56}
@@ -214,18 +213,16 @@ defmodule ImagePipe.Plug.ConfigTest do
     end
   end
 
-  test "validates telemetry, CORS, debug-header, and storage-vary controls" do
+  test "validates telemetry, CORS, and storage-vary controls" do
     config =
       Config.validate!(
         telemetry_prefix: [:private, :image_pipe],
         allow_origin: "https://images.example",
-        allow_debug_headers: true,
         storage_inputs: [{:header, "accept-language"}, {:cookie, "variant"}]
       )
 
     assert config[:telemetry_prefix] == [:private, :image_pipe]
     assert config[:allow_origin] == "https://images.example"
-    assert config[:allow_debug_headers] == true
 
     assert config[:storage_inputs] == [
              {:header, "accept-language"},
@@ -242,10 +239,6 @@ defmodule ImagePipe.Plug.ConfigTest do
       assert_raise ArgumentError, ~r/allow_origin/, fn ->
         Config.validate!(allow_origin: invalid)
       end
-    end
-
-    assert_raise ArgumentError, ~r/allow_debug_headers/, fn ->
-      Config.validate!(allow_debug_headers: "yes")
     end
 
     assert_raise ArgumentError, ~r/storage_inputs/, fn ->

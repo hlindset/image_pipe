@@ -53,8 +53,7 @@ defmodule ImagePipeServer.Config.Reference do
         "Times are in milliseconds. " <>
         "See [limiting concurrent processing](../../image_pipe/docs/processing-controls.md).",
     http:
-      "Response settings: the CORS origin, whether requests may ask for debug headers, " <>
-        "and the HTTP cache headers. See [serving images through a CDN](../../image_pipe/docs/serving-through-a-cdn.md).",
+      "Response settings: the CORS origin and the HTTP cache headers. See [serving images through a CDN](../../image_pipe/docs/serving-through-a-cdn.md).",
     telemetry:
       "`log_level` is the lowest level the server logs. `log_requests` logs one line per " <>
         "image request at `info`, or at `warning` for a `4xx`, a result that didn't come " <>
