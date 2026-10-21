@@ -127,6 +127,31 @@ defmodule ImagePipeServer.StatsTest do
     refute metrics =~ ~s(image_pipe_cache_lookups_total{cache="output")
   end
 
+  test "a cache whose process doesn't answer is reported as unavailable", %{
+    opts: opts,
+    stats: stats
+  } do
+    root = stats.roots.output
+
+    [{admission, _value}] =
+      Registry.lookup(ImagePipe.Cache.FileSystem.Store.registry_name(root), root)
+
+    :sys.suspend(admission)
+    json = call(:get, "/stats", opts, "stats-token").resp_body
+    metrics = call(:get, "/metrics", opts, "stats-token").resp_body
+    :sys.resume(admission)
+
+    assert %{"output" => %{"available" => false, "max_bytes" => 10_000_000, "hits" => 0} = output} =
+             JSON.decode!(json)
+
+    refute Map.has_key?(output, "entries")
+
+    assert metrics =~ ~s(image_pipe_cache_available{cache="output"} 0\n)
+    assert metrics =~ ~s(image_pipe_cache_max_bytes{cache="output"} 10000000\n)
+    assert metrics =~ ~s(image_pipe_cache_lookups_total{cache="output",result="hit"} 0\n)
+    refute metrics =~ ~s(image_pipe_cache_entries{cache="output"})
+  end
+
   test "/stats reports each cache as JSON", %{opts: opts} do
     assert %{status: 200} = call(:get, "/w=2/format=png/src/pic.png", opts)
 
@@ -156,6 +181,7 @@ defmodule ImagePipeServer.StatsTest do
     assert conn.resp_body =~ ~s(image_pipe_cache_lookups_total{cache="output",result="hit"} 0\n)
     assert conn.resp_body =~ ~s(image_pipe_cache_max_bytes{cache="output"} 10000000\n)
     assert conn.resp_body =~ ~s(image_pipe_cache_refused{cache="output"} 0\n)
+    assert conn.resp_body =~ ~s(image_pipe_cache_available{cache="output"} 1\n)
     assert conn.resp_body =~ ~r/image_pipe_cache_disk_free_bytes\{cache="output"\} \d+\n/
   end
 

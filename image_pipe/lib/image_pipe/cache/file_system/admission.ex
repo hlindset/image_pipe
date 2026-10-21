@@ -145,13 +145,13 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
   The stored bytes and entries, the size cap, and whether the startup scan
   is still counting the entries on disk.
   """
-  @spec usage(GenServer.server()) :: %{
+  @spec usage(GenServer.server(), timeout()) :: %{
           bytes: non_neg_integer(),
           entries: non_neg_integer(),
           max_bytes: pos_integer(),
           counting?: boolean()
         }
-  def usage(server), do: GenServer.call(server, :usage)
+  def usage(server, timeout), do: GenServer.call(server, :usage, timeout)
 
   defp scan_directory(state, admission_pid) do
     {listings, entries} = list_entries(state.root)

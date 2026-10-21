@@ -269,7 +269,7 @@ curl -H "Authorization: Bearer a-long-random-string" http://localhost:8080/stats
   "output": {
     "bytes": 812345678, "max_bytes": 1073741824, "entries": 5120,
     "counting": false, "hits": 9120, "misses": 1310, "read_errors": 0,
-    "refused": false,
+    "available": true, "refused": false,
     "disk_free_bytes": 40213000000, "disk_total_bytes": 107374182400,
     "disk_age_seconds": 4
   },
@@ -299,6 +299,15 @@ curl -H "Authorization: Bearer a-long-random-string" http://localhost:8080/stats
   this replica. It has `"refused": true`, `max_bytes`, and the disk sizes.
   In `/metrics` it has only `image_pipe_cache_refused`,
   `image_pipe_cache_max_bytes`, and the disk metrics.
+- A cache that doesn't report its size within a second, such as while it
+  restarts after a crash or is busy evicting entries, has
+  `"available": false`. It has `max_bytes`, `hits`, `misses`,
+  `read_errors`, and the disk sizes, but no `bytes`, `entries`, or
+  `counting`. In `/metrics`, `image_pipe_cache_available` is `0` and
+  `image_pipe_cache_bytes`, `image_pipe_cache_entries`, and
+  `image_pipe_cache_counting` are missing for that cache. Every other cache
+  that isn't refused has `"available": true`, and
+  `image_pipe_cache_available` is `1`.
 - A cache that isn't configured isn't listed.
 
 `/metrics` leaves the disk metrics out until the first read succeeds.

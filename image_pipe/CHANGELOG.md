@@ -9,7 +9,8 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - `ImagePipe.cache_stats/1` reports each cache's stored bytes and entries,
   its size cap, and its hits and misses since start, or `refused: true` for
-  a cache whose root another node owns. See
+  a cache whose root another node owns. A cache that doesn't report its
+  size within a second has `available: false`. See
   [Usage and hit rate](docs/cache.md#usage-and-hit-rate).
 - `max_remembered_originals` sets how many originals an instance remembers
   in memory: a local file's hash, or an origin image's cache headers. It

@@ -94,6 +94,7 @@ defmodule ImagePipeServer.Stats do
     entries: "Entries the cache stores.",
     counting?: "1 until the cache has counted the entries on disk at startup.",
     refused: "1 when another node owns the cache's root, so this node doesn't use it.",
+    available: "0 when the cache didn't report its bytes and entries within a second.",
     disk_free_bytes: "Free bytes on the filesystem that holds the cache root.",
     disk_total_bytes: "Total bytes of the filesystem that holds the cache root.",
     disk_age_seconds: "Seconds since the disk sizes were read."

@@ -417,5 +417,8 @@ started:
 The hit rate is `hits / (hits + misses)`. Each node counts only its own
 requests. A cache that isn't configured isn't listed. A cache whose `root`
 another node [owns](#cache-root-owner-file) isn't used by this node, so its
-entry has only `refused: true` and `:max_bytes`. Every other entry has
-`refused: false`.
+entry has only `refused: true` and `:max_bytes`. A cache whose process is
+restarting, or busy for more than a second, can't report its size. Its
+entry has `available: false`, `refused: false`, `:max_bytes`, and the
+lookup counts, but no `:bytes`, `:entries`, or `:counting?`. Every other
+entry has `available: true` and `refused: false`.

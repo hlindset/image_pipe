@@ -14,6 +14,7 @@ defmodule ImagePipe.Cache.FileSystem.Store do
 
   @metadata_version 1
   @commit_timeout 5_000
+  @usage_timeout 1_000
   @options_schema NimbleOptions.new!(
                     root: [
                       required: true,
@@ -325,9 +326,9 @@ defmodule ImagePipe.Cache.FileSystem.Store do
 
   @doc false
   # Admission can be busy or restarting, so a stats caller gets no usage for
-  # that cache rather than an exit.
+  # that cache rather than an exit. It waits less than a scrape usually does.
   def usage(opts) do
-    with {:ok, pid} <- lookup_admission(opts), do: {:ok, Admission.usage(pid)}
+    with {:ok, pid} <- lookup_admission(opts), do: {:ok, Admission.usage(pid, @usage_timeout)}
   catch
     :exit, _reason -> {:error, :admission_unavailable}
   end

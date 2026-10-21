@@ -240,26 +240,32 @@ defmodule ImagePipe.Cache do
 
   @doc false
   # Usage and lookups since start of each cache in `options`. A cache another
-  # node holds has only `refused` and `max_bytes`.
+  # node holds has only `refused` and `max_bytes`. A cache whose Admission
+  # doesn't answer has no usage.
   @spec stats(keyword()) :: %{optional(:output | :input) => map()}
   def stats(options) do
     for {key, name} <- [cache: :output, input_cache: :input],
         cache_opts = Keyword.get(options, key),
         cache_opts != nil,
-        {:ok, stats} <- [cache_stats(cache_opts)],
         into: %{},
-        do: {name, stats}
+        do: {name, cache_stats(cache_opts)}
   end
 
   # A cache another node holds isn't used here, so it has no counts.
   defp cache_stats(cache_opts) do
     root = Store.root_dir(cache_opts)
+    max_bytes = Keyword.fetch!(cache_opts, :max_size_bytes)
 
     if Owner.refused?(root) do
-      {:ok, %{refused: true, max_bytes: Keyword.fetch!(cache_opts, :max_size_bytes)}}
+      %{refused: true, max_bytes: max_bytes}
     else
-      with {:ok, usage} <- FileSystem.usage(cache_opts),
-           do: {:ok, usage |> Map.merge(Lookups.read(root)) |> Map.put(:refused, false)}
+      usage =
+        case FileSystem.usage(cache_opts) do
+          {:ok, usage} -> Map.put(usage, :available, true)
+          _unavailable -> %{available: false, max_bytes: max_bytes}
+        end
+
+      usage |> Map.merge(Lookups.read(root)) |> Map.put(:refused, false)
     end
   end
 

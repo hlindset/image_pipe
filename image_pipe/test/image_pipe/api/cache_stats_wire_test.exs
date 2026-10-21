@@ -63,8 +63,14 @@ defmodule ImagePipe.API.CacheStatsWireTest do
 
     assert %{output: output, input: input} = ImagePipe.cache_stats(Caches.instance(opts))
 
-    assert %{hits: 1, misses: 2, read_errors: 0, max_bytes: 50_000_000, counting?: false} =
-             output
+    assert %{
+             hits: 1,
+             misses: 2,
+             read_errors: 0,
+             max_bytes: 50_000_000,
+             counting?: false,
+             available: true
+           } = output
 
     assert output.entries >= 2
     assert output.bytes > 0
@@ -112,15 +118,57 @@ defmodule ImagePipe.API.CacheStatsWireTest do
              ImagePipe.cache_stats(Caches.instance(opts))
   end
 
-  test "leaves out a cache whose process exits while it's asked", %{opts: opts} do
+  test "reports a cache whose process exits while it's asked as unavailable", %{opts: opts} do
     admission = admission(opts[:input_cache])
     :sys.suspend(admission)
     stats = Task.async(fn -> ImagePipe.cache_stats(Caches.instance(opts)) end)
     await_queued(admission)
     Process.exit(admission, :kill)
 
-    assert %{output: _output} = result = Task.await(stats)
-    refute Map.has_key?(result, :input)
+    assert %{output: %{available: true}, input: input} = Task.await(stats)
+    assert_unavailable(input)
+  end
+
+  test "reports a busy cache as unavailable before the default call timeout", %{opts: opts} do
+    admission = admission(opts[:input_cache])
+    :sys.suspend(admission)
+
+    {elapsed, stats} =
+      :timer.tc(fn -> ImagePipe.cache_stats(Caches.instance(opts)) end, :millisecond)
+
+    :sys.resume(admission)
+    assert %{output: %{available: true}, input: input} = stats
+    assert_unavailable(input)
+    assert elapsed < 5_000
+  end
+
+  test "reports a cache whose process is restarting as unavailable", %{opts: opts} do
+    admission = admission(opts[:input_cache])
+    {:dictionary, dictionary} = Process.info(admission, :dictionary)
+    [supervisor | _ancestors] = Keyword.fetch!(dictionary, :"$ancestors")
+
+    [id] =
+      for {id, ^admission, _type, _modules} <- Supervisor.which_children(supervisor), do: id
+
+    :ok = Supervisor.terminate_child(supervisor, id)
+
+    assert %{output: %{available: true}, input: input} =
+             ImagePipe.cache_stats(Caches.instance(opts))
+
+    assert_unavailable(input)
+    {:ok, _pid} = Supervisor.restart_child(supervisor, id)
+  end
+
+  # Without usage, it keeps the size cap and the lookups.
+  defp assert_unavailable(stats) do
+    assert stats == %{
+             available: false,
+             refused: false,
+             max_bytes: 20_000_000,
+             hits: 0,
+             misses: 0,
+             read_errors: 0
+           }
   end
 
   defp admission(cache_opts) do
