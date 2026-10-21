@@ -89,33 +89,20 @@ defmodule ImagePipe.API.QualityWireTest do
     assert_image(response, "image/avif", {128, 85})
   end
 
-  test "a request can't ask for more encoder effort than the host allows" do
-    config = observed_mount([])
-
-    for options <- ["format=avif/avif-options=effort:4", "format=webp/webp-options=effort:5"] do
-      assert response("w=128/#{options}", config).status == 400
-      refute_received :origin_fetch
-      refute_received {:cache_lookup, _, _key}
-    end
-
-    assert response("w=128/format=avif/avif-options=effort:3", config).status == 200
-    assert response("w=128/format=jpeg/avif-options=effort:9", config).status == 200
-    assert response("w=128/avif-options=effort:9", config).status == 400
-    assert response("w=128/format=webp/webp-options=effort:4", config).status == 200
-
-    raised = mount(max_effort: [avif: 5, webp: 6])
+  test "a request may ask for any encoder effort" do
+    config = mount()
 
     assert_image(
-      response("w=128/format=avif/avif-options=effort:5", raised),
+      response("w=128/format=avif/avif-options=effort:9", config),
       "image/avif",
       {128, 85}
     )
 
-    assert response("w=128/format=webp/webp-options=effort:6", raised).status == 200
-    assert response("w=128/format=avif/avif-options=effort:6", raised).status == 400
-
-    configured = mount(avif_options: [effort: 6])
-    assert response("w=128/format=avif/avif-options=effort:6", configured).status == 200
+    assert_image(
+      response("w=128/format=webp/webp-options=effort:6", config),
+      "image/webp",
+      {128, 85}
+    )
   end
 
   test "AVIF encodes full-resolution color unless chroma subsampling is requested" do

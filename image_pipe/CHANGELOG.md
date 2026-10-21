@@ -37,9 +37,6 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   for another request's download of a new original: `:coalesced` when it
   waited until the other request had the original, `:bypass` when it stopped
   waiting for any other reason.
-- `max_effort` sets the highest AVIF and WebP encoder effort a request may
-  ask for, such as `max_effort: [avif: 6]`. It defaults to the effort in
-  `:avif_options` and `:webp_options`.
 - `ImagePipe.Source.HTTP` and `ImagePipe.Source.S3` take `pool_size`, the
   maximum number of open connections to each origin address or S3 endpoint.
   It defaults to `50`, the limit that applied before. Over HTTP/1.1, raise it
@@ -83,13 +80,6 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   copies of such requests miss once after an upgrade.
 - Requests that use `autoquality` or `max-bytes` have new cache keys and
   ETags, so their cached copies miss once after upgrading.
-- **Breaking:** A request that asks for more `avif-options` or
-  `webp-options` effort than `:avif_options` or `:webp_options` sets (by
-  default `3` for AVIF and `4` for WebP) fails with `400`. A preset in
-  `:presets` or `:request_defaults` above the limit raises `ArgumentError`
-  when ImagePipe starts. Set `max_effort` to allow
-  higher effort. Each `autoquality` or `max-bytes` attempt encodes at the
-  requested effort, so one request could take minutes of CPU.
 - **Breaking:** `:max_blur_work` limits the total work of all `blur`,
   `progressive-blur`, and `sharpen` steps in a request, across all its
   groups, instead of each blur on its own. Each step counts the pixels of

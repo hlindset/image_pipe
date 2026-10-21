@@ -246,9 +246,7 @@ fields that presets and the request defaults set.
 
 With an explicit `format`, options for any other encoder are ignored.
 Without `format`, each encoder's options apply only when the response uses
-that format, so one URL can carry options for several encoders. An
-`effort` above what the server allows fails with `400` either way, unless
-an explicit `format` names another encoder.
+that format, so one URL can carry options for several encoders.
 
 ### jpeg-options
 
@@ -318,7 +316,7 @@ Accepts these fields. Default: the host's WebP encoder settings.
 | `near-lossless` | boolean | Near-lossless WebP |
 | `smart-subsample` | boolean | Sharper chroma subsampling |
 | `preset` | `default`, `photo`, `picture`, `drawing`, `icon`, `text` | Encoder tuning for the image type |
-| `effort` | `0` to `6` | Higher is slower and smaller. Default `4`, unless the server's configuration changes it. A higher effort than the default fails with `400` unless the server's configuration allows it |
+| `effort` | `0` to `6` | Higher is slower and smaller. Default `4`, unless the server's configuration changes it |
 
 At the same visual quality, WebP at effort `2` takes half the time of `4` and
 makes files about 6% larger than at `4`.
@@ -347,7 +345,7 @@ Accepts these fields. Default: the host's AVIF encoder settings.
 | Field | Values | Effect |
 | --- | --- | --- |
 | `subsample` | `auto`, `on`, `off` | Chroma subsampling. `on` stores color at lower resolution, `auto` only below `q` 90. Default `off`, unless the server's configuration changes it |
-| `effort` | `0` to `9` | Higher is slower and smaller. Default `3`, unless the server's configuration changes it. A higher effort than the default fails with `400` unless the server's configuration allows it |
+| `effort` | `0` to `9` | Higher is slower and smaller. Default `3`, unless the server's configuration changes it |
 
 At the same visual quality, AVIF at effort `4` takes three to five times as
 long as at `3` and makes files about 5% smaller. Effort `1` takes less than

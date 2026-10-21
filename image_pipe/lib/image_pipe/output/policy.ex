@@ -104,10 +104,8 @@ defmodule ImagePipe.Output.Policy do
     quality_search = resolve_quality_search(request, config)
     output = request_policy(request, config, accept_header, quality_search)
 
-    with :ok <- validate_hdr_profile(output),
-         :ok <- validate_effort(output.mode, request.encoder_options, config) do
-      {:ok, output}
-    else
+    case validate_hdr_profile(output) do
+      :ok -> {:ok, output}
       {:error, reason} -> {:error, {:invalid_output, reason}}
     end
   end
@@ -221,24 +219,6 @@ defmodule ImagePipe.Output.Policy do
       base.__struct__.merge(base, overlay)
     end)
     |> Map.reject(fn {_format, options} -> options.__struct__.all_nil?(options) end)
-  end
-
-  # A request's encoder effort can't go past the host's limit for its format.
-  # An explicit format ignores the other encoders' options. Without one, the
-  # format isn't known until after the source is fetched, so every encoder's
-  # options are checked.
-  defp validate_effort({:explicit, format}, requested, config),
-    do: validate_effort(:source, Map.take(requested, [format]), config)
-
-  defp validate_effort(:source, requested, config) do
-    limits = Keyword.fetch!(config, :max_effort)
-
-    Enum.find_value(requested, :ok, fn {format, options} ->
-      effort = Map.get(options, :effort)
-
-      if effort && effort > Keyword.fetch!(limits, format),
-        do: {:error, {:effort_limit, format, effort, Keyword.fetch!(limits, format)}}
-    end)
   end
 
   @doc """

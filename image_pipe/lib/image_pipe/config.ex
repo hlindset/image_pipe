@@ -348,20 +348,6 @@ defmodule ImagePipe.Config do
       doc:
         "Default AVIF encoder settings, as for `:jpeg_options`. `:effort` defaults to `3` and `:subsample_mode` to `:off`."
     ],
-    max_effort: [
-      type: :keyword_list,
-      keys: [avif: [type: {:in, 0..9}], webp: [type: {:in, 0..6}]],
-      type_doc: "`t:keyword/0`",
-      doc: """
-      The highest encoder effort a request may ask for, per format, such as \
-      `[avif: 6]`. A format left out allows up to its effort in \
-      `:avif_options` or `:webp_options`, and a lower limit raises an \
-      `ArgumentError`. A request above the limit fails with `400` before the \
-      source is fetched, and a preset or `:request_defaults` above it raises \
-      an `ArgumentError`. Higher effort encodes more slowly, and `autoquality` \
-      and `max-bytes` encode once for each quality they try.
-      """
-    ],
     detector: [
       type: {:or, [{:in, [:default, nil]}, :atom]},
       type_doc: "`:default`, `nil`, or `t:module/0`",
@@ -573,7 +559,6 @@ defmodule ImagePipe.Config do
           |> Keyword.merge(url.options)
           |> Keyword.merge(presets)
 
-        preset_efforts!(presets, Keyword.fetch!(resolved, :max_effort))
         %__MODULE__{options: resolved, raw: options, url: url}
 
       {:error, error} ->
@@ -646,32 +631,12 @@ defmodule ImagePipe.Config do
     end
   end
 
-  # A preset or request default above max_effort would fail most requests
-  # that use it with a 400.
-  defp preset_efforts!(presets, limits) do
-    for {owner, preset} <- preset_owners(presets),
-        preset != nil,
-        {key, format} <- [avif_options: :avif, webp_options: :webp],
-        effort = effort(Map.get(preset.request, key)),
-        effort != nil and effort > Keyword.fetch!(limits, format) do
-      raise ArgumentError,
-            "invalid ImagePipe configuration: #{owner} sets #{format} effort #{effort}, " <>
-              "above the #{format} effort limit #{Keyword.fetch!(limits, format)} (max_effort: #{format})"
-    end
-
-    :ok
-  end
-
   defp preset_owners(presets) do
     [
       {"request_defaults", Keyword.fetch!(presets, :request_defaults)}
       | Enum.map(presets[:presets], fn {name, preset} -> {~s(preset "#{name}"), preset} end)
     ]
   end
-
-  defp effort({:unset, options}), do: effort(options)
-  defp effort(%{effort: effort}), do: effort
-  defp effort(_options), do: nil
 
   defp watermark_tokens(%{groups: groups}),
     do: for({_index, %{watermark_token: token}} when is_binary(token) <- groups, do: token)
@@ -848,32 +813,9 @@ defmodule ImagePipe.Config do
       |> Keyword.update!(:format_quality, &Map.merge(@default_format_quality, &1))
       |> Keyword.update!(:detector, &Transform.resolve_detector/1)
 
-    options = Keyword.put(options, :max_effort, max_effort!(options))
-
     validate_detector!(Keyword.fetch!(options, :detector))
     validate_detector_required!(options)
     options
-  end
-
-  # libvips encodes WebP at effort 4 when none is set.
-  @encoder_default_effort [avif: 3, webp: 4]
-
-  # Each format's limit, defaulting to its configured effort.
-  defp max_effort!(options) do
-    limits = Keyword.get(options, :max_effort, [])
-
-    for {format, default} <- @encoder_default_effort do
-      configured = Keyword.fetch!(options, :"#{format}_options").effort || default
-      limit = Keyword.get(limits, format, configured)
-
-      if limit < configured do
-        raise ArgumentError,
-              "invalid ImagePipe configuration: max_effort: #{format}: #{limit} is below " <>
-                "the configured #{format}_options effort #{configured}"
-      end
-
-      {format, limit}
-    end
   end
 
   defp validate_detector!(nil), do: :ok

@@ -37,19 +37,6 @@ defmodule ImagePipe.Plug.ConfigTest do
     assert Config.validate!(detector: nil)[:detector] == nil
   end
 
-  test "a preset or request default above max_effort raises at startup" do
-    for options <- [
-          [presets: %{"slow" => "avif-options=effort:6"}],
-          [request_defaults: "webp-options=effort:6"],
-          [presets: %{"slow" => "avif-options=effort:6"}, max_effort: [avif: 5]]
-        ] do
-      error = assert_raise ArgumentError, fn -> Config.validate!(options) end
-      assert error.message =~ "max_effort", inspect(options)
-    end
-
-    assert Config.validate!(presets: %{"slow" => "avif-options=effort:6"}, max_effort: [avif: 6])
-  end
-
   test "presets that aren't a map of names raise a configuration error" do
     for presets <- ["card", nil, [{"card", "w=400"}], %{card: "w=400"}] do
       error = assert_raise ArgumentError, fn -> Config.validate!(presets: presets) end
@@ -62,19 +49,6 @@ defmodule ImagePipe.Plug.ConfigTest do
 
       assert error.message =~ "presets"
     end
-  end
-
-  test "max_effort defaults to the configured effort and can't go below it" do
-    assert Config.validate!([])[:max_effort] == [avif: 3, webp: 4]
-    assert Config.validate!(avif_options: [effort: 6])[:max_effort] == [avif: 6, webp: 4]
-    assert Config.validate!(max_effort: [webp: 6])[:max_effort] == [avif: 3, webp: 6]
-
-    error =
-      assert_raise ArgumentError, fn ->
-        Config.validate!(avif_options: [effort: 6], max_effort: [avif: 5])
-      end
-
-    assert error.message =~ "max_effort: avif"
   end
 
   test "a detector module must implement the detector behaviour" do

@@ -39,8 +39,7 @@ end
 Each definition is a fragment of URL options, the same as a preset in the
 configuration, such as `"w=400/h=300/fit=cover"`. Leave out names the
 database doesn't have, and the request answers `400` with
-`unknown preset`. A definition above the encoder effort limit
-(`:max_effort`) also answers `400`. When the database is unreachable, the request answers
+`unknown preset`. When the database is unreachable, the request answers
 `503`, whether `fetch/2` returns `{:error, reason}` or, as `repo.all/1` does
 here, raises.
 

@@ -230,9 +230,7 @@ defmodule ImagePipe do
       `ImagePipe.Plan.Spec.Issue`.
     * `:expired` - the plan's `expires` time has passed.
     * `{:invalid_output, reason}` - the output options can't be combined,
-      such as `color_profile: {:convert, :srgb}` with `hdr: :preserve`, or
-      they ask for more encoder effort than `:max_effort` allows. A
-      configured default counts too.
+      such as `color_profile: {:convert, :srgb}` with `hdr: :preserve`.
     * `{:unsupported_output_format, format}` - no encoder for the format.
     * `{:detector, reason}` - detection is required and `reason` is
       `:unavailable` or `:not_ready`, or the plan names detection classes
