@@ -67,7 +67,10 @@
 
 ## Request safety guidelines
 
-- Preserve request safety boundaries: parse and config-validation failures should return before source fetch or cache access, source fetching should use non-bang Req flows with bounded redirects/timeouts/content-type/body limits, and decoded input pixel limits should remain explicit.
+- Public traffic uses signed URLs. An unsigned mount is for a private network where every requester is trusted, and the host opts in with `allow_unsigned`. The signer validates any end-user value it copies into a URL.
+- Defend against what stays untrusted under that contract: source bytes, source URLs (signers copy them from end users), origins and their redirects, and the network. Don't add limits, opt-ins, or budgets whose only job is to stop a requester from choosing URL option values. Close review findings of that kind against this contract.
+- Keep limits on costs the signer can't predict from the URL: costs that scale with the source image or with ImagePipe's own algorithm (`max_input_pixels`, `max_blur_work`, `max_search_pixels`). Keep native-safety guards that stop libvips from crashing or overflowing whatever built the URL. Prefer failing cleanly (a 4xx, or a search that stops early) to an unbounded cost.
+- Preserve the ordering boundaries: signature checks run before parsing and preset lookup; parse and config-validation failures return before source fetch or cache access; source fetching uses non-bang Req flows with bounded redirects, timeouts, and body limits; decoded input limits stay explicit.
 
 ## Cache guidelines
 
