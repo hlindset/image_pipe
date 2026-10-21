@@ -6,6 +6,7 @@ defmodule ImagePipeServer.StatsTest do
 
   alias ImagePipeServer.Health
   alias ImagePipeServer.Router
+  alias ImagePipeServer.Stats.Disk
 
   @moduletag :tmp_dir
 
@@ -27,9 +28,12 @@ defmodule ImagePipeServer.StatsTest do
        cache: [root: cache_root, max_size_bytes: 10_000_000]}
     )
 
+    disk = start_disk(instance, [cache_root, Path.join(root, "cache root")])
+
     stats = %{
       token_hash: :crypto.hash(:sha256, "stats-token"),
       instance: instance,
+      disk: disk,
       roots: %{output: cache_root}
     }
 
@@ -49,7 +53,6 @@ defmodule ImagePipeServer.StatsTest do
     tmp_dir: root
   } do
     spaced = Path.join(root, "cache root")
-    File.mkdir_p!(spaced)
     opts = Keyword.put(opts, :stats, %{stats | roots: %{output: spaced}})
 
     conn = call(:get, "/stats", opts, "stats-token")
@@ -57,6 +60,40 @@ defmodule ImagePipeServer.StatsTest do
     assert %{"output" => output} = JSON.decode!(conn.resp_body)
     assert output["disk_total_bytes"] > 0
     assert output["disk_free_bytes"] > 0
+  end
+
+  test "overlapping scrapes all get the disk sizes", %{opts: opts} do
+    for {path, conn} <-
+          ["/stats", "/metrics"]
+          |> Stream.cycle()
+          |> Enum.take(8)
+          |> Task.async_stream(&{&1, call(:get, &1, opts, "stats-token")}, max_concurrency: 8)
+          |> Enum.map(fn {:ok, result} -> result end) do
+      case path do
+        "/stats" ->
+          assert %{"output" => %{"disk_free_bytes" => free, "disk_age_seconds" => age}} =
+                   JSON.decode!(conn.resp_body)
+
+          assert free > 0 and is_integer(age)
+
+        "/metrics" ->
+          assert conn.resp_body =~ ~r/image_pipe_cache_disk_free_bytes\{cache="output"\} \d+\n/
+          assert conn.resp_body =~ ~r/image_pipe_cache_disk_age_seconds\{cache="output"\} \d+\n/
+      end
+    end
+  end
+
+  test "a cache root whose df hasn't succeeded has no disk sizes", %{
+    opts: opts,
+    stats: stats
+  } do
+    disk = start_disk(stats.instance, [stats.roots.output], command: "false", id: :failing)
+    opts = Keyword.put(opts, :stats, %{stats | disk: disk})
+
+    assert %{"output" => %{"disk_free_bytes" => nil, "disk_age_seconds" => nil}} =
+             JSON.decode!(call(:get, "/stats", opts, "stats-token").resp_body)
+
+    refute call(:get, "/metrics", opts, "stats-token").resp_body =~ ~r/^image_pipe_cache_disk/m
   end
 
   test "/stats answers 503 while the ImagePipe instance isn't running", %{
@@ -152,6 +189,27 @@ defmodule ImagePipeServer.StatsTest do
     assert conn.status == 200
     assert conn(:get, "/stats") |> Health.call(plug_opts) |> Map.fetch!(:status) == 401
     assert conn(:get, "/w=2/src/pic.png") |> Health.call(plug_opts) |> Map.fetch!(:status) == 404
+  end
+
+  # A disk stats process with its first `df` for each root done.
+  defp start_disk(instance, roots, opts \\ []) do
+    Enum.each(roots, &File.mkdir_p!/1)
+    {id, opts} = Keyword.pop(opts, :id, Disk)
+    name = Module.concat(instance, id)
+
+    pid =
+      start_supervised!(
+        {Disk, [name: name, roots: roots, interval: :infinity] ++ opts},
+        id: id
+      )
+
+    for {_root, worker} <- :sys.get_state(pid).running do
+      ref = Process.monitor(worker)
+      assert_receive {:DOWN, ^ref, :process, ^worker, _reason}, 5_000
+    end
+
+    _ = :sys.get_state(pid)
+    name
   end
 
   defp call(method, path, opts, token \\ nil) do

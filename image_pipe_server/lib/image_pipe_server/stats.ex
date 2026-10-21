@@ -10,18 +10,23 @@ defmodule ImagePipeServer.Stats do
   image auth token, and `ImagePipeServer.Health` on the `health_port`
   listener.
 
+  The disk sizes come from `ImagePipeServer.Stats.Disk`, which reads them in
+  the background, so a request never waits for `df`.
+
   The options are a map with `:token_hash` (the SHA-256 of the token),
-  `:instance` (the ImagePipe instance name), and `:roots`, each cache's root
-  by its `ImagePipe.cache_stats/1` name.
+  `:instance` (the ImagePipe instance name), `:disk` (the
+  `ImagePipeServer.Stats.Disk` name), and `:roots`, each cache's root by its
+  `ImagePipe.cache_stats/1` name.
   """
 
   import Plug.Conn
 
-  @in_flight __MODULE__.InFlight
+  alias ImagePipeServer.Stats.Disk
 
   @type options :: %{
           token_hash: binary(),
           instance: atom(),
+          disk: atom(),
           roots: %{optional(:output | :input) => Path.t()}
         }
 
@@ -65,16 +70,10 @@ defmodule ImagePipeServer.Stats do
     |> send_resp(200, prometheus(snapshot))
   end
 
-  @doc false
-  # The roots with a `df` running, so a mount that hangs it gets one stuck
-  # process rather than one per scrape. The application's starting process
-  # owns the table.
-  def create_table, do: :ets.new(@in_flight, [:named_table, :public, :set])
-
   # The health listener runs while the instance starts and drains, when
   # there are no stats to read, as `/health/ready` answers then too.
-  defp snapshot(%{instance: instance, roots: roots}) do
-    with {:ok, stats} <- cache_stats(instance), do: {:ok, read_snapshot(stats, roots)}
+  defp snapshot(%{instance: instance, roots: roots, disk: disk}) do
+    with {:ok, stats} <- cache_stats(instance), do: {:ok, read_snapshot(stats, roots, disk)}
   end
 
   defp cache_stats(instance) do
@@ -83,76 +82,11 @@ defmodule ImagePipeServer.Stats do
     ArgumentError -> :unavailable
   end
 
-  defp read_snapshot(stats, roots) do
-    stats
-    |> Map.keys()
-    |> Task.async_stream(&{&1, disk(Map.fetch!(roots, &1))},
-      max_concurrency: max(map_size(stats), 1),
-      timeout: :infinity
-    )
-    |> Map.new(fn {:ok, {cache, disk}} -> {cache, Map.merge(Map.fetch!(stats, cache), disk)} end)
+  defp read_snapshot(stats, roots, disk) do
+    Map.new(stats, fn {cache, stats} ->
+      {cache, Map.merge(stats, Disk.read(disk, Map.fetch!(roots, cache)))}
+    end)
   end
-
-  @df_timeout 2_000
-  @unknown %{disk_free_bytes: nil, disk_total_bytes: nil}
-
-  # POSIX `df` for the filesystem that holds `root`, sizes in KiB. It runs
-  # without a shell, and without `-l`, so a network or FUSE volume reports
-  # too. A scrape waits at most `@df_timeout` for it. A `df` stuck on a dead
-  # mount can't be killed from here, so no other starts for that root until
-  # it ends, and scrapes report no sizes meanwhile.
-  defp disk(root) do
-    if :ets.insert_new(@in_flight, {root}) do
-      reply = :erlang.alias()
-
-      spawn(fn ->
-        result =
-          try do
-            System.cmd("df", ["-kP", "--", root])
-          rescue
-            _missing_or_failed -> :error
-          after
-            :ets.delete(@in_flight, root)
-          end
-
-        send(reply, {reply, result})
-      end)
-
-      receive do
-        {^reply, {output, 0}} -> parse_df(output)
-        {^reply, _failed} -> @unknown
-      after
-        @df_timeout ->
-          :erlang.unalias(reply)
-          @unknown
-      end
-    else
-      @unknown
-    end
-  end
-
-  # The last line: filesystem, total, used, available, capacity, mount point.
-  # The filesystem name or mount point can hold spaces, so the sizes are the
-  # three fields before the capacity percentage.
-  defp parse_df(output) do
-    fields = output |> String.trim() |> String.split("\n") |> List.last() |> String.split()
-
-    with [total, _used, available, _capacity | _mount] <- from_sizes(fields),
-         {total, ""} when total > 0 <- Integer.parse(total),
-         {available, ""} <- Integer.parse(available) do
-      %{disk_free_bytes: available * 1024, disk_total_bytes: total * 1024}
-    else
-      _unreadable -> @unknown
-    end
-  end
-
-  defp from_sizes([_total, _used, _available, capacity | _rest] = fields) do
-    if String.ends_with?(capacity, "%"),
-      do: fields,
-      else: from_sizes(tl(fields))
-  end
-
-  defp from_sizes(_fields), do: nil
 
   @gauges [
     bytes: "Bytes the cache stores.",
@@ -161,7 +95,8 @@ defmodule ImagePipeServer.Stats do
     counting?: "1 until the cache has counted the entries on disk at startup.",
     refused: "1 when another node owns the cache's root, so this node doesn't use it.",
     disk_free_bytes: "Free bytes on the filesystem that holds the cache root.",
-    disk_total_bytes: "Total bytes of the filesystem that holds the cache root."
+    disk_total_bytes: "Total bytes of the filesystem that holds the cache root.",
+    disk_age_seconds: "Seconds since the disk sizes were read."
   ]
 
   @lookups [hit: :hits, miss: :misses]
