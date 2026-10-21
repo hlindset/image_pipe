@@ -194,7 +194,93 @@ defmodule ImagePipe.API.PathTest do
       raw_path = "/w=bad/src/images/enc/private.jpg"
       assert Path.diagnostic_path(raw_path) == raw_path
     end
+
+    property "masks each secret segment until the source marker" do
+      check all(
+              segments <-
+                list_of(
+                  member_of([
+                    "w=bad",
+                    "",
+                    "sig=abc",
+                    "wm-enc=tok",
+                    "sig=",
+                    "src",
+                    "src64",
+                    "enc"
+                  ]),
+                  max_length: 12
+                ),
+              tail <- member_of(["", "/a/b.jpg"])
+            ) do
+        raw_path = Enum.map_join(segments, &("/" <> &1)) <> tail
+
+        assert Path.diagnostic_path(raw_path) == masked_path(segments, tail)
+      end
+    end
+
+    test "copies no more than the path's length" do
+      for unit <- ["/a", "/sig=A", "/wm-enc=AAAA"] do
+        raw_path = String.duplicate(unit, div(10_000, byte_size(unit)))
+
+        assert binary_collections(fn -> Path.diagnostic_path(raw_path) end) <= 2, unit
+      end
+    end
   end
+
+  # Garbage collections while `fun` runs in a process whose heap fits the
+  # work, so each one is triggered by allocating binaries, about 370 KB each.
+  defp binary_collections(fun) do
+    parent = self()
+
+    pid =
+      :erlang.spawn_opt(
+        fn ->
+          receive do
+            :go -> send(parent, {:done, fun.()})
+          end
+        end,
+        min_heap_size: 1_000_000
+      )
+
+    :erlang.trace(pid, true, [:garbage_collection])
+    send(pid, :go)
+    assert_receive {:done, _result}
+    ref = :erlang.trace_delivered(pid)
+    assert_receive {:trace_delivered, ^pid, ^ref}
+    count_collections(pid, 0)
+  end
+
+  defp count_collections(pid, count) do
+    receive do
+      {:trace, ^pid, :gc_minor_start, _info} -> count_collections(pid, count + 1)
+      {:trace, ^pid, :gc_major_start, _info} -> count_collections(pid, count + 1)
+      {:trace, ^pid, _event, _info} -> count_collections(pid, count)
+    after
+      0 -> count
+    end
+  end
+
+  defp masked_path([marker | _rest] = segments, tail) when marker in ["src", "src64"],
+    do: Enum.map_join(segments, &("/" <> &1)) <> tail
+
+  defp masked_path(["enc" | rest], tail) do
+    concealed = Enum.map_join(rest, &("/" <> &1)) <> tail
+
+    case concealed do
+      "" -> "/enc"
+      "/" <> secret -> "/enc/" <> String.duplicate("*", byte_size(secret))
+    end
+  end
+
+  defp masked_path(["sig=" <> value | rest], tail),
+    do: "/sig=" <> String.duplicate("*", byte_size(value)) <> masked_path(rest, tail)
+
+  defp masked_path(["wm-enc=" <> value | rest], tail),
+    do: "/wm-enc=" <> String.duplicate("*", byte_size(value)) <> masked_path(rest, tail)
+
+  defp masked_path([segment | rest], tail), do: "/" <> segment <> masked_path(rest, tail)
+  defp masked_path([], tail), do: tail
 
   describe "extract/2 rules" do
     test "a non-empty query string is an error" do

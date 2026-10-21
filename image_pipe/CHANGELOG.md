@@ -197,9 +197,12 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - A watermark with an opacity below `1` blends with the image at its exact
   faded alpha. Before, the faded alpha was rounded to a whole level first,
   so a watermark's edges or faint areas could be off by one level.
-- A request path with many `wm-src64=` segments no longer takes seconds of
-  CPU. Every request path is redacted for telemetry before its URL
-  signature is checked, so an unsigned request could cause this.
+- Redacting a request path for telemetry, and echoing it in a `400`
+  response, take time in proportion to the path's length. A path with many
+  `wm-src64=` segments took seconds to redact, and other crafted 10 KB
+  paths took tens of milliseconds. Telemetry redacts every request path
+  before its URL signature is checked, so an unsigned request could cause
+  this.
 - An HTTP source fetch that runs out of `fetch_timeout` while waiting for a
   pooled connection reports `:receive_timeout` in logs and telemetry
   instead of `:pool_timeout`. When the source's host resolves to several
