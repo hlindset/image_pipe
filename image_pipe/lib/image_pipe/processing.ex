@@ -345,7 +345,8 @@ defmodule ImagePipe.Processing do
   defp pipeline_opts(%Policy{} = policy, geometry, config) do
     Keyword.merge(config,
       supports_hdr?: Policy.supports_hdr?(policy, geometry.source_format),
-      srgb_output?: Policy.srgb_output?(policy)
+      srgb_output?: Policy.srgb_output?(policy),
+      opaque_output?: Policy.opaque_output?(policy)
     )
   end
 

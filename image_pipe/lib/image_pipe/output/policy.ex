@@ -381,6 +381,16 @@ defmodule ImagePipe.Output.Policy do
     do: profile in [:strip, {:convert, :srgb}]
 
   @doc """
+  Whether the output can't hold alpha whatever negotiation picks: an explicit
+  format without an alpha channel, such as `format=jpeg`.
+  """
+  @spec opaque_output?(t()) :: boolean()
+  def opaque_output?(%__MODULE__{mode: {:explicit, format}}),
+    do: not Format.supports_alpha?(format)
+
+  def opaque_output?(%__MODULE__{}), do: false
+
+  @doc """
   Whether the HDR working space should be kept (`Policy.hdr == :preserve`
   and the output format carries HDR). Computed pre-transform so it can seed the
   input-color-management stage. In the one branch where the format is only known

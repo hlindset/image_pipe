@@ -141,6 +141,12 @@ defmodule ImagePipe.WorkBudgetTest do
     assert_budget(config, "/w=200/format=jpeg/src/high_freq.avif", loads: 1)
   end
 
+  # JPEG has no alpha, so padding fills with the white the encoder would
+  # flatten transparent padding onto.
+  test "padding a JPEG adds no alpha to flatten", %{config: config} do
+    assert_budget(config, "/w=300/pad=20/format=jpeg/src/high_freq.jpg", flatten: 0)
+  end
+
   # Measures a second, identical request, so one-time setup doesn't count.
   defp assert_budget(config, path, budget) do
     request(config, path)
@@ -159,6 +165,7 @@ defmodule ImagePipe.WorkBudgetTest do
   end
 
   defp count(work, :find_trim, _expected), do: Map.get(work.operations, "find_trim", 0)
+  defp count(work, :flatten, _expected), do: Map.get(work.operations, "flatten", 0)
 
   defp count(work, :buffer_loads, _expected) do
     work.operations

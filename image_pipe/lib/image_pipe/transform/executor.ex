@@ -301,15 +301,30 @@ defmodule ImagePipe.Transform.Executor do
     do: Enum.count(groups, &(&1.rotate != nil and &1.rotate not in [0, 90, 180, 270]))
 
   defp execute_groups(state, groups, opts) do
-    Enum.reduce_while(groups, {:ok, state}, fn group, {:ok, state} ->
-      case execute_group(state, group, opts) do
+    last = length(groups) - 1
+
+    groups
+    |> Enum.with_index()
+    |> Enum.reduce_while({:ok, state}, fn {group, index}, {:ok, state} ->
+      case execute_group(state, group, canvas_fill(group, index == last, opts), opts) do
         {:ok, state} -> {:cont, {:ok, state}}
         {:error, _reason} = error -> {:halt, error}
       end
     end)
   end
 
-  defp execute_group(state, %Group{} = group, opts) do
+  # For an output format without alpha, a canvas or padding that nothing
+  # later in the request draws over or reads fills with the encoder's white,
+  # instead of transparency the encoder would flatten onto white. A
+  # result-limit downscale then resizes the white directly, which can change
+  # the pixels next to it.
+  defp canvas_fill(%Group{bg: nil, watermark: nil}, true = _last?, opts) do
+    if Keyword.get(opts, :opaque_output?, false), do: :white, else: :transparent
+  end
+
+  defp canvas_fill(%Group{}, _last?, _opts), do: :transparent
+
+  defp execute_group(state, %Group{} = group, fill, opts) do
     with {:ok, state} <- execute_rotate(state, group.rotate, opts),
          {:ok, state} <- execute_flip(state, group.flip),
          {:ok, state} <- execute_trim(state, group, opts),
@@ -331,8 +346,8 @@ defmodule ImagePipe.Transform.Executor do
          {:ok, state} <- run_optional(state, saturation_op(group.saturation), opts),
          {:ok, state} <- run_color_optional(state, colorize_op(group.colorize), opts),
          {:ok, state} <- run_display_color_optional(state, gradient_op(group.gradient), opts),
-         {:ok, state} <- execute_canvas(state, group, dpr, opts),
-         {:ok, state} <- execute_padding(state, group.pad, dpr, opts),
+         {:ok, state} <- execute_canvas(state, group, dpr, fill, opts),
+         {:ok, state} <- execute_padding(state, group.pad, dpr, fill, opts),
          {:ok, state} <- run_color_optional(state, background_op(group.bg), opts) do
       execute_watermark(state, group.watermark, dpr, opts)
     end
@@ -605,9 +620,9 @@ defmodule ImagePipe.Transform.Executor do
          do: Step.run(state, operation, opts)
   end
 
-  defp execute_canvas(state, %Group{canvas: nil}, _dpr, _opts), do: {:ok, state}
+  defp execute_canvas(state, %Group{canvas: nil}, _dpr, _fill, _opts), do: {:ok, state}
 
-  defp execute_canvas(state, %Group{canvas: canvas, resize: resize}, dpr, opts) do
+  defp execute_canvas(state, %Group{canvas: canvas, resize: resize}, dpr, fill, opts) do
     with {:ok, state} <- flush_display(state) do
       {canvas_width, canvas_height} =
         Geometry.canvas_dims(canvas.mode, resize, dpr, Geometry.live_dims(state))
@@ -620,7 +635,8 @@ defmodule ImagePipe.Transform.Executor do
         height: canvas_height,
         gravity: {:anchor, anchor_x, anchor_y},
         x_offset: canvas_offset(x, canvas_width, dpr),
-        y_offset: canvas_offset(y, canvas_height, dpr)
+        y_offset: canvas_offset(y, canvas_height, dpr),
+        fill: fill
       }
 
       with {:ok, state} <- Step.run(state, operation, opts) do
@@ -629,9 +645,9 @@ defmodule ImagePipe.Transform.Executor do
     end
   end
 
-  defp execute_padding(state, nil, _dpr, _opts), do: {:ok, state}
+  defp execute_padding(state, nil, _dpr, _fill, _opts), do: {:ok, state}
 
-  defp execute_padding(state, sides, dpr, opts) do
+  defp execute_padding(state, sides, dpr, fill, opts) do
     [top, right, bottom, left] =
       sides |> Tuple.to_list() |> Enum.map(&round_ties_to_even(&1 * dpr))
 
@@ -643,7 +659,8 @@ defmodule ImagePipe.Transform.Executor do
         height: height + top + bottom,
         gravity: {:anchor, :left, :top},
         x_offset: left,
-        y_offset: top
+        y_offset: top,
+        fill: fill
       }
 
       with {:ok, state} <- Step.run(state, operation, opts, :padding) do
