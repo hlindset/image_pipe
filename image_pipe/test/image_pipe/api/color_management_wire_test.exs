@@ -26,7 +26,10 @@ defmodule ImagePipe.API.ColorManagementWireTest do
     assert header(decoded, "icc-profile-data") == nil
     {:ok, reference} = Operation.colourspace(decoded, :VIPS_INTERPRETATION_sRGB)
 
-    config = body_source(body, "image/tiff") |> ImagePipe.Plug.init()
+    config =
+      body_source(body, "image/tiff")
+      |> Keyword.put_new(:allow_unsigned, true)
+      |> ImagePipe.Plug.init()
 
     for {options, expected} <- [
           {"", reference},
@@ -50,6 +53,7 @@ defmodule ImagePipe.API.ColorManagementWireTest do
 
     config =
       ImagePipe.Plug.init(
+        allow_unsigned: true,
         sources: [
           path: [
             adapter: ImagePipe.Source.File,
@@ -90,7 +94,9 @@ defmodule ImagePipe.API.ColorManagementWireTest do
 
     plain =
       conn(:get, "/w=128/format=png/src/untagged.png")
-      |> ImagePipe.Plug.call(ImagePipe.Plug.init(untagged_config))
+      |> ImagePipe.Plug.call(
+        ImagePipe.Plug.init(Keyword.put_new(untagged_config, :allow_unsigned, true))
+      )
       |> decoded()
 
     assert header(resized, "icc-profile-data") == profile
@@ -108,7 +114,12 @@ defmodule ImagePipe.API.ColorManagementWireTest do
 
     body = Image.write!(adobe, :memory, suffix: ".png")
     tagged = Image.from_binary!(body)
-    config = body |> body_source("image/png") |> ImagePipe.Plug.init()
+
+    config =
+      body
+      |> body_source("image/png")
+      |> Keyword.put_new(:allow_unsigned, true)
+      |> ImagePipe.Plug.init()
 
     output =
       conn(:get, "/format=png/profile=display-p3/src/adobe.png")
@@ -340,6 +351,7 @@ defmodule ImagePipe.API.ColorManagementWireTest do
 
     config =
       ImagePipe.Plug.init(
+        allow_unsigned: true,
         sources: [
           path: [
             adapter: RootHTTPAdapter,
@@ -388,7 +400,11 @@ defmodule ImagePipe.API.ColorManagementWireTest do
              "output=blurhash"
            ]}
         ],
-        config = body |> body_source("image/jpeg") |> ImagePipe.Plug.init(),
+        config =
+          body
+          |> body_source("image/jpeg")
+          |> Keyword.put_new(:allow_unsigned, true)
+          |> ImagePipe.Plug.init(),
         option <- options do
       response = conn(:get, "/#{option}/src/truncated.jpg") |> ImagePipe.Plug.call(config)
       assert response.status == 415, option
@@ -413,7 +429,12 @@ defmodule ImagePipe.API.ColorManagementWireTest do
 
   defp response(options, name, opts \\ []) do
     conn(:get, "/#{options}/src/#{name}")
-    |> ImagePipe.Plug.call(opts |> config() |> ImagePipe.Plug.init())
+    |> ImagePipe.Plug.call(
+      opts
+      |> config()
+      |> Keyword.put_new(:allow_unsigned, true)
+      |> ImagePipe.Plug.init()
+    )
   end
 
   defp config(opts) do

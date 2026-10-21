@@ -23,6 +23,7 @@ defmodule ImagePipe.API.OperationExecutionWireTest do
 
     config =
       ImagePipe.Plug.init(
+        allow_unsigned: true,
         telemetry_prefix: prefix,
         sources: [
           path: [
@@ -97,6 +98,7 @@ defmodule ImagePipe.API.OperationExecutionWireTest do
 
     config =
       ImagePipe.Plug.init(
+        allow_unsigned: true,
         telemetry_prefix: prefix,
         sources: [
           path: [

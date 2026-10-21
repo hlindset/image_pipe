@@ -42,6 +42,7 @@ defmodule ImagePipe.API.WatermarkCachePolicyWireTest do
     end
 
     IP.Plug.init(
+      allow_unsigned: true,
       sources: [
         url: [
           adapter: ImagePipe.Source.HTTP,

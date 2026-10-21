@@ -12,6 +12,7 @@ defmodule ImagePipe.Plug.Request do
   # Verify → lex → decrypt → parse. Returns the telemetry stop metadata with
   # the result so the Runner's parse span can report the signing key index.
   def parse(%Plug.Conn{} = conn, config) do
+    signed_or_allowed!(config)
     path = mount_relative_path(conn)
     {sig, signed_path} = Path.split_signature(path)
 
@@ -41,6 +42,15 @@ defmodule ImagePipe.Plug.Request do
         # The request span reports the error's tag, so the parse span's stop
         # carries only the result.
         {error, %{result: :error}}
+    end
+  end
+
+  defp signed_or_allowed!(config) do
+    if Keyword.fetch!(config, :keys).values == [] and not Keyword.fetch!(config, :allow_unsigned) do
+      raise ArgumentError,
+            "an ImagePipe mount without :keys serves unsigned URLs. " <>
+              "Set :keys to sign URLs, or set allow_unsigned: true for a mount " <>
+              "that only a private network can reach"
     end
   end
 

@@ -10,6 +10,7 @@ defmodule ImagePipe.API.CropFrameWireTest do
   test "out-of-range focus is rejected before fetching a source" do
     config =
       ImagePipe.Plug.init(
+        allow_unsigned: true,
         sources: [
           path: [
             adapter: RootHTTPAdapter,
@@ -39,6 +40,7 @@ defmodule ImagePipe.API.CropFrameWireTest do
   test "a negative region origin is rejected before fetching a source" do
     config =
       ImagePipe.Plug.init(
+        allow_unsigned: true,
         sources: [
           path: [
             adapter: RootHTTPAdapter,
@@ -70,6 +72,7 @@ defmodule ImagePipe.API.CropFrameWireTest do
 
     config =
       ImagePipe.Plug.init(
+        allow_unsigned: true,
         sources: [
           path: [
             adapter: RootHTTPAdapter,
@@ -95,6 +98,7 @@ defmodule ImagePipe.API.CropFrameWireTest do
 
     config =
       ImagePipe.Plug.init(
+        allow_unsigned: true,
         sources: [
           path: [
             adapter: RootHTTPAdapter,
@@ -133,6 +137,7 @@ defmodule ImagePipe.API.CropFrameWireTest do
 
     config =
       ImagePipe.Plug.init(
+        allow_unsigned: true,
         sources: [
           path: [
             adapter: RootHTTPAdapter,
@@ -171,6 +176,7 @@ defmodule ImagePipe.API.CropFrameWireTest do
 
     config =
       ImagePipe.Plug.init(
+        allow_unsigned: true,
         sources: [
           path: [
             adapter: RootHTTPAdapter,

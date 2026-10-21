@@ -41,7 +41,12 @@ defmodule ImagePipe.API.CacheFailOpenWireTest do
       ]
 
       path = "/output=info/src/source.jpg"
-      baseline = ImagePipe.Plug.call(conn(:get, path), ImagePipe.Plug.init(opts))
+
+      baseline =
+        ImagePipe.Plug.call(
+          conn(:get, path),
+          ImagePipe.Plug.init(Keyword.put_new(opts, :allow_unsigned, true))
+        )
 
       cached_opts = CacheObserver.observe(opts)
       config = Caches.plug(cached_opts)
@@ -99,7 +104,12 @@ defmodule ImagePipe.API.CacheFailOpenWireTest do
       ]
 
       path = "/#{unquote(output)}/src/source.jpg"
-      baseline = ImagePipe.Plug.call(conn(:get, path), ImagePipe.Plug.init(opts))
+
+      baseline =
+        ImagePipe.Plug.call(
+          conn(:get, path),
+          ImagePipe.Plug.init(Keyword.put_new(opts, :allow_unsigned, true))
+        )
 
       cached_opts = CacheObserver.observe(opts)
       root = cached_opts |> Keyword.fetch!(:cache) |> Keyword.fetch!(:root)

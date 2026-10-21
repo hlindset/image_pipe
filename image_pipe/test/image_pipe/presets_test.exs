@@ -79,7 +79,7 @@ defmodule ImagePipe.PresetsTest do
     assert remote == "/preset=poster/src/photos%2Fa%20b.jpg"
 
     for presets <- [%{"poster" => "w=30"}, %{"poster" => "w=40"}] do
-      url_config = IP.url_config(IP.config(presets: presets))
+      url_config = IP.url_config(IP.config(allow_unsigned: true, presets: presets))
 
       assert IP.URL.new(url_config)
              |> IP.URL.group(presets: ["poster"])
@@ -107,7 +107,12 @@ defmodule ImagePipe.PresetsTest do
 
   test "a pipeline preset accepts request overrides and supplies dependent option consumers" do
     url_config =
-      IP.url_config(IP.config(presets: %{"pipeline" => "w=30/-/gray", "box" => "w=30/h=20"}))
+      IP.url_config(
+        IP.config(
+          allow_unsigned: true,
+          presets: %{"pipeline" => "w=30/-/gray", "box" => "w=30/h=20"}
+        )
+      )
 
     assert {:ok, []} =
              IP.URL.validate(
@@ -134,10 +139,12 @@ defmodule ImagePipe.PresetsTest do
     invalid = IP.URL.new() |> IP.URL.group(blur: -1)
 
     assert_raise ArgumentError, ~r/invalid_value/, fn ->
-      IP.config(presets: %{"card" => invalid})
+      IP.config(allow_unsigned: true, presets: %{"card" => invalid})
     end
 
-    assert_raise ArgumentError, ~r/invalid_value/, fn -> IP.config(request_defaults: invalid) end
+    assert_raise ArgumentError, ~r/invalid_value/, fn ->
+      IP.config(allow_unsigned: true, request_defaults: invalid)
+    end
   end
 
   test "a preset or request default whose own options conflict fails configuration" do
@@ -162,7 +169,12 @@ defmodule ImagePipe.PresetsTest do
 
   test "URL generation clears request defaults with unset" do
     url_config =
-      IP.url_config(IP.config(request_defaults: "jpeg-options=progressive/format-q=jpeg:70"))
+      IP.url_config(
+        IP.config(
+          allow_unsigned: true,
+          request_defaults: "jpeg-options=progressive/format-q=jpeg:70"
+        )
+      )
 
     builder =
       IP.URL.new(url_config) |> IP.URL.output(jpeg_options: :unset, format_qualities: :unset)
@@ -194,8 +206,10 @@ defmodule ImagePipe.PresetsTest do
       |> IP.Plug.call(IP.Plug.init(config))
     end
 
-    defaulted = IP.config(request_defaults: "gray/format=png", sources: sources)
-    plain = IP.config(sources: sources)
+    defaulted =
+      IP.config(allow_unsigned: true, request_defaults: "gray/format=png", sources: sources)
+
+    plain = IP.config(allow_unsigned: true, sources: sources)
 
     response = get.(defaulted, "/w=30/gray=unset/format=unset/src/photo.png")
     expected = get.(plain, "/w=30/src/photo.png")
@@ -260,7 +274,12 @@ defmodule ImagePipe.PresetsTest do
 
   property "explicit dimensions override ordered presets in both request frontends" do
     check all width <- integer(1..100), height <- integer(1..100) do
-      config = IP.config(request_defaults: "w=10", presets: %{"a" => "w=20", "b" => "h=30"})
+      config =
+        IP.config(
+          allow_unsigned: true,
+          request_defaults: "w=10",
+          presets: %{"a" => "w=20", "b" => "h=30"}
+        )
 
       builder =
         IP.URL.new(IP.url_config(config))

@@ -161,7 +161,7 @@ defmodule ImagePipe.ShrinkOnLoadTest do
   defp call_pipe(path, opts) do
     :get
     |> conn(path)
-    |> ImagePipe.Plug.call(ImagePipe.Plug.init(opts))
+    |> ImagePipe.Plug.call(ImagePipe.Plug.init(Keyword.put_new(opts, :allow_unsigned, true)))
   end
 
   defp decoded_image(conn) do

@@ -57,6 +57,13 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Breaking:** An `ImagePipe.Plug` mount without `:keys` raises
+  `ArgumentError` on every request unless its configuration sets
+  `allow_unsigned: true`. Serve public traffic with signed URLs, and set
+  `allow_unsigned: true` only for a mount that nothing outside a private
+  network can reach. An instance with `allow_unsigned: true` and no `:keys`
+  logs a warning when it starts. Running a plan with `ImagePipe.run/4` or
+  `ImagePipe.write/5` needs neither. See [Signing URLs](docs/signing-urls.md).
 - **Breaking:** The `[:request]` event's `:path`, the request summary's
   path, and the `url.path` trace attribute end at the source: the first
   `src`, `src64`, or `enc` segment is followed by `REDACTED`, and the rest

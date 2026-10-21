@@ -26,7 +26,9 @@ defmodule ImagePipe.APIResultLimitsTest do
     ]
   ]
 
-  defp opts(extra), do: ImagePipe.Plug.init(Keyword.merge([sources: @default_sources], extra))
+  defp opts(extra),
+    do:
+      ImagePipe.Plug.init(Keyword.merge([allow_unsigned: true, sources: @default_sources], extra))
 
   defp get(path, config) do
     conn = conn(:get, path)

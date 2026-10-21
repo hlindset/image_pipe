@@ -144,6 +144,7 @@ defmodule OverlapDecodeRepro do
   defp configuration(root, port, prefix) do
     {ImagePipe,
      name: __MODULE__.Instance,
+     allow_unsigned: true,
      telemetry_prefix: prefix,
      max_body_bytes: 20_000_000,
      max_input_pixels: 60_000_000,

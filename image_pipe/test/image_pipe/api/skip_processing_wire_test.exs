@@ -158,7 +158,7 @@ defmodule ImagePipe.API.SkipProcessingWireTest do
   end
 
   test "native execution returns the skipped source as an image result", %{gif: gif} do
-    config = IP.config(skip_processing_formats: [:gif])
+    config = IP.config(allow_unsigned: true, skip_processing_formats: [:gif])
     plan = IP.URL.new() |> IP.URL.group(resize: [width: 10])
 
     assert {:ok, result} = IP.run(config, plan, {:binary, gif})
@@ -168,7 +168,7 @@ defmodule ImagePipe.API.SkipProcessingWireTest do
 
   test "configuration rejects formats that are not source formats" do
     assert_raise ArgumentError, ~r/skip_processing_formats/, fn ->
-      IP.Plug.init(skip_processing_formats: [:svg])
+      IP.Plug.init(allow_unsigned: true, skip_processing_formats: [:svg])
     end
   end
 
@@ -199,7 +199,8 @@ defmodule ImagePipe.API.SkipProcessingWireTest do
     body
   end
 
-  defp mount(files, extra \\ []), do: files |> options(extra) |> IP.Plug.init()
+  defp mount(files, extra \\ []),
+    do: files |> options(extra) |> Keyword.put_new(:allow_unsigned, true) |> IP.Plug.init()
 
   defp options(files, extra) do
     origin = fn conn ->

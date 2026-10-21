@@ -34,7 +34,7 @@ defmodule ImagePipe.Telemetry.Trace.EncodeSpanTest do
 
   defp call(path, opts) do
     conn = conn(:get, path)
-    ImagePipe.Plug.call(conn, ImagePipe.Plug.init(opts))
+    ImagePipe.Plug.call(conn, ImagePipe.Plug.init(Keyword.put_new(opts, :allow_unsigned, true)))
   end
 
   defp parent_of(spans, %Span{parent_span_id: pid}),

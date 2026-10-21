@@ -74,6 +74,7 @@ defmodule ImagePipe.API.IgnoredOptionsWireTest do
       ]
     ]
     |> Keyword.merge(extra)
+    |> Keyword.put_new(:allow_unsigned, true)
     |> ImagePipe.Plug.init()
   end
 end

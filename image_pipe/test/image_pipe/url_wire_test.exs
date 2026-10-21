@@ -27,6 +27,7 @@ defmodule ImagePipe.URLWireTest do
 
     config =
       IP.config(
+        allow_unsigned: true,
         sources: [
           path: [
             adapter: ImagePipe.Source.File,

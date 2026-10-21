@@ -235,7 +235,8 @@ defmodule ImagePipe.API.ObjectCropWireTest do
   defp dimensions(image), do: {Image.width(image), Image.height(image)}
   defp pixels(image), do: VipsImage.write_to_binary(image)
 
-  defp mount(overrides), do: overrides |> options() |> ImagePipe.Plug.init()
+  defp mount(overrides),
+    do: overrides |> options() |> Keyword.put_new(:allow_unsigned, true) |> ImagePipe.Plug.init()
 
   defp observed_mount(overrides),
     do: overrides |> options() |> CacheObserver.observe() |> Caches.plug()

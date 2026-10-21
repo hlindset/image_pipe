@@ -405,7 +405,8 @@ defmodule ImagePipe.API.SourceWireTest do
 
   defp public_resolver, do: fn "assets.example.com" -> {:ok, [{93, 184, 216, 34}]} end
 
-  defp mount(overrides), do: overrides |> options() |> ImagePipe.Plug.init()
+  defp mount(overrides),
+    do: overrides |> options() |> Keyword.put_new(:allow_unsigned, true) |> ImagePipe.Plug.init()
 
   # A mount with an observed cache, and the options its instance runs with.
   defp observed_mount(overrides) do

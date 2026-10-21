@@ -36,6 +36,7 @@ defmodule SourceCoordinationBench do
         [
           {ImagePipe,
            [
+             allow_unsigned: true,
              name: __MODULE__.Instance,
              sources: sources,
              cache: [root: Path.join(root, "output"), max_size_bytes: 100_000_000],

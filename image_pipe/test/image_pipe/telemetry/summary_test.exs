@@ -275,7 +275,7 @@ defmodule ImagePipe.Telemetry.SummaryTest do
 
   test "a request inside a summarized request keeps the outer summary", ctx do
     builder = ImagePipe.URL.new() |> ImagePipe.URL.group(resize: [width: 10])
-    inner_config = ImagePipe.config(telemetry_prefix: [__MODULE__, :inner])
+    inner_config = ImagePipe.config(allow_unsigned: true, telemetry_prefix: [__MODULE__, :inner])
     body = File.read!("priv/static/images/beach.jpg")
 
     Telemetry.span([telemetry_prefix: ctx.prefix], [:request], %{method: "GET"}, fn ->
@@ -333,6 +333,8 @@ defmodule ImagePipe.Telemetry.SummaryTest do
           ]
         ]
       ]
+      |> Keyword.put_new(:allow_unsigned, true)
+      |> Keyword.put_new(:allow_unsigned, true)
       |> ImagePipe.Plug.init()
       |> Keyword.merge(image_module: ImagePipe.RunTest.LateFailureEncoder)
 
@@ -464,7 +466,7 @@ defmodule ImagePipe.Telemetry.SummaryTest do
 
   test "ImagePipe.run/4 is summarized without a method, path, or status", ctx do
     builder = ImagePipe.URL.new() |> ImagePipe.URL.group(resize: [width: 10])
-    config = ImagePipe.config(telemetry_prefix: ctx.prefix)
+    config = ImagePipe.config(allow_unsigned: true, telemetry_prefix: ctx.prefix)
 
     assert {:ok, _result} =
              ImagePipe.run(config, builder, {:binary, File.read!("priv/static/images/beach.jpg")})

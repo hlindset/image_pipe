@@ -27,7 +27,12 @@ defmodule ImagePipe.WorkBudgetTest do
     ]
 
     %{
-      config: ImagePipe.Plug.init(sources: sources, watermarks: %{mark: [source: "alpha.png"]}),
+      config:
+        ImagePipe.Plug.init(
+          allow_unsigned: true,
+          sources: sources,
+          watermarks: %{mark: [source: "alpha.png"]}
+        ),
       # The file source keeps no stat evidence for a file changed in the
       # current second, and another test can change a shared source's ctime
       # just before this one runs. A clock ahead of the filesystem keeps the
@@ -129,6 +134,7 @@ defmodule ImagePipe.WorkBudgetTest do
 
     config =
       ImagePipe.Plug.init(
+        allow_unsigned: true,
         sources: [
           path: [
             adapter: ImagePipe.Source.File,

@@ -24,7 +24,14 @@ defmodule ImagePipe.Test.Caches do
     options = cap(options)
     name = instance(options)
     {_mount, shared} = Keyword.split(options, mount_keys())
-    start_supervised!(Supervisor.child_spec({ImagePipe, [name: name] ++ shared}, id: name))
+
+    start_supervised!(
+      Supervisor.child_spec(
+        {ImagePipe, Keyword.put_new([name: name] ++ shared, :allow_unsigned, true)},
+        id: name
+      )
+    )
+
     options
   end
 

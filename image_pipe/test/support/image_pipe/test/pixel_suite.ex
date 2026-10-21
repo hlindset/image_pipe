@@ -30,6 +30,7 @@ defmodule ImagePipe.Test.PixelSuite do
   @doc "Plug config serving the committed sources, with `alpha.png` as the `mark` watermark."
   def config(root_id) do
     ImagePipe.Plug.init(
+      allow_unsigned: true,
       sources: [
         path: [
           adapter: ImagePipe.Source.File,

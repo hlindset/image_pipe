@@ -114,6 +114,7 @@ defmodule ImagePipe.API.SrgbProfileWireTest do
     end
 
     ImagePipe.Plug.init(
+      allow_unsigned: true,
       sources: [
         path: [
           match: :path,

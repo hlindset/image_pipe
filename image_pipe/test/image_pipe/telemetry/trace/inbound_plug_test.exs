@@ -32,7 +32,7 @@ defmodule ImagePipe.Telemetry.Trace.InboundPlugTest do
         Plug.Conn.put_req_header(conn, k, v)
       end)
 
-    ImagePipe.Plug.call(conn, ImagePipe.Plug.init(opts))
+    ImagePipe.Plug.call(conn, ImagePipe.Plug.init(Keyword.put_new(opts, :allow_unsigned, true)))
   end
 
   test "adopts inbound traceparent when extract_inbound: true" do

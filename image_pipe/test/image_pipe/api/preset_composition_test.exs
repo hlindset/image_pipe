@@ -6,7 +6,13 @@ defmodule ImagePipe.API.PresetCompositionTest do
   alias ImagePipe.Plug.Request, as: ParsedRequest
 
   defp parse(path, presets, request_defaults \\ nil) do
-    config = ImagePipe.Plug.init(presets: presets, request_defaults: request_defaults)
+    config =
+      ImagePipe.Plug.init(
+        allow_unsigned: true,
+        presets: presets,
+        request_defaults: request_defaults
+      )
+
     {result, _metadata} = ParsedRequest.parse(conn(:get, path <> "/src/images/cat.jpg"), config)
 
     case result do
@@ -203,7 +209,10 @@ defmodule ImagePipe.API.PresetCompositionTest do
 
   test "same-layer canvas contradictions fail configuration and stranded dependents drop" do
     assert_raise ArgumentError, ~r/mutually_exclusive_options/, fn ->
-      ImagePipe.Plug.init(presets: %{"bad" => "w=60/h=40/extend/extend-ratio"})
+      ImagePipe.Plug.init(
+        allow_unsigned: true,
+        presets: %{"bad" => "w=60/h=40/extend/extend-ratio"}
+      )
     end
 
     assert {:ok, %{ignored: []} = request} =
@@ -220,7 +229,7 @@ defmodule ImagePipe.API.PresetCompositionTest do
           "crop=60,40/focus=0.75,0.25/detect=face"
         ] do
       assert_raise ArgumentError, ~r/mutually_exclusive_options/, fn ->
-        ImagePipe.Plug.init(presets: %{"bad" => fragment})
+        ImagePipe.Plug.init(allow_unsigned: true, presets: %{"bad" => fragment})
       end
     end
   end
@@ -228,7 +237,7 @@ defmodule ImagePipe.API.PresetCompositionTest do
   test "configured preset names must be selectable by the URL grammar" do
     for name <- ["", "bad/name", "two,names", "has space", "bad\n"] do
       assert_raise ArgumentError, fn ->
-        ImagePipe.Plug.init(presets: %{name => "w=100"})
+        ImagePipe.Plug.init(allow_unsigned: true, presets: %{name => "w=100"})
       end
     end
 
@@ -398,7 +407,7 @@ defmodule ImagePipe.API.PresetCompositionTest do
           %{"a" => "w=200/-/w=100", "c" => "preset=a/-/preset=a"}
         ] do
       assert_raise ArgumentError, fn ->
-        ImagePipe.Plug.init(presets: presets)
+        ImagePipe.Plug.init(allow_unsigned: true, presets: presets)
       end
     end
   end

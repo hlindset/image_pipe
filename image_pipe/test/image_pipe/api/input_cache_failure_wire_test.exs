@@ -40,6 +40,7 @@ defmodule ImagePipe.API.InputCacheFailureWireTest do
 
     start_supervised!(
       {ImagePipe,
+       allow_unsigned: true,
        name: name,
        sources: [
          url: [

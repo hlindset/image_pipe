@@ -5,6 +5,8 @@ defmodule ImagePipe.Instance do
   @moduledoc false
   use Supervisor
 
+  require Logger
+
   alias ImagePipe.Cache
   alias ImagePipe.Config
   alias ImagePipe.Instance.Publisher
@@ -137,6 +139,8 @@ defmodule ImagePipe.Instance do
 
   @impl true
   def init({name, config, pool, warmup}) do
+    warn_unsigned(name, config.options)
+
     # The pool and the caches start before the publisher, so a published
     # configuration always has its processes. A restart of either leaves the
     # publisher running.
@@ -146,6 +150,15 @@ defmodule ImagePipe.Instance do
         [{Publisher, {name, config}}] ++ warmup_children(config, warmup)
 
     Supervisor.init(children, strategy: :one_for_one)
+  end
+
+  defp warn_unsigned(name, options) do
+    if Keyword.fetch!(options, :allow_unsigned) and Keyword.fetch!(options, :keys).values == [] do
+      Logger.warning(
+        "ImagePipe instance #{inspect(name)} serves unsigned URLs (allow_unsigned: true). " <>
+          "Keep its mounts on a private network, and sign URLs (:keys) for public traffic."
+      )
+    end
   end
 
   defp pool_children(nil), do: []

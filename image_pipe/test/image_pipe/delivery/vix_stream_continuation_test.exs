@@ -520,6 +520,7 @@ defmodule ImagePipe.Delivery.VixStreamContinuationTest do
 
   defp runtime_config do
     ImagePipe.Plug.init(
+      allow_unsigned: true,
       sources: [
         path: [
           adapter: RootHTTPAdapter,

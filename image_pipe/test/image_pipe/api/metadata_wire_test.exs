@@ -287,7 +287,8 @@ defmodule ImagePipe.API.MetadataWireTest do
     etag
   end
 
-  defp mount(overrides \\ []), do: overrides |> options() |> ImagePipe.Plug.init()
+  defp mount(overrides \\ []),
+    do: overrides |> options() |> Keyword.put_new(:allow_unsigned, true) |> ImagePipe.Plug.init()
 
   defp observed_mount, do: [] |> options() |> CacheObserver.observe() |> Caches.plug()
 

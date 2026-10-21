@@ -16,6 +16,7 @@ defmodule ImagePipe.Source.RoutesWireTest do
 
     config =
       ImagePipe.Plug.init(
+        allow_unsigned: true,
         sources: [
           media: mount.([prefix: "media"], "media"),
           assets: mount.([scheme: "asset"], "assets"),

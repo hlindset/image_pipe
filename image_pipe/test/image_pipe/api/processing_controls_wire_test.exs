@@ -263,10 +263,14 @@ defmodule ImagePipe.API.ProcessingControlsWireTest do
     assert request(mount, "w=invalid").status == 400
     assert %{active: 0, queued: 0} = ProcessingPool.stats(pool)
     refute_received {:fetch, _, _}
-    assert_raise ArgumentError, fn -> ImagePipe.config(processing_pool: "untrusted") end
+
+    assert_raise ArgumentError, fn ->
+      ImagePipe.config(allow_unsigned: true, processing_pool: "untrusted")
+    end
   end
 
-  defp config(pool, prefix), do: ImagePipe.config(options(pool, prefix))
+  defp config(pool, prefix),
+    do: ImagePipe.config(Keyword.put_new(options(pool, prefix), :allow_unsigned, true))
 
   defp observed(pool, prefix), do: pool |> options(prefix) |> CacheObserver.observe()
 

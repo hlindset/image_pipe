@@ -17,6 +17,7 @@ defmodule ImagePipe.API.SourceTransportWireTest do
 
     opts =
       ImagePipe.Plug.init(
+        allow_unsigned: true,
         telemetry_prefix: prefix,
         sources: [
           url: [
@@ -69,6 +70,7 @@ defmodule ImagePipe.API.SourceTransportWireTest do
 
       opts =
         ImagePipe.Plug.init(
+          allow_unsigned: true,
           telemetry_prefix: prefix,
           sources: [
             url: [

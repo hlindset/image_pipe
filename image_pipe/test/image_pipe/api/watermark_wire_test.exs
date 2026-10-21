@@ -620,6 +620,7 @@ defmodule ImagePipe.API.WatermarkWireTest do
   defp mount(origin, options \\ []) do
     ImagePipe.Plug.init(
       [
+        allow_unsigned: true,
         sources: [
           path: [
             match: :path,

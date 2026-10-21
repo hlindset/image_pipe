@@ -402,7 +402,23 @@ defmodule ImagePipe.Config do
   ]
 
   @schema NimbleOptions.new!(
-            @processing_options ++
+            [
+              allow_unsigned: [
+                type: :boolean,
+                default: false,
+                doc: """
+                Serve unsigned URLs when `:keys` is empty. Without `:keys`, an \
+                `ImagePipe.Plug` mount raises `ArgumentError` on a request \
+                unless this is `true`. Serve public traffic with signed URLs, \
+                and set this only for a mount that nothing outside a private \
+                network can reach. Running a plan with `ImagePipe.run/4` or \
+                `ImagePipe.write/5` checks no URL, so it needs neither `:keys` \
+                nor this option. See \
+                [signing URLs](signing-urls.md).
+                """
+              ]
+            ] ++
+              @processing_options ++
               [
                 cache: [
                   type: :keyword_list,

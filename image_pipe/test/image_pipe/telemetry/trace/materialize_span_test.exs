@@ -61,7 +61,13 @@ defmodule ImagePipe.Telemetry.Trace.MaterializeSpanTest do
 
   defp call(path, opts) do
     conn = conn(:get, path)
-    ImagePipe.Plug.call(conn, ImagePipe.Plug.init(Keyword.put(opts, :telemetry_prefix, @prefix)))
+
+    ImagePipe.Plug.call(
+      conn,
+      ImagePipe.Plug.init(
+        Keyword.put_new(Keyword.put(opts, :telemetry_prefix, @prefix), :allow_unsigned, true)
+      )
+    )
   end
 
   defp parent_of(spans, %Span{parent_span_id: pid}),

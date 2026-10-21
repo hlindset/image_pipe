@@ -167,6 +167,7 @@ defmodule ImagePipe.API.ColourConversionWireTest do
   defp watermarked(origin, mark, frame, profile) do
     config =
       ImagePipe.Plug.init(
+        allow_unsigned: true,
         sources: [
           path: [
             adapter: RootHTTPAdapter,
@@ -203,6 +204,7 @@ defmodule ImagePipe.API.ColourConversionWireTest do
   defp file_image(options, file) do
     config =
       ImagePipe.Plug.init(
+        allow_unsigned: true,
         sources: [
           path: [
             adapter: ImagePipe.Source.File,
@@ -220,6 +222,7 @@ defmodule ImagePipe.API.ColourConversionWireTest do
 
     config =
       ImagePipe.Plug.init(
+        allow_unsigned: true,
         sources: [
           path: [
             adapter: RootHTTPAdapter,

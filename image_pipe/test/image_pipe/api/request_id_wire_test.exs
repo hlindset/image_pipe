@@ -74,6 +74,7 @@ defmodule ImagePipe.API.RequestIdWireTest do
     test "source", context do
       mount =
         ImagePipe.Plug.init(
+          allow_unsigned: true,
           processing_pool: context.pool,
           telemetry_prefix: context.prefix,
           sources: [
@@ -126,6 +127,7 @@ defmodule ImagePipe.API.RequestIdWireTest do
 
   defp options(context, bytes) do
     [
+      allow_unsigned: true,
       processing_pool: context.pool,
       telemetry_prefix: context.prefix,
       sources: [

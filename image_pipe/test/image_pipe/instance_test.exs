@@ -34,7 +34,9 @@ defmodule ImagePipe.InstanceTest do
 
   defp start_instance(ctx, options \\ []) do
     start_supervised!(
-      {ImagePipe, [name: ctx.name, sources: ctx.sources, cache: ctx.bounded] ++ options}
+      {ImagePipe,
+       [name: ctx.name, allow_unsigned: true, sources: ctx.sources, cache: ctx.bounded] ++
+         options}
     )
   end
 
@@ -126,7 +128,8 @@ defmodule ImagePipe.InstanceTest do
       prefix = [:"instance_#{System.unique_integer([:positive])}"]
 
       start_supervised!(
-        {ImagePipe, name: ctx.name, sources: ctx.sources, telemetry_prefix: prefix}
+        {ImagePipe,
+         allow_unsigned: true, name: ctx.name, sources: ctx.sources, telemetry_prefix: prefix}
       )
 
       test = self()
@@ -265,7 +268,8 @@ defmodule ImagePipe.InstanceTest do
       Image.new!(24, 16, color: :blue) |> Image.write!(Path.join(images, "blue.png"))
 
       start_supervised!(
-        {ImagePipe, name: ctx.name, sources: ctx.sources, max_remembered_originals: 1}
+        {ImagePipe,
+         allow_unsigned: true, name: ctx.name, sources: ctx.sources, max_remembered_originals: 1}
       )
 
       builder = ImagePipe.URL.new(ImagePipe.url_config(ctx.name))
@@ -303,7 +307,7 @@ defmodule ImagePipe.InstanceTest do
     end
 
     test "serves an instance without a cache", ctx do
-      start_supervised!({ImagePipe, name: ctx.name, sources: ctx.sources})
+      start_supervised!({ImagePipe, allow_unsigned: true, name: ctx.name, sources: ctx.sources})
 
       assert request("/w=8/src/red.png", instance: ctx.name).status == 200
     end
@@ -334,7 +338,7 @@ defmodule ImagePipe.InstanceTest do
 
   describe "instance options" do
     test "takes a prebuilt config: with overrides", ctx do
-      config = ImagePipe.config(sources: ctx.sources, cache: ctx.bounded)
+      config = ImagePipe.config(allow_unsigned: true, sources: ctx.sources, cache: ctx.bounded)
       start_supervised!({ImagePipe, name: ctx.name, config: config, quality: 40})
 
       assert request("/w=8/format=png/src/red.png", instance: ctx.name).status == 200
@@ -343,7 +347,7 @@ defmodule ImagePipe.InstanceTest do
     end
 
     test "takes a prebuilt config: with URL options, keeping its cache", ctx do
-      config = ImagePipe.config(sources: ctx.sources, cache: ctx.bounded)
+      config = ImagePipe.config(allow_unsigned: true, sources: ctx.sources, cache: ctx.bounded)
       start_supervised!({ImagePipe, name: ctx.name, config: config, keys: [@signing_key]})
       path = "/w=8/format=png/src/red.png"
 
@@ -358,7 +362,11 @@ defmodule ImagePipe.InstanceTest do
          ctx do
       limit = fn options ->
         name = Module.concat(ctx.name, "L#{System.unique_integer([:positive])}")
-        start_supervised!({ImagePipe, [name: name, sources: ctx.sources] ++ options})
+
+        start_supervised!(
+          {ImagePipe, [name: name, allow_unsigned: true, sources: ctx.sources] ++ options}
+        )
+
         ImagePipe.Config.fetch_instance!(name).options[:max_remembered_originals]
       end
 
@@ -393,7 +401,12 @@ defmodule ImagePipe.InstanceTest do
 
     test "invalid options raise when the child spec is built", ctx do
       assert_raise ArgumentError, fn ->
-        ImagePipe.child_spec(name: ctx.name, sources: ctx.sources, quality: 0)
+        ImagePipe.child_spec(
+          allow_unsigned: true,
+          name: ctx.name,
+          sources: ctx.sources,
+          quality: 0
+        )
       end
     end
   end
@@ -518,7 +531,12 @@ defmodule ImagePipe.InstanceTest do
     test "rejects an invalid detector_warmup", ctx do
       for warmup <- ["face", ["fcae"]] do
         assert_raise ArgumentError, ~r/detector_warmup/, fn ->
-          ImagePipe.child_spec(name: ctx.name, detector: WarmingDetector, detector_warmup: warmup)
+          ImagePipe.child_spec(
+            allow_unsigned: true,
+            name: ctx.name,
+            detector: WarmingDetector,
+            detector_warmup: warmup
+          )
         end
       end
     end
@@ -526,7 +544,7 @@ defmodule ImagePipe.InstanceTest do
 
   describe "inline configuration" do
     test "ImagePipe.run/4 rejects a config with a cache", ctx do
-      config = ImagePipe.config(sources: ctx.sources, cache: ctx.bounded)
+      config = ImagePipe.config(allow_unsigned: true, sources: ctx.sources, cache: ctx.bounded)
       builder = ImagePipe.URL.new(ImagePipe.url_config(config))
 
       assert_raise ArgumentError, ~r/ImagePipe instance/, fn ->
@@ -535,7 +553,9 @@ defmodule ImagePipe.InstanceTest do
     end
 
     test "ImagePipe.run/4 rejects max_remembered_originals", ctx do
-      config = ImagePipe.config(sources: ctx.sources, max_remembered_originals: 5)
+      config =
+        ImagePipe.config(allow_unsigned: true, sources: ctx.sources, max_remembered_originals: 5)
+
       builder = ImagePipe.URL.new(ImagePipe.url_config(config))
 
       assert_raise ArgumentError, ~r/ImagePipe instance/, fn ->

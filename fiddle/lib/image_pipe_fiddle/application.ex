@@ -104,12 +104,15 @@ defmodule ImagePipeFiddle.Application do
     Application.fetch_env!(:image_pipe_fiddle, ImagePipeFiddleWeb.Endpoint)[:http][:port]
   end
 
-  # The signed mount checks URLs against other keys, so it has an instance of
-  # its own, with its own cache root.
+  # The fiddle runs only on a developer's machine, so its unsigned mount
+  # allows unsigned URLs.
   defp image_pipe_opts do
-    [name: ImagePipeFiddle.Images] ++ api_opts(Application.get_env(:image_pipe_fiddle, :cache))
+    [name: ImagePipeFiddle.Images, allow_unsigned: true] ++
+      api_opts(Application.get_env(:image_pipe_fiddle, :cache))
   end
 
+  # The signed mount checks URLs against other keys, so it has an instance of
+  # its own, with its own cache root.
   defp signed_image_pipe_opts do
     cache =
       case Application.get_env(:image_pipe_fiddle, :cache) do

@@ -64,6 +64,7 @@ defmodule CoordinatedCacheBench do
     config =
       ImagePipe.Plug.init(
         [
+          allow_unsigned: true,
           sources: [
             url: [
               adapter: source_adapter(mode),

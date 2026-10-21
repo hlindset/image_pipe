@@ -101,6 +101,7 @@ defmodule ImagePipe.API.PipelinePixelTest do
     config =
       ImagePipe.Plug.init(
         [
+          allow_unsigned: true,
           sources: [
             path: [
               adapter: RootHTTPAdapter,

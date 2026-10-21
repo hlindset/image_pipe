@@ -512,6 +512,7 @@ defmodule ImagePipe.Source.HTTP.PinningTest do
 
     config =
       ImagePipe.Plug.init(
+        allow_unsigned: true,
         sources: [
           url: [
             adapter: HTTP,
@@ -531,6 +532,7 @@ defmodule ImagePipe.Source.HTTP.PinningTest do
 
     denied =
       ImagePipe.Plug.init(
+        allow_unsigned: true,
         sources: [
           url: [adapter: HTTP, match: [scheme: ["http", "https"]], options: source_options]
         ]

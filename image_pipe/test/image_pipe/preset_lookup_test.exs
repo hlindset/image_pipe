@@ -30,6 +30,7 @@ defmodule ImagePipe.PresetLookupTest do
     end
 
     [
+      allow_unsigned: true,
       sources: [
         path: [
           adapter: RootHTTPAdapter,

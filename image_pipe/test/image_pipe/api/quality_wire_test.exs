@@ -395,7 +395,8 @@ defmodule ImagePipe.API.QualityWireTest do
   defp pixels(response),
     do: response.resp_body |> Image.from_binary!() |> VipsImage.write_to_binary()
 
-  defp mount(overrides \\ []), do: overrides |> options() |> ImagePipe.Plug.init()
+  defp mount(overrides \\ []),
+    do: overrides |> options() |> Keyword.put_new(:allow_unsigned, true) |> ImagePipe.Plug.init()
 
   defp observed_mount(overrides),
     do: overrides |> options() |> CacheObserver.observe() |> Caches.plug()

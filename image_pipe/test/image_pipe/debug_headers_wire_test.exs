@@ -193,7 +193,9 @@ defmodule ImagePipe.DebugHeadersWireTest do
   end
 
   defp mount(opts) do
-    if opts[:cache], do: Caches.plug(opts), else: ImagePipe.Plug.init(opts)
+    if opts[:cache],
+      do: Caches.plug(opts),
+      else: ImagePipe.Plug.init(Keyword.put_new(opts, :allow_unsigned, true))
   end
 
   defp header(conn, name) do
@@ -232,7 +234,7 @@ defmodule ImagePipe.DebugHeadersWireTest do
         keys: [Base.encode16("debug-signing-key-of-32-bytes!!!")]
       )
 
-    config = ImagePipe.Plug.init(opts)
+    config = ImagePipe.Plug.init(Keyword.put_new(opts, :allow_unsigned, true))
     plain_path = request_path()
     debug_path = with_debug(plain_path)
     plain_signature = Signature.sign(plain_path, config)
@@ -330,7 +332,7 @@ defmodule ImagePipe.DebugHeadersWireTest do
       conn =
         conn(:get, with_debug(stable_request_path()))
         |> put_req_header("if-none-match", etag)
-        |> ImagePipe.Plug.call(ImagePipe.Plug.init(opts))
+        |> ImagePipe.Plug.call(ImagePipe.Plug.init(Keyword.put_new(opts, :allow_unsigned, true)))
 
       assert conn.status == 304,
              "expected conditional GET with debug to 304; got #{conn.status}"

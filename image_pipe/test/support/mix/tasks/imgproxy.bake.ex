@@ -83,6 +83,7 @@ defmodule Mix.Tasks.Imgproxy.Bake do
   defp validate_native!(cases) do
     config =
       ImagePipe.Plug.init(
+        allow_unsigned: true,
         sources: [
           path: [
             adapter: ImagePipe.Source.File,

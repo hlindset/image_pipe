@@ -157,6 +157,7 @@ defmodule ImagePipe.API.GeometryCompositionWireTest do
   defp request(path, origin) do
     config =
       ImagePipe.Plug.init(
+        allow_unsigned: true,
         sources: [
           path: [
             adapter: RootHTTPAdapter,

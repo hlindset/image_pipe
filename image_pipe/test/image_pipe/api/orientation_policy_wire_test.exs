@@ -274,6 +274,7 @@ defmodule ImagePipe.API.OrientationPolicyWireTest do
 
   defp api_config(origin) do
     ImagePipe.Plug.init(
+      allow_unsigned: true,
       sources: [
         path: [
           adapter: RootHTTPAdapter,

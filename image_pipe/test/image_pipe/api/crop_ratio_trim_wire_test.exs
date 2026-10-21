@@ -113,6 +113,7 @@ defmodule ImagePipe.API.CropRatioTrimWireTest do
 
     config =
       ImagePipe.Plug.init(
+        allow_unsigned: true,
         sources: [
           path: [
             adapter: RootHTTPAdapter,
@@ -149,6 +150,7 @@ defmodule ImagePipe.API.CropRatioTrimWireTest do
 
     config =
       ImagePipe.Plug.init(
+        allow_unsigned: true,
         sources: [
           path: [
             adapter: RootHTTPAdapter,
