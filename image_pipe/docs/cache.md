@@ -163,10 +163,7 @@ A client disconnect, a failure after the first chunk, or a body over
 client still receives the full response in the last case.
 
 An original downloaded for a request is stored in the background too, while
-the request processes it. The details kept to recheck an original are stored
-in the processed-image cache. Without an originals cache, storing those
-details takes one of the processed-image cache's 64 writes, or runs in the
-request when none is free.
+the request processes it.
 
 A cache drops a write when:
 

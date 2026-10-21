@@ -69,6 +69,35 @@ defmodule ImagePipe.Cache.WriterTest do
     refute stored_bodies(ctx.root) == []
   end
 
+  test "a new original's record is remembered without a writer", ctx do
+    opts =
+      Caches.start!(
+        sources: [
+          media: [
+            adapter: ImagePipe.Source.File,
+            match: :path,
+            options: [root: ctx.images, root_id: "media"]
+          ]
+        ],
+        cache: [root: ctx.root]
+      )
+
+    writers = writers_pid(ctx.root)
+    :erlang.trace(writers, true, [:receive])
+    conn = ImagePipe.Plug.call(conn(:get, "/w=8/format=png/src/red.png"), Caches.plug(opts))
+    assert conn.status == 200
+    Caches.await_writes(opts)
+    :erlang.trace(writers, false, [:receive])
+    ref = :erlang.trace_delivered(writers)
+    assert_receive {:trace_delivered, ^writers, ^ref}
+
+    started =
+      for {:trace, _pid, :receive, {:"$gen_call", _from, {:start_child, spec}}} <- messages(),
+          do: spec
+
+    assert [_output_writer] = started
+  end
+
   test "drops a write whose unfinished bytes would pass the cache's limit", ctx do
     # The pending limit is a twentieth of max_size_bytes: 100 bytes.
     opts = cache_opts(ctx, max_size_bytes: 2_000)
@@ -200,14 +229,32 @@ defmodule ImagePipe.Cache.WriterTest do
       assert_received :invalidated
     end
 
+    test "run a write to memory in the request, without a writer", ctx do
+      opts = originals_opts(ctx)
+      test = self()
+
+      Cache.publish("source", nil, {:memory, fn -> send(test, {:remembered, self()}) end}, opts)
+      assert_received {:remembered, ^test}
+
+      expired = make_ref()
+      forget = {:invalidate, fn -> send(test, {:forgotten, self()}) end}
+      Cache.publish("source", expired, {:memory, forget}, opts)
+      assert_received {:forgotten, ^test}
+    end
+
     test "skip the original without an originals cache, and reserve nothing", ctx do
       opts = cache_opts(ctx, [])
       test = self()
+      {:staged, path, put, _then} = staged(ctx, test)
 
-      Cache.publish("source", nil, staged(ctx, test), opts)
-      Caches.await_writes(opts)
+      Cache.publish(
+        "source",
+        nil,
+        {:staged, path, put, fn -> send(test, {:record, self()}) end},
+        opts
+      )
 
-      assert_received :record
+      assert_received {:record, ^test}
       refute_received :original
       refute_received {:stage, _metadata}
       assert Writers.pending(ctx.root) == 0
@@ -318,6 +365,25 @@ defmodule ImagePipe.Cache.WriterTest do
   defp admission(root) do
     [{pid, _value}] = Registry.lookup(FileSystem.registry_name(root), root)
     pid
+  end
+
+  defp writers_pid(root) do
+    [cache] =
+      for {:cache, pid, :supervisor, _modules} <- Supervisor.which_children(root_supervisor(root)),
+          do: pid
+
+    [writers] =
+      for {Writers, pid, :supervisor, _modules} <- Supervisor.which_children(cache), do: pid
+
+    writers
+  end
+
+  defp messages do
+    receive do
+      message -> [message | messages()]
+    after
+      0 -> []
+    end
   end
 
   defp restart_writers(root) do

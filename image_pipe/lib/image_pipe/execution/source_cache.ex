@@ -318,7 +318,7 @@ defmodule ImagePipe.Execution.SourceCache do
 
   # Only writes take the publication lock, so a check that changes nothing,
   # the steady state for a local file, doesn't. A lease that is no longer
-  # current skips the writes. The writes run off the request, in a cache
+  # current skips the writes. Writes to disk run off the request, in a cache
   # writer that takes the lease (see `Cache.publish/4`).
   defp publish_coordinated(result, source, key, previous, cost, config, lease) do
     case publication(result, source, key, previous, cost, config) do
@@ -400,7 +400,7 @@ defmodule ImagePipe.Execution.SourceCache do
         {:staged, response.path, &Input.put(key, &1, sha256, record, cost, config), nil}
 
       remember? ->
-        fn -> Cache.remember_source(key, record, config) end
+        {:memory, fn -> Cache.remember_source(key, record, config) end}
 
       true ->
         nil
@@ -408,21 +408,28 @@ defmodule ImagePipe.Execution.SourceCache do
   end
 
   defp remember(source, key, record, config) do
-    case storable?(record, source) do
-      true ->
+    case {storable?(record, source), Keyword.get(config, :input_cache)} do
+      {true, nil} ->
+        {:memory, fn -> Cache.remember_source(key, record, config) end}
+
+      {true, _input_cache} ->
         fn ->
           Input.refresh(key, record, config)
           Cache.remember_source(key, record, config)
         end
 
-      false ->
+      {false, _input_cache} ->
         invalidation(key, config)
     end
   end
 
   # An invalidation runs even after its lease has expired: dropping an entry
   # is always safe, and skipping one could keep serving a removed source.
-  defp invalidation(key, config), do: {:invalidate, fn -> invalidate(key, config) end}
+  # Without an originals cache, an invalidation only forgets a record.
+  defp invalidation(key, config) do
+    write = {:invalidate, fn -> invalidate(key, config) end}
+    if Keyword.get(config, :input_cache), do: write, else: {:memory, write}
+  end
 
   # A check that moved only the receipt times of a record that must be
   # validated on every use leaves the stored record as useful as the new one,

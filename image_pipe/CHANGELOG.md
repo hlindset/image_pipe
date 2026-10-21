@@ -135,7 +135,8 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   copy. With HTTP or S3 sources, run an originals cache so that restarts
   don't download every original in use again. Those already stored in a
   cache are no longer read, and the cache evicts them in time like any image
-  it holds.
+  it holds. Keeping these details takes none of the processed-image cache's
+  64 writes, so it never makes a processed image's write drop.
 - A cache with `max_size_bytes` deletes a rejected write without syncing it
   to disk. Once the popular images don't fit in the cache, that saves most
   of its write I/O. A write that waits more than 5 seconds to be kept or
