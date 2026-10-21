@@ -455,13 +455,13 @@ defmodule ImagePipe.API.PathTest do
 
   property "a src tail is rejected exactly when it has a malformed percent escape" do
     check all tail <- percent_bytes(), max_runs: 500 do
-      malformed? =
-        match?(
-          {:error, [%{reason: :malformed_percent_escape}]},
-          Path.extract("/src/x" <> tail, "")
-        )
-
-      assert malformed? == Regex.match?(@malformed_percent, tail)
+      if Regex.match?(@malformed_percent, tail) do
+        assert {:error, [%{reason: :malformed_percent_escape}]} =
+                 Path.extract("/src/x" <> tail, "")
+      else
+        source = URI.decode("x" <> tail)
+        assert {:ok, %{source: {:src, ^source, _span}}} = Path.extract("/src/x" <> tail, "")
+      end
     end
   end
 
