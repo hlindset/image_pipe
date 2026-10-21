@@ -64,6 +64,9 @@ the server, or makes `ImagePipe.config/1` raise `ArgumentError`:
   while `request_watermarks` is off. See
   [`[processing]`](../../image_pipe_server/docs/server-configuration.md#processing)
   for the server, or `ImagePipe.config/1` for the Plug.
+- A `wm-enc` token that the
+  [source encryption keys](shared-url-settings.md#source-encryption-keys)
+  can't decrypt, or a `wm-enc` token on a configuration without them.
 
 The error names the problem, such as
 `invalid ImagePipe configuration: unknown preset: crad`.

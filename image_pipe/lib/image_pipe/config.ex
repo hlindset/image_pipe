@@ -602,25 +602,31 @@ defmodule ImagePipe.Config do
     end
   end
 
-  # A static wm-enc can only be decrypted with source encryption keys, so a
-  # configuration without them would answer every request using it with a 400.
+  # A static wm-enc is decrypted on every request that uses it, so one the
+  # source encryption keys can't decrypt would answer each of them with an
+  # error.
   defp concealed_watermarks!(presets, url) do
-    if not Security.source_encryption?(url.options) do
-      defaults = Keyword.fetch!(presets, :request_defaults)
+    for {owner, preset} <- preset_owners(presets),
+        token <- watermark_tokens(preset) do
+      concealed_watermark!(owner, token, url.options)
+    end
 
-      [
-        {"request_defaults", defaults}
-        | Enum.map(presets[:presets], fn {name, preset} -> {~s(preset "#{name}"), preset} end)
-      ]
-      |> Enum.find(fn {_owner, preset} -> concealed_watermark?(preset) end)
-      |> case do
-        nil ->
-          :ok
+    :ok
+  end
 
-        {owner, _preset} ->
-          raise ArgumentError,
-                "invalid ImagePipe configuration: #{owner} uses wm-enc, which needs source_encryption_keys"
-      end
+  defp concealed_watermark!(owner, token, options) do
+    case Security.decrypt_source(token, options) do
+      {:ok, _source} ->
+        :ok
+
+      {:error, :source_encryption_disabled} ->
+        raise ArgumentError,
+              "invalid ImagePipe configuration: #{owner} uses wm-enc, which needs source_encryption_keys"
+
+      {:error, :invalid_concealed_source} ->
+        raise ArgumentError,
+              "invalid ImagePipe configuration: #{owner} has a wm-enc token that " <>
+                "source_encryption_keys can't decrypt"
     end
   end
 
@@ -651,10 +657,10 @@ defmodule ImagePipe.Config do
   defp effort(%{effort: effort}), do: effort
   defp effort(_options), do: nil
 
-  defp concealed_watermark?(%{groups: groups}),
-    do: Enum.any?(groups, fn {_index, group} -> Map.has_key?(group, :watermark_token) end)
+  defp watermark_tokens(%{groups: groups}),
+    do: for({_index, %{watermark_token: token}} when is_binary(token) <- groups, do: token)
 
-  defp concealed_watermark?(nil), do: false
+  defp watermark_tokens(nil), do: []
 
   defp lookup_options!(options) do
     case {options[:preset_lookup], options[:max_preset_lookups]} do
