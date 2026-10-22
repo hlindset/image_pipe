@@ -176,8 +176,12 @@ defmodule Mix.Tasks.Imgproxy.Bench do
   @bursts 3
   # The stage log line each generation writes.
   @generation_line "image_pipe transform execute:"
-  # The random part of a `random` case's URL, as oha generates it.
-  @token_regex "[a-z0-9]{16}"
+  # ImagePipe servers check signatures, so the bench signs every request with
+  # this key. Every image compared, old or new, accepts a 32-byte hex key.
+  @signing_key String.duplicate("0123456789abcdef", 4)
+  # How many signed URLs a `random` case gives oha, which draws one at random
+  # for each request. A window sends at most a few thousand, so few repeat.
+  @random_urls 100_000
   @max_input_pixels 100_000_000
   @max_body_bytes 100_000_000
 
@@ -285,9 +289,11 @@ defmodule Mix.Tasks.Imgproxy.Bench do
     Container.docker!(["network", "create", settings.network])
 
     try do
-      # One oha container serves every measurement, through `docker exec`.
+      # One oha container serves every measurement, through `docker exec`. It
+      # reads `random` cases' URL files from the work directory.
       Container.docker!(
         ["run", "-d", "--name", settings.oha, "--network", settings.network] ++
+          ["-v", "#{settings.work}:/work:ro"] ++
           ["--cpuset-cpus", settings.oha_cpus, "--entrypoint", "sleep", @oha, "infinity"]
       )
 
@@ -479,7 +485,7 @@ defmodule Mix.Tasks.Imgproxy.Bench do
     Mix.shell().info("Making #{length(PerfCases.variants())} photo variants")
 
     for {file, request} <- PerfCases.variants() do
-      url = "#{info.base_url}/#{request}/src/perf/photo12.jpg"
+      url = info.base_url <> sign("/#{request}/src/perf/photo12.jpg")
 
       case Req.get(url, decode_body: false, retry: false, receive_timeout: 300_000) do
         {:ok, %Req.Response{status: 200, body: body}} ->
@@ -530,7 +536,7 @@ defmodule Mix.Tasks.Imgproxy.Bench do
       image: image,
       health: "/health/live",
       configurable: true,
-      path: &Container.native_path/1,
+      path: &sign(Container.native_path(&1)),
       libvips: &Container.libvips(&1, "/usr/local/lib"),
       args:
         Enum.flat_map(settings.server_env, &["-e", &1]) ++
@@ -545,10 +551,11 @@ defmodule Mix.Tasks.Imgproxy.Bench do
   end
 
   # imgproxy's AVIF speed 8 is libvips effort 1 (`9 - speed`); both default
-  # to WebP effort 4. Neither checks signatures, and only the `:cached`
-  # configuration and the bursts' cache. Its caches sit in the image's `/var/cache/image_pipe`
-  # volume, not on the `/tmp` tmpfs, whose pages would count as the server's
-  # memory. Their sizes leave a measurement window nothing to evict.
+  # to WebP effort 4. imgproxy checks no signatures, and the bench signs
+  # ImagePipe's requests. Only the `:cached` configuration and the bursts have
+  # caches. They sit in the image's `/var/cache/image_pipe` volume, not on the
+  # `/tmp` tmpfs, whose pages would count as the server's memory. Their sizes
+  # leave a measurement window nothing to evict.
   defp server_config(settings, config) do
     plain_config(settings) <> extra_config(config, settings)
   end
@@ -604,6 +611,9 @@ defmodule Mix.Tasks.Imgproxy.Bench do
 
   defp plain_config(settings) do
     """
+    [url]
+    keys = ["#{@signing_key}"]
+
     [sources.bench]
     adapter = "file"
     match = "path"
@@ -882,7 +892,7 @@ defmodule Mix.Tasks.Imgproxy.Bench do
 
         timings =
           Map.new(group, fn c ->
-            target = oha_target(server, c, url)
+            target = oha_target(server, c, url, settings)
             warm_up(target, settings)
             window = Map.fetch!(settings.windows, c.id)
             timing = Map.new(levels, &{"#{&1}", measure(target, &1, window, settings, info.name)})
@@ -926,7 +936,7 @@ defmodule Mix.Tasks.Imgproxy.Bench do
     statuses =
       b.natives
       |> Task.async_stream(
-        &Req.get("#{info.base_url}/#{&1}/src/origin/slow/r/#{token}/#{b.source}",
+        &Req.get(info.base_url <> sign("/#{&1}/src/origin/slow/r/#{token}/#{b.source}"),
           decode_body: false,
           retry: false,
           receive_timeout: 120_000
@@ -967,18 +977,28 @@ defmodule Mix.Tasks.Imgproxy.Bench do
 
   defp randomize(c, _token), do: c
 
-  # oha's URL arguments for a case: a `random` case's URL is a regular
-  # expression oha draws a new URL from for every request. oha reads `.` in
-  # it literally, and the paths hold no other metacharacters.
-  defp oha_target(server, c, url) do
+  # oha's URL arguments for a case. A `random` case's URLs are signed, so oha
+  # can't generate them: it gets a file of new ones for each measurement.
+  defp oha_target(server, c, url, settings) do
     case Map.get(c, :random) do
       nil ->
         [url.(server.path.(c))]
 
       _random ->
-        marker = "zztokenzz"
-        regex = c |> randomize(marker) |> server.path.() |> url.()
-        ["--rand-regex-url", String.replace(regex, marker, @token_regex)]
+        name = "urls-#{server.key}-#{c.id}.txt"
+        urls = for _ <- 1..@random_urls, do: [url.(case_path(server, c)), ?\n]
+        File.write!(Path.join(settings.work, name), urls)
+        ["--urls-from-file", "/work/#{name}"]
+    end
+  end
+
+  defp sign(path), do: ImagePipe.URL.sign_path(path, url_config())
+
+  defp url_config do
+    with nil <- :persistent_term.get({__MODULE__, :url_config}, nil) do
+      config = ImagePipe.URL.config(keys: [@signing_key])
+      :persistent_term.put({__MODULE__, :url_config}, config)
+      config
     end
   end
 
