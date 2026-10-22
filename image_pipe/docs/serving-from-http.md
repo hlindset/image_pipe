@@ -169,6 +169,10 @@ If you set `allowed_hosts` with `base_url`, the list must include the base
 URL's host, plus its port when the port isn't 80 or 443, as in
 `images.example.com:8443`.
 
+A redirect to another host, port, or scheme is sent without the headers and
+credentials you configured, such as an API key. A redirect from `https` to
+`http`, or to a URL with a user name or password, fails with `502`.
+
 ## Allow a private origin
 
 By default ImagePipe connects only to public internet addresses, so an

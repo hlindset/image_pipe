@@ -823,7 +823,7 @@ defmodule ImagePipe.Source.HTTPTest do
       plug = fn
         %{request_path: "/redirect.jpg"} = conn ->
           conn
-          |> Plug.Conn.put_resp_header("location", "http://127.0.0.1/x")
+          |> Plug.Conn.put_resp_header("location", "https://127.0.0.1/x")
           |> Plug.Conn.send_resp(302, "")
 
         _conn ->

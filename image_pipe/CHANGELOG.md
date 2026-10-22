@@ -194,6 +194,12 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   uses attention because `detector_required` is set and the face model isn't
   loaded yet (`result: :not_ready`) or the detector has no face model
   (`result: :unavailable`). The default Logger logs both at `warning`.
+- When an HTTP source follows a redirect to another host, port, or scheme,
+  the request no longer carries the headers or credentials set in
+  `req_options`, such as an API key. Before, only `authorization`,
+  `proxy-authorization`, and `cookie` were dropped. A redirect from `https`
+  to `http`, or to a URL with a user name or password, now fails with
+  `502`.
 - A `blur`, `progressive-blur`, or `sharpen` result is copied to memory
   before a later resize or a step that rereads pixels (`rotate`, `trim`,
   `pixelate`, `blur`, `progressive-blur`, `sharpen`, or a crop with

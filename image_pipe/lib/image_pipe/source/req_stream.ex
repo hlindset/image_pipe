@@ -401,27 +401,32 @@ defmodule ImagePipe.Source.ReqStream do
         {:error, :invalid_redirect}
 
       true ->
-        next_url =
-          req_options
-          |> Keyword.fetch!(:url)
-          |> URI.parse()
-          |> URI.merge(location)
-          |> URI.to_string()
+        previous = URI.parse(Keyword.fetch!(req_options, :url))
+        next = URI.merge(previous, location)
 
-        follow(
-          redirect_options(req_options, next_url),
-          runtime_opts,
-          validate,
-          redirects_left - 1,
-          redirects_allowed?
-        )
+        if allowed_redirect?(previous, next) do
+          follow(
+            redirect_options(req_options, previous, next),
+            runtime_opts,
+            validate,
+            redirects_left - 1,
+            redirects_allowed?
+          )
+        else
+          {:error, :invalid_redirect}
+        end
     end
   end
 
-  defp redirect_options(req_options, next_url) do
-    previous = URI.parse(Keyword.fetch!(req_options, :url))
-    next = URI.parse(next_url)
-    opts = Keyword.put(req_options, :url, next_url)
+  # Req turns userinfo into Basic auth, and an https origin's redirect to
+  # http would let the network replace the image.
+  defp allowed_redirect?(previous, next),
+    do: next.userinfo == nil and not (previous.scheme == "https" and next.scheme == "http")
+
+  # Another origin gets only the conditional headers ImagePipe adds, since
+  # any configured header, such as an API key, can be a credential.
+  defp redirect_options(req_options, previous, next) do
+    opts = Keyword.put(req_options, :url, URI.to_string(next))
 
     case {previous.scheme, String.downcase(previous.host), previous.port} ==
            {next.scheme, String.downcase(next.host || ""), next.port} do
@@ -431,13 +436,13 @@ defmodule ImagePipe.Source.ReqStream do
       false ->
         opts
         |> Keyword.drop([:auth, :aws_sigv4])
-        |> Keyword.update(:headers, [], &strip_credentials/1)
+        |> Keyword.update(:headers, [], &conditional_headers/1)
     end
   end
 
-  defp strip_credentials(headers) do
-    Enum.reject(headers, fn {name, _value} ->
-      ReqSanitizer.header_name(name) in ["authorization", "proxy-authorization", "cookie"]
+  defp conditional_headers(headers) do
+    Enum.filter(headers, fn {name, _value} ->
+      ReqSanitizer.header_name(name) in ["if-none-match", "if-modified-since"]
     end)
   end
 
