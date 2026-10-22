@@ -310,6 +310,12 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - A crash report from a streaming response, or from
   `ImagePipe.Source.S3.CredentialWarmup`, no longer prints the configured
   origin credentials, such as S3 keys and authorization headers.
+- **Breaking:** `ImagePipe.Source.S3.ContainerCredentials` rejects a
+  `base_url` that doesn't use `https`, a loopback host, or the ECS or EKS
+  credential endpoint, as it already did for `full_uri`. Before, a
+  `relative_uri` sent the authorization token to any `base_url`. The default
+  `base_url` is unaffected. Change any other `base_url` to use `https` or a
+  loopback host.
 - A request path with bytes that aren't valid UTF-8 no longer makes the
   telemetry path invalid UTF-8. They become `U+FFFD`.
 - `ImagePipe.config/1` raises a duplicate-option error for an option given

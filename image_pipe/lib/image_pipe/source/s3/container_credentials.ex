@@ -9,7 +9,9 @@ defmodule ImagePipe.Source.S3.ContainerCredentials do
                  base_url: [
                    type: :string,
                    doc: """
-                   Base URL that `:relative_uri` is appended to. The default value is \
+                   Base URL that `:relative_uri` is appended to. Must use `https`, a \
+                   loopback host, or the ECS or EKS credential endpoint, so the token \
+                   can't be sent to another host. The default value is \
                    `"http://169.254.170.2"`.
                    """
                  ],
@@ -103,21 +105,26 @@ defmodule ImagePipe.Source.S3.ContainerCredentials do
   end
 
   # AWS only trusts AWS_CONTAINER_CREDENTIALS_FULL_URI when it targets a loopback
-  # host or uses https; mirror that so a misconfigured full_uri can't exfiltrate
-  # the auth token to an arbitrary host.
+  # host or uses https; mirror that, for the base_url a relative_uri joins too,
+  # so a misconfigured URL can't exfiltrate the auth token to an arbitrary host.
   defp validate_full_uri(opts) do
     case Keyword.get(opts, :full_uri) do
       nil ->
-        validate_relative_uri(Keyword.get(opts, :relative_uri))
+        with :ok <- validate_relative_uri(Keyword.get(opts, :relative_uri)),
+             do: trusted_url(:base_url, Keyword.get(opts, :base_url, @base_url))
 
       url ->
-        uri = URI.parse(url)
+        trusted_url(:full_uri, url)
+    end
+  end
 
-        if uri.scheme == "https" or loopback_host?(uri.host) do
-          :ok
-        else
-          {:error, "full_uri must use https or a loopback host"}
-        end
+  defp trusted_url(option, url) do
+    uri = URI.parse(url)
+
+    if uri.scheme == "https" or loopback_host?(uri.host) do
+      :ok
+    else
+      {:error, "#{option} must use https or a loopback host"}
     end
   end
 
