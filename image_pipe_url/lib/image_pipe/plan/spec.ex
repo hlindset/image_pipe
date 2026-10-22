@@ -61,8 +61,8 @@ defmodule ImagePipe.Plan.Spec do
     case errors do
       [] ->
         {groups, options, dropped} = drop_inert(groups, options, invalid, inert, [])
-        {groups, options} = drop_full_frame(groups, options, invalid)
-        {:ok, groups, options, explicit(dropped, explicit?)}
+        {groups, options, full_frame} = drop_full_frame(groups, options, invalid)
+        {:ok, groups, options, explicit(dropped ++ full_frame, explicit?)}
 
       errors ->
         {:error, errors ++ explicit(inert, explicit?)}
@@ -80,19 +80,33 @@ defmodule ImagePipe.Plan.Spec do
   # dropped to share identity with no crop at all, together with the options
   # it alone made useful. A crop ratio still reshapes a full-frame crop.
   defp drop_full_frame(groups, options, invalid) do
-    case Enum.map(groups, &drop_full_frame_group/1) do
-      ^groups ->
-        {groups, options}
+    case full_frame_issues(groups) do
+      [] ->
+        {groups, options, []}
 
-      groups ->
+      full_frame ->
+        groups = Enum.map(groups, &drop_full_frame_group/1)
+
         inert =
           groups
           |> Validation.errors(options, invalid, nil)
           |> Enum.filter(&(&1.severity == :warning))
 
-        {groups, options, _dropped} = drop_inert(groups, options, invalid, inert, [])
-        {groups, options}
+        {groups, options, dropped} = drop_inert(groups, options, invalid, inert, [])
+        {groups, options, full_frame ++ dropped}
     end
+  end
+
+  defp full_frame_issues(groups) do
+    for {group, index} <- Enum.with_index(groups),
+        {key, value} <- Enum.sort(group),
+        full_frame?(key, value, group),
+        do: %Issue{
+          reason: :inert_option,
+          locations: [{:group, index, key}],
+          detail: :full_frame,
+          severity: :warning
+        }
   end
 
   defp drop_full_frame_group(group),

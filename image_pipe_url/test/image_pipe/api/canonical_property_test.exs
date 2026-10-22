@@ -12,6 +12,12 @@ defmodule ImagePipe.API.CanonicalPropertyTest do
 
   defp parse(segments), do: Parser.parse(lexed(segments), [])
 
+  # A request without the warnings for the options it dropped.
+  defp identity(segments) do
+    {:ok, request} = parse(segments)
+    %{request | ignored: []}
+  end
+
   # A representative, mutually-compatible group: a concrete resize with a
   # cover-family fit (so anchor is a satisfied guide consumer), plus one
   # instance of every other group-scoped shape in the probe subset. No
@@ -344,14 +350,16 @@ defmodule ImagePipe.API.CanonicalPropertyTest do
             ["region=0pct,0,100pct,100pct"],
             ["crop=100.0pct,100pct"]
           ] do
-        assert parse(["w=10"]) == parse(["w=10" | options])
+        assert identity(["w=10"]) == identity(["w=10" | options])
       end
 
-      assert parse(["blur=1"]) == parse(["crop=100pct,100pct", "-", "blur=1"])
-      assert parse(["w=10", "fit=cover"]) == parse(["w=10", "fit=cover", "crop=100pct,100pct"])
+      assert identity(["blur=1"]) == identity(["crop=100pct,100pct", "-", "blur=1"])
 
-      assert parse(["w=10", "fit=cover", "anchor=smart"]) ==
-               parse(["w=10", "fit=cover", "anchor=smart", "region=0,0,100pct,100pct"])
+      assert identity(["w=10", "fit=cover"]) ==
+               identity(["w=10", "fit=cover", "crop=100pct,100pct"])
+
+      assert identity(["w=10", "fit=cover", "anchor=smart"]) ==
+               identity(["w=10", "fit=cover", "anchor=smart", "region=0,0,100pct,100pct"])
     end
 
     test "a full-frame crop with a crop ratio keeps its identity" do
