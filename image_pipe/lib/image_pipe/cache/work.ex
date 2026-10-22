@@ -110,11 +110,11 @@ defmodule ImagePipe.Cache.Work do
   def current?(ref), do: call({:current, ref}, 5_000) == true
 
   # Work that ran without a lease, because the coordinator was busy or
-  # unavailable, still publishes inside the same lock, so its writes never
-  # interleave with a leased publication for the key.
-  def publish(key, nil, fun) do
-    :global.trans({{__MODULE__, :publication, key}, self()}, fn -> {:ok, fun.()} end, [node()])
-  end
+  # unavailable, or because nothing it leaves is shared, publishes without
+  # the lock. Its writes are single writes to memory, ordered against a
+  # leased publication by when they land, as they would be by the lock.
+  # Waiting for the lock would cost the request `:global`'s retry sleeps.
+  def publish(_key, nil, fun), do: {:ok, fun.()}
 
   def publish(key, lease, fun) do
     # Kernel owns this node-local lock, independently of this coordinator's

@@ -275,6 +275,30 @@ defmodule ImagePipe.Cache.WorkTest do
     assert Work.run(key, fn _, _ -> :new_work end, share: context) == :new_work
   end
 
+  test "a publication without a lease doesn't wait for a leased one" do
+    supervisor = start_supervised!(Task.Supervisor)
+    parent = self()
+    key = make_ref()
+
+    leased =
+      Task.Supervisor.async_nolink(supervisor, fn ->
+        Work.run(key, fn lease, _outcome ->
+          Work.publish(key, lease, fn ->
+            send(parent, :locked)
+
+            receive do
+              :continue -> :ok
+            end
+          end)
+        end)
+      end)
+
+    assert_receive :locked
+    assert Work.publish(key, nil, fn -> :unleased end) == {:ok, :unleased}
+    send(leased.pid, :continue)
+    assert Task.await(leased) == {:ok, :ok}
+  end
+
   test "publication stays ordered across a coordinator restart" do
     supervisor = start_supervised!(Task.Supervisor)
     parent = self()
