@@ -48,7 +48,7 @@ defmodule ImagePipe.Test.Perf.Cases do
           kind: :burst,
           family: String.t(),
           tier: :pr | :nightly,
-          config: {:burst, :none | :output},
+          config: {:burst, :none | :output | :overload},
           originals: :one | :each,
           source: String.t(),
           natives: [String.t()]
@@ -160,17 +160,28 @@ defmodule ImagePipe.Test.Perf.Cases do
   originals, in the `perf` set. It passes the cache's 64 writers, so it
   shows writes the cache drops when its writers or the file server can't
   keep up.
+
+  The `burst_overload` cases send more work than the pool takes, with the
+  server's default `max_queue` and `queue_timeout`, so some requests answer
+  `503`: `burst_overload_small` 300 cold thumbnails, which a queue of 64
+  mostly turns away, and `burst_overload_large` 40 cold full-size AVIF
+  encodes, too slow for all of them to start within the queue timeout. Their
+  configuration is `:overload`: the output cache, and the pool's defaults.
   """
   @spec bursts(pos_integer()) :: [burst()]
   def bursts(count) do
     same = List.duplicate("w=400/format=jpeg", count)
     sizes = for i <- 1..count, do: "w=#{100 + 100 * i}/format=jpeg"
     grid = List.duplicate("w=80/h=120/fit=cover/format=avif", 100)
+    thumbnails = List.duplicate("w=80/h=120/fit=cover/format=avif", 300)
+    full_size = List.duplicate("format=avif", 40)
 
-    for {name, natives, originals, tier, caches} <- [
-          {"burst_same", same, :one, :nightly, [:none, :output]},
-          {"burst_sizes", sizes, :one, :nightly, [:none, :output]},
-          {"burst_grid", grid, :each, :pr, [:output]}
+    for {name, natives, originals, source, tier, caches} <- [
+          {"burst_same", same, :one, "perf/photo2.jpg", :nightly, [:none, :output]},
+          {"burst_sizes", sizes, :one, "perf/photo2.jpg", :nightly, [:none, :output]},
+          {"burst_grid", grid, :each, "perf/photo2.jpg", :pr, [:output]},
+          {"burst_overload_small", thumbnails, :each, "perf/photo2.jpg", :pr, [:overload]},
+          {"burst_overload_large", full_size, :each, "perf/photo12.jpg", :pr, [:overload]}
         ],
         cache <- caches do
       %{
@@ -180,7 +191,7 @@ defmodule ImagePipe.Test.Perf.Cases do
         tier: tier,
         config: {:burst, cache},
         originals: originals,
-        source: "perf/photo2.jpg",
+        source: source,
         natives: natives
       }
     end

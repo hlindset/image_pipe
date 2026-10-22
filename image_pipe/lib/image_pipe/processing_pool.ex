@@ -25,7 +25,7 @@ defmodule ImagePipe.ProcessingPool do
             ],
             max_queue: [
               type: :non_neg_integer,
-              default: 64,
+              default: 1024,
               doc: """
               Most requests waiting for a turn. A request that finds the queue full \
               fails with `{:processing, :overloaded}`, unless it has normal priority \
