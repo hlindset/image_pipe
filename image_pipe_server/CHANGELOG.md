@@ -109,6 +109,18 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   operations have run since its last copy, and libvips gets 8 MB of stack,
   up from 320 KB.
 
+### Security
+
+- The Docker image no longer trusts the `emSign ECC Root CA - G3`,
+  `emSign Root CA - C1`, and `emSign ECC Root CA - C3` root certificates,
+  which Mozilla removed after eMudhra issued intermediate certificates
+  whose private keys are known. With them, anyone who could intercept the
+  server's traffic to an origin could pose as that origin. Debian's
+  `ca-certificates` package still includes some of them, so the image
+  removes them itself. Servers running an earlier image still trust them.
+  The fallback list the OpenTelemetry exporter uses when the system has no
+  CA certificates no longer includes them either.
+
 ## [0.3.0] - 2026-10-18
 
 ### Added

@@ -35,6 +35,18 @@ if [ "$variant" = "vision" ]; then
   printf '\n[processing]\ndetector_required = true\n' >> "$work/config.toml"
 fi
 
+# The CA store Erlang loads lacks the emSign roots Mozilla removed, and keeps
+# emSign Root CA - G1, so the check can't pass on an empty store.
+cacerts=$(docker run --rm --entrypoint /app/bin/image_pipe_server "$image" eval '
+  names = ["emSign ECC Root CA - G3", "emSign Root CA - C1", "emSign ECC Root CA - C3", "emSign Root CA - G1"]
+  for {:cert, der, _} <- :public_key.cacerts_get(), name <- names, :binary.match(der, name) != :nomatch,
+    do: IO.puts(name)')
+[ "$cacerts" = "emSign Root CA - G1" ] || {
+  echo "CA store: expected only emSign Root CA - G1 among the emSign roots, found:" >&2
+  echo "$cacerts" >&2
+  exit 1
+}
+
 docker run -d --name "$name" --read-only --tmpfs /tmp \
   -p "127.0.0.1:${port}:8080" \
   -v "$work/config.toml:/etc/image_pipe/config.toml:ro" \
