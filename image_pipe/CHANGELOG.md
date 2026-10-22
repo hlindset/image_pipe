@@ -54,6 +54,9 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Breaking:** `ImagePipe.Source.Path` has only a `segments` field. Its
+  `scheme` field was always `nil` in a path an adapter receives, so remove
+  `scheme:` from any pattern that matches the struct.
 - **Breaking:** `storage_inputs` is now `vary_on`, and the
   `ImagePipe.run/4` option `request_inputs` is now `vary_values`. Rename
   them in your configuration and calls.

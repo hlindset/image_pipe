@@ -117,6 +117,10 @@ defmodule ImagePipe.Source do
   @type parsed ::
           ImagePipe.Source.Path.t() | ImagePipe.Source.URL.t() | ImagePipe.Source.Object.t()
 
+  # A parsed source before routing, which may still carry a custom scheme.
+  @typedoc false
+  @type plan_source :: parsed() | ImagePipe.Source.SchemePath.t()
+
   @doc """
   Receives the options returned by `c:validate_options/1` and returns the
   identifier structs `c:resolve/3` accepts with them, from
@@ -162,9 +166,11 @@ defmodule ImagePipe.Source do
   exactly one of `stream` or `path`. A stream is subject to the
   `:max_body_bytes` limit.
 
-  The third argument holds runtime limits: `:max_body_bytes`, the transport
-  timeouts, and the telemetry prefix. `{:not_modified, origin}` answers a
-  revalidation of origin headers the adapter returned before.
+  The third argument holds `:max_body_bytes`, `:clock` (a function that
+  returns the current Unix time in seconds), and `:telemetry_prefix`. A
+  revalidation also passes `:source_validation`, the origin headers the
+  adapter returned before, as an `ImagePipe.Source.Origin`. Only then may
+  the adapter return `{:not_modified, origin}`.
   """
   @callback fetch(Resolved.t(), keyword(), keyword()) ::
               {:ok, Response.t()} | {:not_modified, Origin.t()} | {:error, error()}
@@ -283,7 +289,7 @@ defmodule ImagePipe.Source do
   # Translates a host-configured source string into a plan source that a
   # configured source serves. `opts` holds the validated sources.
   @doc false
-  @spec translate_configured(String.t(), keyword()) :: {:ok, parsed()} | {:error, term()}
+  @spec translate_configured(String.t(), keyword()) :: {:ok, plan_source()} | {:error, term()}
   def translate_configured(source, opts) when is_binary(source) do
     with {:ok, plan_source} <- Parser.translate(source, opts),
          {:ok, _name, _source} <- Routes.route(plan_source, routes(opts)) do
@@ -292,7 +298,7 @@ defmodule ImagePipe.Source do
   end
 
   @doc false
-  @spec resolve(parsed() | Input.t(), keyword(), keyword()) ::
+  @spec resolve(plan_source() | Input.t(), keyword(), keyword()) ::
           {:ok, Resolved.t()} | {:error, error()}
   def resolve(%Input{} = source, _opts, runtime_opts),
     do: resolve_with(Input, [], nil, source, runtime_opts, [])

@@ -41,6 +41,12 @@ root_id = "media"
 To serve only paths under `media/`, match a prefix instead (see
 [routing image paths to sources](sources.md#routing-image-paths-to-sources)).
 
+Symbolic links in the directory work when their target is a relative path
+that stays inside the directory, such as a link in `thumbs/` that points to
+`../originals/cat.jpg`. A request through a link with an absolute target,
+such as `/srv/images/originals/cat.jpg`, gets `404`, even when the target is
+inside the directory.
+
 ## Mark files as immutable
 
 If files in the directory are never replaced in place, mark the source as

@@ -7,6 +7,7 @@ defmodule ImagePipe.SourceTest do
   alias ImagePipe.Source.Path, as: SourcePath
   alias ImagePipe.Source.Resolved
   alias ImagePipe.Source.Response
+  alias ImagePipe.Source.SchemePath
   alias ImagePipe.Source.URL
   alias ImagePipe.SourceTest.CustomAdapter
   alias ImagePipe.SourceTest.InvalidAdapter
@@ -127,11 +128,11 @@ defmodule ImagePipe.SourceTest do
       config = mounted([mount(:assets, scheme: "asset", prefix: "assets")])
 
       for source <- [
-            %Path{scheme: "asset", segments: ["catalog", "42"]},
+            %SchemePath{scheme: "asset", segments: ["catalog", "42"]},
             %Path{segments: ["assets", "catalog", "42"]}
           ] do
         assert {:ok, resolved} = Source.resolve(source, config, [])
-        assert_receive {:resolve, %Path{scheme: nil, segments: ["catalog", "42"]}, _opts, []}
+        assert_receive {:resolve, %Path{segments: ["catalog", "42"]}, _opts, []}
         assert resolved.name == :assets
       end
     end

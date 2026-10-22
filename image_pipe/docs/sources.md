@@ -90,7 +90,8 @@ Requests that no source serves fail:
   `s3`, answers `400 invalid source`.
 
 The configuration fails to load when two sources claim the same prefix or
-scheme, when more than one source matches `path`, or when a source matches
+scheme, when more than one source matches `path`, when two file sources
+share a `root_id` but have different `root` directories, or when a source matches
 requests its adapter can't serve, such as a file source matching `https`,
 an S3 source matching a prefix, or an HTTP source without a `base_url`
 matching paths or a custom scheme.
@@ -104,8 +105,10 @@ matching paths or a custom scheme.
 | S3 | Objects in S3 and S3-compatible storage | [Serving images from S3](serving-from-s3.md) | `ImagePipe.Source.S3`, [`adapter = "s3"`](../../image_pipe_server/docs/server-configuration.md#sources-name) |
 | Custom | Any store your Elixir code can read | [Writing a custom source](custom-sources.md) | `ImagePipe.Source` |
 
-Every adapter also takes the cache settings in
+The file and HTTP adapters also take the cache settings in
 `ImagePipe.Source.CacheSettings`, explained in
-[Caching and freshness](caching-and-freshness.md). In Elixir code,
+[Caching and freshness](caching-and-freshness.md). The S3 adapter takes
+them once for all its buckets and again per bucket in `buckets` (see
+[serving only some buckets](serving-from-s3.md#serve-only-some-buckets)). In Elixir code,
 `ImagePipe.run/4` reads the same sources, and also takes a file or bytes
 that no source serves.

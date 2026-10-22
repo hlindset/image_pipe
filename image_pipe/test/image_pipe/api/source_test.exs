@@ -5,6 +5,7 @@ defmodule ImagePipe.API.SourceTest do
   alias ImagePipe.Source.Object
   alias ImagePipe.Source.Parser, as: Source
   alias ImagePipe.Source.Path
+  alias ImagePipe.Source.SchemePath
   alias ImagePipe.Source.URL
 
   defp url_config do
@@ -201,10 +202,10 @@ defmodule ImagePipe.API.SourceTest do
 
     test "a scheme a mount matches becomes a scheme-tagged path", %{config: config} do
       assert Source.translate("asset://catalog/42 a.jpg", config) ==
-               {:ok, %Path{scheme: "asset", segments: ["catalog", "42 a.jpg"]}}
+               {:ok, %SchemePath{scheme: "asset", segments: ["catalog", "42 a.jpg"]}}
 
       assert Source.translate("Asset://catalog/42", config) ==
-               {:ok, %Path{scheme: "asset", segments: ["catalog", "42"]}}
+               {:ok, %SchemePath{scheme: "asset", segments: ["catalog", "42"]}}
     end
 
     test "a custom scheme no mount matches is unsupported", %{config: config} do

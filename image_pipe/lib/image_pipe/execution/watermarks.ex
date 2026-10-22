@@ -26,7 +26,7 @@ defmodule ImagePipe.Execution.Watermarks do
   alias ImagePipe.Telemetry.RequestContext
   alias ImagePipe.Telemetry.Summary
 
-  @type planned :: %{asset: term(), source: ImagePipe.Source.parsed(), opacity: float()}
+  @type planned :: %{asset: term(), source: ImagePipe.Source.plan_source(), opacity: float()}
 
   @doc """
   Translates each distinct watermark asset of `request` into a plan source.
