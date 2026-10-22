@@ -45,7 +45,9 @@ defmodule ImagePipe.Plan.Spec.Issue do
       `{:error, :too_many_options}`. `locations` is empty.
     * `:inert_option` - a warning: the option has no effect, such as `fit`
       without a width or height, or `jpeg_options` with `format: :webp`, so
-      the request ignores it.
+      the request ignores it. A `crop` or `region` that covers the whole
+      frame is reported with `detail: :full_frame`, followed by an issue for
+      each option only it made useful, such as `anchor`.
     * `:mutually_exclusive_options` - the options can't be combined, such as
       `extend` and `extend_ratio`.
     * `:unknown_preset` - a named preset isn't defined.

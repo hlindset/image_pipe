@@ -537,6 +537,9 @@ defmodule ImagePipe.API.Parser do
 
   defp semantic_message(%{detail: :unknown_watermark}), do: message_for(:unknown_watermark)
 
+  defp semantic_message(%{detail: :full_frame, locations: [location]}),
+    do: "#{location_key(location)} covers the whole frame"
+
   defp semantic_message(%{detail: {:requires, requirement}, locations: [location]}),
     do: "#{location_key(location)} requires #{requirement_message(requirement)}"
 

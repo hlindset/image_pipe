@@ -842,6 +842,43 @@ defmodule ImagePipe.API.ParserTest do
                [{:group, 0, :crop_ratio}, {:group, 0, :crop_ratio_enlarge}]
     end
 
+    test "a full-frame crop is reported with the options it alone made useful" do
+      assert {:ok, %Spec{ignored: ignored}} =
+               parse(["w=10", "crop=100pct,100pct", "anchor=top-left"])
+
+      assert [
+               %Issue{
+                 reason: :inert_option,
+                 severity: :warning,
+                 locations: [{:group, 0, :crop}],
+                 detail: :full_frame
+               },
+               %Issue{
+                 reason: :inert_option,
+                 severity: :warning,
+                 locations: [{:group, 0, :anchor}],
+                 detail: {:requires, :guide}
+               }
+             ] = ignored
+    end
+
+    test "a full-frame region is reported" do
+      assert {:ok, %Spec{ignored: [issue]}} = parse(["region=0,0,100pct,100pct"])
+      assert %Issue{locations: [{:group, 0, :region}], detail: :full_frame} = issue
+    end
+
+    test "an inherited full-frame crop is dropped without a report" do
+      config = [presets: %{"full" => "crop=100pct,100pct/anchor=top-left"}]
+      assert {:ok, %Spec{ignored: []}} = parse(["preset=full"], "images/cat.jpg", config)
+    end
+
+    test "an error response says a full-frame crop covers the whole frame" do
+      assert {:error, {:invalid_request, diagnostics}} =
+               parse(["nope=1", "crop=100pct,100pct"])
+
+      assert "ignored: crop covers the whole frame" in Enum.map(diagnostics, & &1.message)
+    end
+
     test "a group left empty by dropped options adds no group" do
       assert {:ok, %Spec{groups: [_group], ignored: [_issue]}} =
                parse(["w=800", "-", "fit=cover"])

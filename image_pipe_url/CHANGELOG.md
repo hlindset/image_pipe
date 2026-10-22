@@ -5,6 +5,13 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- With `:validate_against`, `ImagePipe.URL.validate/1` warns about a `crop`
+  or `region` that covers the whole frame, as an `:inert_option` issue with
+  `detail: :full_frame`. It also warns about the options only that crop or
+  region made useful, such as `anchor`.
+
 ### Changed
 
 - Parsing a URL takes less time, most of all for a URL without presets or
