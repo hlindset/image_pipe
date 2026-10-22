@@ -179,6 +179,46 @@ defmodule ImagePipe.Delivery.ProducerTest do
     assert_receive {:DOWN, ^ref, :process, ^producer, :normal}
   end
 
+  # The processing pool unlinks a producer from its coordinator, so a killed
+  # coordinator, whose terminate never halts the producer, must not leave it
+  # holding its pool slot and stream.
+  test "producer halts its stream when the process that started it dies" do
+    {coordinator, producer} = start_from_coordinator(cleanup_stream(), first_chunk?: true)
+    ref = Process.monitor(producer)
+
+    Process.exit(coordinator, :kill)
+    assert_receive {:stream_finalized, :second}
+    assert_receive {:DOWN, ^ref, :process, ^producer, :normal}
+  end
+
+  test "producer stops without building when the process that started it dies first" do
+    {coordinator, producer} = start_from_coordinator(cleanup_stream(), first_chunk?: false)
+    ref = Process.monitor(producer)
+
+    Process.exit(coordinator, :kill)
+    assert_receive {:DOWN, ^ref, :process, ^producer, :normal}
+    refute_received {:stream_finalized, _state}
+  end
+
+  defp start_from_coordinator(stream, first_chunk?: first_chunk?) do
+    test = self()
+
+    coordinator =
+      spawn(fn ->
+        {:ok, producer} = Producer.start_link(build_fun(stream), RequestContext.capture())
+        Process.unlink(producer)
+        if first_chunk?, do: {:ok, {:first_chunk, _, _, _, _}} = ProducerClient.next(producer)
+        send(test, {:producer, producer})
+
+        receive do
+          :stop -> :ok
+        end
+      end)
+
+    assert_receive {:producer, producer}
+    {coordinator, producer}
+  end
+
   test "producer can be stopped while a demand is blocked" do
     producer = start_producer(blocking_stream())
     ref = Process.monitor(producer)

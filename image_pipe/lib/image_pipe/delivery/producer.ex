@@ -18,6 +18,11 @@ defmodule ImagePipe.Delivery.Producer do
   # `pump_loop/1` continues answering later `:next`/`:halt` demand from
   # whichever process sends it (normally the coordinator).
   #
+  # The producer monitors the process that started it. The processing pool
+  # unlinks the two, and a coordinator killed without running its terminate
+  # never halts the producer, so on its `:DOWN` the producer halts the stream
+  # and returns, which releases its pool slot.
+  #
   # `pump`'s fourth argument is the request runner's `%Debug.Info{}` (or
   # `nil` for the request runner that collects none). The first-chunk reply is the only
   # channel it can take: debug facts are collected here, in the producer, from
@@ -39,6 +44,7 @@ defmodule ImagePipe.Delivery.Producer do
   @spec start_link(build_fun(), RequestContext.t()) :: {:ok, pid()}
   def start_link(build_fun, request_context) when is_function(build_fun, 1) do
     caller_chain = Process.get(:"$callers", [])
+    starter = self()
 
     pid =
       spawn_link(fn ->
@@ -48,7 +54,7 @@ defmodule ImagePipe.Delivery.Producer do
         # Logger metadata) so spans emitted from inside `build_fun` nest under
         # the request root and keep the host's metadata.
         RequestContext.adopt(request_context)
-        run(build_fun)
+        run(build_fun, Process.monitor(starter))
       end)
 
     {:ok, pid}
@@ -68,15 +74,18 @@ defmodule ImagePipe.Delivery.Producer do
     ref
   end
 
-  defp run(build_fun) do
+  defp run(build_fun, starter) do
     receive do
       {:next, caller, ref} ->
         result =
           build_fun.(fn stream, content_type, resolved_output, debug ->
-            pump(stream, content_type, resolved_output, debug, caller, ref)
+            pump(stream, content_type, resolved_output, debug, caller, ref, starter)
           end)
 
         finish(result, caller, ref)
+
+      {:DOWN, ^starter, :process, _pid, _reason} ->
+        :ok
     end
   end
 
@@ -87,11 +96,11 @@ defmodule ImagePipe.Delivery.Producer do
   defp finish({:error, _reason} = result, caller, ref), do: send(caller, {ref, result})
   defp finish({:reply, caller, ref, result}, _caller, _ref), do: send(caller, {ref, result})
 
-  defp pump(output, content_type, resolved_output, debug, caller, ref) do
+  defp pump(output, content_type, resolved_output, debug, caller, ref, starter) do
     case first_chunk(output) do
       {:ok, chunk, stream_state} ->
         send(caller, {ref, {:ok, {:first_chunk, chunk, content_type, resolved_output, debug}}})
-        pump_loop(stream_state)
+        pump_loop(stream_state, starter)
 
       :empty ->
         {:reply, caller, ref, {:error, {:encode, :empty_stream}}}
@@ -101,13 +110,13 @@ defmodule ImagePipe.Delivery.Producer do
     end
   end
 
-  defp pump_loop(stream_state) do
+  defp pump_loop(stream_state, starter) do
     receive do
       {:next, caller, ref} ->
         case safe_continue(stream_state) do
           {:ok, chunk, new_state} ->
             send(caller, {ref, {:ok, {:chunk, chunk}}})
-            pump_loop(new_state)
+            pump_loop(new_state, starter)
 
           :done ->
             {:reply, caller, ref, {:ok, :done}}
@@ -119,6 +128,10 @@ defmodule ImagePipe.Delivery.Producer do
       {:halt, caller, ref} ->
         halt_stream(stream_state)
         {:reply, caller, ref, :ok}
+
+      {:DOWN, ^starter, :process, pid, _reason} ->
+        halt_stream(stream_state)
+        {:reply, pid, starter, :ok}
     end
   end
 
