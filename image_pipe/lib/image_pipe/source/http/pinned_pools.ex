@@ -18,8 +18,10 @@ defmodule ImagePipe.Source.HTTP.PinnedPools do
   @idle 60_000
   @interval 30_000
 
+  # The Finch instance comes last: the table is ordered, so `live?/4`, which
+  # doesn't know the instance, reads only the rows that share the rest.
   @type key ::
-          {Finch.name(), :http | :https, String.t(), :inet.port_number(), String.t()}
+          {:http | :https, String.t(), :inet.port_number(), String.t(), Finch.name()}
 
   def start_link(_opts), do: GenServer.start_link(__MODULE__, nil, name: __MODULE__)
 
@@ -60,7 +62,7 @@ defmodule ImagePipe.Source.HTTP.PinnedPools do
   """
   @spec live?(:http | :https, String.t(), :inet.port_number(), String.t()) :: boolean()
   def live?(scheme, address, port, hostname) do
-    spec = [{{{:_, scheme, address, port, hostname}, :_, :_, true}, [], [true]}]
+    spec = [{{{scheme, address, port, hostname, :_}, :_, :_, true}, [], [true]}]
     :ets.select_count(@table, spec) > 0
   end
 
@@ -70,7 +72,14 @@ defmodule ImagePipe.Source.HTTP.PinnedPools do
 
   @impl true
   def init(nil) do
-    :ets.new(@table, [:named_table, :public, read_concurrency: true, write_concurrency: true])
+    :ets.new(@table, [
+      :named_table,
+      :ordered_set,
+      :public,
+      read_concurrency: true,
+      write_concurrency: true
+    ])
+
     schedule()
     {:ok, []}
   end
@@ -117,7 +126,7 @@ defmodule ImagePipe.Source.HTTP.PinnedPools do
     for {key, generation, used, _connected} = row <- :ets.tab2list(@table),
         now - used > @idle,
         :ets.select_delete(@table, [{row, [], [true]}]) == 1 do
-      {finch, scheme, address, port, hostname} = key
+      {scheme, address, port, hostname, finch} = key
       {finch, pool(scheme, address, port, hostname, generation), now}
     end
   end

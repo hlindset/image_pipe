@@ -162,10 +162,12 @@ defmodule ImagePipe.SourceTest do
       assert_receive {:fetch, ^resolved, fetch_opts, [max_body_bytes: 20]}
       assert fetch_opts[:name] == :b
 
-      assert {:ok, _prepared, {CustomAdapter, context_opts, _fetch}} =
-               Source.prepare_cache_context(resolved, config)
+      assert {:ok, _prepared, digest_b} = Source.prepare_cache_context(resolved, config)
 
-      assert context_opts[:name] == :b
+      # The two mounts' adapter options differ only by `name`.
+      assert {:ok, resolved_a} = Source.resolve(%Path{segments: ["a", "cat.jpg"]}, config, [])
+      assert {:ok, _prepared, digest_a} = Source.prepare_cache_context(resolved_a, config)
+      refute digest_a == digest_b
     end
 
     test "rejects paths with nothing after the prefix or with empty or dot segments" do

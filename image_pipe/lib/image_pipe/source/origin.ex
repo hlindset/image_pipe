@@ -104,7 +104,7 @@ defmodule ImagePipe.Source.Origin do
   def validator_headers(%__MODULE__{headers: headers} = origin) do
     case Map.get(headers, "etag") do
       [etag] ->
-        case Regex.match?(~r/\A(?:W\/)?"[\x21\x23-\x7E\x80-\xFF]*"\z/, etag) do
+        case entity_tag?(etag) do
           true -> [{"if-none-match", etag}]
           false -> modified_validator(origin)
         end
@@ -154,7 +154,7 @@ defmodule ImagePipe.Source.Origin do
   end
 
   defp compatible_validator?(previous, %{"etag" => [current]}) do
-    Regex.match?(~r/\A(?:W\/)?"[\x21\x23-\x7E\x80-\xFF]*"\z/, current) and
+    entity_tag?(current) and
       case Map.get(previous, "etag") do
         [etag] -> String.trim_leading(etag, "W/") == String.trim_leading(current, "W/")
         _missing -> true
@@ -163,6 +163,22 @@ defmodule ImagePipe.Source.Origin do
 
   defp compatible_validator?(_previous, %{"etag" => _ambiguous}), do: false
   defp compatible_validator?(_previous, _current), do: true
+
+  # RFC 9110 §8.8.3: entity-tag = [ "W/" ] DQUOTE *etagc DQUOTE, where etagc
+  # is %x21 / %x23-7E / %x80-FF.
+  defp entity_tag?("W/" <> tag), do: opaque_tag?(tag)
+  defp entity_tag?(tag), do: opaque_tag?(tag)
+
+  defp opaque_tag?(<<?", rest::binary>>), do: etagc_then_quote?(rest)
+  defp opaque_tag?(_tag), do: false
+
+  defp etagc_then_quote?(<<?">>), do: true
+
+  defp etagc_then_quote?(<<char, rest::binary>>)
+       when char == 0x21 or char in 0x23..0x7E or char >= 0x80,
+       do: etagc_then_quote?(rest)
+
+  defp etagc_then_quote?(_rest), do: false
 
   defp resource(url), do: url |> to_string() |> MaterialDigest.of()
 end

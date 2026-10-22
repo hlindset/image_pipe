@@ -456,6 +456,30 @@ defmodule ImagePipe.Source.OriginFetchTest do
     refute Origin.matches?(refreshed, %{"x-tenant" => ["second"]})
   end
 
+  test "a malformed entity tag falls back to Last-Modified" do
+    modified = "Wed, 21 Oct 2026 07:28:00 GMT"
+
+    validators = fn etag ->
+      opts =
+        config(fn conn ->
+          conn
+          |> Plug.Conn.put_resp_header("etag", etag)
+          |> Plug.Conn.put_resp_header("last-modified", modified)
+          |> Plug.Conn.send_resp(200, "bytes")
+        end)
+
+      Source.with_fetched(resolve(opts), opts, &Origin.validator_headers(&1.origin))
+    end
+
+    for etag <- [~s(""), ~s(W/""), ~s("a!#~\x80\xFF")] do
+      assert validators.(etag) == [{"if-none-match", etag}], etag
+    end
+
+    for etag <- ["v1", ~s("v1), ~s(v1"), ~s("v"1"), ~s("a b"), ~s(w/"v1"), ~s(W/v1), ~s(")] do
+      assert validators.(etag) == [{"if-modified-since", modified}], etag
+    end
+  end
+
   test "304 rejects repeated or malformed entity tags" do
     for tags <- [[~s("v1"), ~s("v2")], ["unquoted"]] do
       opts =

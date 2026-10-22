@@ -175,9 +175,9 @@ defmodule ImagePipe.Execution do
   end
 
   defp prepare_remote(context) do
-    with {:ok, source, fetch_context} <-
+    with {:ok, source, fetch_digest} <-
            Source.prepare_cache_context(context.source, context.config) do
-      key = Representation.input_key(source.identity, context.material, fetch_context)
+      key = Representation.input_key(source.identity, context.material, fetch_digest)
 
       material = %{
         context.material

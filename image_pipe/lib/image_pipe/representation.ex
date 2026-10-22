@@ -77,20 +77,20 @@ defmodule ImagePipe.Representation do
   @doc """
   Builds original-source storage identity independently of output operations.
 
-  `fetch_context` describes the effective origin request, including headers
-  and credentials that can select different source bytes. It is digested
-  before entering key data. The cachebuster is shared with output storage, so
+  `fetch_digest` is the digest of the effective origin request, including
+  headers and credentials that can select different source bytes, from
+  `ImagePipe.Source.prepare_cache_context/2`. The cachebuster is shared with output storage, so
   a new one downloads the original again. `vary_on` values never reach the
   source, so they stay out, and every value shares one stored original.
   Format, geometry, and output negotiation never enter this key. Origin Vary
   matching uses the effective fetch context, not headers from the downstream
   image request.
   """
-  @spec input_key(keyword(), IdentityMaterial.t(), term()) :: Key.t()
-  def input_key(source_identity, %IdentityMaterial{} = material, fetch_context) do
+  @spec input_key(keyword(), IdentityMaterial.t(), binary()) :: Key.t()
+  def input_key(source_identity, %IdentityMaterial{} = material, fetch_digest) do
     data = [
       source_identity: source_identity,
-      fetch_context: digest_hex(fetch_context),
+      fetch_context: Base.encode16(fetch_digest, case: :lower),
       storage_only: Keyword.take(material.storage_only, [:cachebuster])
     ]
 
