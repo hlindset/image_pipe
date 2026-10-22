@@ -63,8 +63,6 @@ defmodule ImagePipe.Cache.FileSystem.Store do
   # The processes a cache runs on a root this node owns: Admission, the
   # registry it's found in, the writers, and the periodic sweep. Admission's
   # startup scan sweeps, so the periodic sweep's first run waits an interval.
-  # The writers start after Admission, so a shutdown drains them while
-  # Admission still runs.
   def cache_children(opts) do
     registry_name = registry_name(Keyword.fetch!(opts, :root))
     telemetry = Keyword.take(opts, [:telemetry_prefix])

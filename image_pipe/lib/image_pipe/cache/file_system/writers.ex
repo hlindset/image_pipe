@@ -1,8 +1,8 @@
 defmodule ImagePipe.Cache.FileSystem.Writers do
   # A cache's writers: one process per cache write, so the write's disk work
   # (writing, syncing, closing and committing) runs off the request. They run
-  # under this supervisor in the cache's `Root`, after Admission, so a
-  # shutdown drains them while Admission still runs.
+  # under this supervisor in the cache's `Root`, after Admission. A shutdown
+  # drops the writes still in progress.
   #
   # The pending bytes of a root (written to temp files or held as staged
   # originals, not yet published) are counted in an `:atomics` cell, and a

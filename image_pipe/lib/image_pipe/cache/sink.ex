@@ -194,7 +194,6 @@ defmodule ImagePipe.Cache.Sink do
       key: key,
       metadata: metadata,
       cache_opts: cache_opts,
-      root: root,
       pending: pending,
       counters: counters,
       output_format: metadata.output_format,
