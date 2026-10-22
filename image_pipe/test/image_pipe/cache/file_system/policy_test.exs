@@ -12,6 +12,15 @@ defmodule ImagePipe.Cache.FileSystem.PolicyTest do
     }
   end
 
+  describe "charged_bytes/1" do
+    test "rounds the body up to whole 4 KiB blocks and adds one for metadata" do
+      assert Policy.charged_bytes(0) == 4096
+      assert Policy.charged_bytes(1) == 8192
+      assert Policy.charged_bytes(4096) == 8192
+      assert Policy.charged_bytes(4097) == 12_288
+    end
+  end
+
   describe "score/2" do
     test "is a float for normal inputs" do
       d = descriptor(size_bytes: 1_000, cost_us: 10_000)
@@ -57,14 +66,14 @@ defmodule ImagePipe.Cache.FileSystem.PolicyTest do
     end
 
     test "computes value-per-byte across a victim set" do
-      v1 = descriptor(size_bytes: 100, cost_us: 1_000)
-      v2 = descriptor(size_bytes: 200, cost_us: 2_000)
+      v1 = descriptor(size_bytes: 4096, cost_us: 1_000)
+      v2 = descriptor(size_bytes: 3 * 4096, cost_us: 2_000)
       freq_fn = fn _ -> 1 end
 
       # sum(freq * cost) = 1*1000 + 1*2000 = 3000
-      # sum(size) = 300
-      # weighted_avg = 3000/300 = 10.0
-      assert_in_delta Policy.weighted_avg_score([v1, v2], freq_fn), 10.0, 0.0001
+      # sum(charged) = 8192 + 16384 = 24576
+      charged = Policy.charged_bytes(4096) + Policy.charged_bytes(3 * 4096)
+      assert_in_delta Policy.weighted_avg_score([v1, v2], freq_fn), 3000 / charged, 0.0001
     end
   end
 

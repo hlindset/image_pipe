@@ -60,7 +60,7 @@ defmodule ImagePipe.API.CacheStatsWireTest do
     assert get("/w=12/format=png/src/https://origin.test/a.png", opts) == 200
     assert get("/w=16/format=png/src/https://origin.test/a.png", opts) == 200
 
-    assert %{output: output} = ImagePipe.cache_stats(Caches.instance(opts))
+    assert %{output: output, originals: originals} = ImagePipe.cache_stats(Caches.instance(opts))
 
     assert %{
              hits: 1,
@@ -68,11 +68,14 @@ defmodule ImagePipe.API.CacheStatsWireTest do
              read_errors: 0,
              max_bytes: 50_000_000,
              counting?: false,
-             available: true
+             available: true,
+             remembered_entries: 1,
+             max_remembered_entries: 1_000
            } = output
 
     assert output.entries >= 2
     assert output.bytes > 0
+    assert originals == %{entries: 1, max_entries: 10_000}
   end
 
   @tag cache_control: "public, max-age=0, stale-while-revalidate=60"
@@ -190,11 +193,11 @@ defmodule ImagePipe.API.CacheStatsWireTest do
     assert map_size(output) == 2
   end
 
-  test "leaves out a cache that isn't configured" do
+  test "leaves out a cache that isn't configured, but reports originals" do
     name = Module.concat(__MODULE__, NoCaches)
     start_supervised!({ImagePipe, name: name})
 
-    assert ImagePipe.cache_stats(name) == %{}
+    assert ImagePipe.cache_stats(name) == %{originals: %{entries: 0, max_entries: 10_000}}
   end
 
   defp get(path, opts) do

@@ -8,6 +8,7 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTelemetryTest do
   alias ImagePipe.Cache.Entry
   alias ImagePipe.Cache.FileSystem
   alias ImagePipe.Cache.FileSystem.Admission
+  alias ImagePipe.Cache.FileSystem.Policy
   alias ImagePipe.Cache.FileSystem.Store
   alias ImagePipe.Cache.Key
   alias ImagePipe.Test.Caches
@@ -113,9 +114,11 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTelemetryTest do
   end
 
   test "emits an eviction stop event when a write evicts", ctx do
-    admission = start_supervised!({Admission, opts(ctx, max_size_bytes: 10_000)})
+    admission =
+      start_supervised!({Admission, opts(ctx, max_size_bytes: 2 * Policy.charged_bytes(5_000))})
+
     attach(ctx.prefix, [[:cache, :eviction, :stop]])
-    pool = cache_opts(ctx, max_size_bytes: 10_000)
+    pool = cache_opts(ctx, max_size_bytes: 2 * Policy.charged_bytes(5_000))
 
     assert :ok = put(pool, String.duplicate("a", 5_000))
     assert :ok = put(pool, String.duplicate("b", 5_000))
@@ -146,7 +149,10 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTelemetryTest do
     end
 
     attach(ctx.prefix, [[:cache, :eviction, :stop]])
-    pid = start_supervised!({Admission, opts(ctx, max_size_bytes: 10_000)})
+
+    pid =
+      start_supervised!({Admission, opts(ctx, max_size_bytes: 2 * Policy.charged_bytes(5_000))})
+
     Admission.await_scan(pid)
 
     stop_event = ctx.prefix ++ [:cache, :eviction, :stop]

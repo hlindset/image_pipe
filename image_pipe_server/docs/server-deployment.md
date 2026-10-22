@@ -239,8 +239,8 @@ Whether a response is cached also depends on its source:
 ### Cache stats
 
 `GET /stats` reports the bytes and entries each cache holds, how often
-requests find what they need in the cache, and the space left on the
-cache's disk.
+requests find what they need in the cache, the space left on the cache's
+disk, and how many originals the server remembers in memory.
 `GET /metrics` reports the same numbers for Prometheus.
 
 Turn both on in `[stats]`, with a token of their own. Use a token of at
@@ -269,16 +269,27 @@ curl -H "Authorization: Bearer 3b9f6c1e8a2d4f7b0c5e9a1d6f2b8c4e" http://localhos
   "output": {
     "bytes": 812345678, "max_bytes": 1073741824, "entries": 5120,
     "counting": false, "hits": 9120, "misses": 1310, "read_errors": 0,
+    "remembered_entries": 3100, "max_remembered_entries": 21474,
     "available": true, "refused": false,
     "disk_free_bytes": 40213000000, "disk_total_bytes": 107374182400,
     "disk_age_seconds": 4
-  }
+  },
+  "originals": { "entries": 4800, "max_entries": 21474 }
 }
 ```
 
 - `hits` and `misses` count this replica's requests since it started, each
   request once. `read_errors` are stored entries the cache couldn't read,
   also counted as misses.
+- `remembered_entries` is how many recently served entries the cache keeps
+  in memory, up to `max_remembered_entries`. A hit on one of them reads
+  less from disk.
+  `originals` counts the originals the server remembers, up to
+  [`max_remembered_originals`](server-configuration.md#cache). In
+  `/metrics` these are `image_pipe_cache_remembered_entries`,
+  `image_pipe_cache_max_remembered_entries`,
+  `image_pipe_remembered_originals`, and
+  `image_pipe_max_remembered_originals`.
 - `counting` is `true` for a short time after startup, while the cache
   counts the entries an earlier run left on disk. Until then, `bytes` and
   `entries` leave out the ones it hasn't reached.

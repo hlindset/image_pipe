@@ -3,13 +3,14 @@ defmodule ImagePipe.Cache.FileSystemConcurrentCommitTest do
 
   alias ImagePipe.Cache.Entry
   alias ImagePipe.Cache.FileSystem
+  alias ImagePipe.Cache.FileSystem.Policy
   alias ImagePipe.Cache.FileSystem.Store
   alias ImagePipe.Cache.Key
 
   setup do
     root = Path.join(System.tmp_dir!(), "cache_commit_#{System.unique_integer([:positive])}")
     on_exit(fn -> File.rm_rf!(root) end)
-    opts = [root: root, max_size_bytes: 1000]
+    opts = [root: root, max_size_bytes: 4 * Policy.charged_bytes(100)]
     prefix = [:"cache_concurrent_#{System.unique_integer([:positive])}"]
 
     start_supervised!(FileSystem.child_spec(opts ++ [telemetry_prefix: prefix]))
@@ -54,7 +55,7 @@ defmodule ImagePipe.Cache.FileSystemConcurrentCommitTest do
     end
 
     assert {:hit, %{body: "original"}} = FileSystem.get(key, opts)
-    assert :sys.get_state(admission).stored_bytes == 8
+    assert :sys.get_state(admission).stored_bytes == Policy.charged_bytes(8)
     assert [body_path] = Path.wildcard(Path.join(root, "**/*.body"))
     assert File.read!(body_path) == "original"
   end
@@ -84,15 +85,18 @@ defmodule ImagePipe.Cache.FileSystemConcurrentCommitTest do
     bodies = Path.wildcard(Path.join(ctx.root, "**/*.body"))
     assert length(bodies) == 4
     assert Enum.sum(Enum.map(bodies, &File.stat!(&1).size)) == 400
-    assert :sys.get_state(ctx.admission).stored_bytes == 400
+    assert :sys.get_state(ctx.admission).stored_bytes == 4 * Policy.charged_bytes(100)
   end
 
   test "a read racing eviction does not restore deleted entry accounting", ctx do
-    assert :ok = put_entry(ctx.key, String.duplicate("a", 500), ctx.opts)
+    # Either entry fits under the cap, but not both.
+    a_size = 4 * 4096
+    b_size = 5 * 4096
+    assert :ok = put_entry(ctx.key, String.duplicate("a", a_size), ctx.opts)
     other = %Key{hash: String.duplicate("b", 64), data: []}
     # A first sighting of the other key loses the gate. Once another request
     # misses it, its next write wins.
-    assert {:ok, :rejected} = put_entry(other, String.duplicate("b", 800), ctx.opts)
+    assert {:ok, :rejected} = put_entry(other, String.duplicate("b", b_size), ctx.opts)
     FileSystem.missed(other, ctx.opts)
     _state = :sys.get_state(ctx.admission)
     parent = self()
@@ -117,20 +121,20 @@ defmodule ImagePipe.Cache.FileSystemConcurrentCommitTest do
 
     writer =
       Task.Supervisor.async_nolink(ctx.tasks, fn ->
-        put_entry(other, String.duplicate("b", 800), ctx.opts)
+        put_entry(other, String.duplicate("b", b_size), ctx.opts)
       end)
 
     try do
       assert_receive :admitted
       :telemetry.detach(handler)
       assert {:hit, %{body: body}} = FileSystem.get(ctx.key, ctx.opts)
-      assert byte_size(body) == 500
+      assert byte_size(body) == a_size
     after
       send(ctx.admission, :release)
     end
 
     assert Task.await(writer) == :ok
-    assert :sys.get_state(ctx.admission).stored_bytes == 800
+    assert :sys.get_state(ctx.admission).stored_bytes == Policy.charged_bytes(b_size)
     assert FileSystem.get(ctx.key, ctx.opts) == :miss
     assert {:hit, _} = FileSystem.get(other, ctx.opts)
   end
@@ -145,7 +149,7 @@ defmodule ImagePipe.Cache.FileSystemConcurrentCommitTest do
 
     assert {:error, _} = put_entry(ctx.key, body, ctx.opts)
     assert {:hit, %{body: "original"}} = FileSystem.get(ctx.key, ctx.opts)
-    assert :sys.get_state(ctx.admission).stored_bytes == 8
+    assert :sys.get_state(ctx.admission).stored_bytes == Policy.charged_bytes(8)
   end
 
   test "a commit that times out while queued is still published", ctx do
@@ -183,7 +187,7 @@ defmodule ImagePipe.Cache.FileSystemConcurrentCommitTest do
       :sys.resume(admission)
     end
 
-    assert :sys.get_state(admission).stored_bytes == 11
+    assert :sys.get_state(admission).stored_bytes == Policy.charged_bytes(11)
     assert {:hit, %{body: "replacement"}} = FileSystem.get(ctx.key, ctx.opts)
     assert Path.wildcard(Path.join(ctx.root, "**/*.tmp"), match_dot: true) == []
   end

@@ -161,10 +161,13 @@ defmodule ImagePipeServer.StatsTest do
     assert conn.status == 200
     assert ["application/json" <> _] = get_resp_header(conn, "content-type")
 
-    assert %{"output" => output} = JSON.decode!(conn.resp_body)
+    assert %{"output" => output, "originals" => originals} = JSON.decode!(conn.resp_body)
 
     assert %{"max_bytes" => 10_000_000, "hits" => 0, "misses" => 1, "read_errors" => 0} =
              output
+
+    assert %{"remembered_entries" => 0, "max_remembered_entries" => 1_000} = output
+    assert %{"entries" => 1, "max_entries" => 10_000} = originals
 
     assert is_integer(output["bytes"]) and is_integer(output["entries"])
     assert is_boolean(output["counting"])
@@ -183,6 +186,9 @@ defmodule ImagePipeServer.StatsTest do
     assert conn.resp_body =~ ~s(image_pipe_cache_refused{cache="output"} 0\n)
     assert conn.resp_body =~ ~s(image_pipe_cache_available{cache="output"} 1\n)
     assert conn.resp_body =~ ~r/image_pipe_cache_disk_free_bytes\{cache="output"\} \d+\n/
+    assert conn.resp_body =~ ~s(image_pipe_cache_max_remembered_entries{cache="output"} 1000\n)
+    assert conn.resp_body =~ ~s(image_pipe_remembered_originals 0\n)
+    assert conn.resp_body =~ ~s(image_pipe_max_remembered_originals 10000\n)
   end
 
   test "needs the stats token, even with the image auth token", %{opts: opts} do

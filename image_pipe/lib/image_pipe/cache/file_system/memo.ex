@@ -20,16 +20,16 @@ defmodule ImagePipe.Cache.FileSystem.Memo do
   @limit 1
   @slots 1024
 
-  # One row for each 50 KB the cache may store, from 1 000 to 200 000. A row
-  # takes about 1.5 KB, so 200 000 rows, for a 10 GB cache, take about 300 MB.
+  # Unless `max_remembered_entries` sets it, one row for each 50 KB the cache
+  # may store, from 1,000 to 50,000.
   @spec limit_for(pos_integer()) :: pos_integer()
-  def limit_for(max_size_bytes), do: max_size_bytes |> div(50_000) |> max(1_000) |> min(200_000)
+  def limit_for(max_size_bytes), do: max_size_bytes |> div(50_000) |> max(1_000) |> min(50_000)
 
   # Creates the root's table, owned by the calling process.
   @spec start(Path.t(), pos_integer()) :: :ok
-  def start(root, max_size_bytes) do
+  def start(root, limit) do
     {table, counters} = ensure(root)
-    :atomics.put(counters, @limit, limit_for(max_size_bytes))
+    :atomics.put(counters, @limit, limit)
     for slot <- 0..(@slots - 1), do: :atomics.add(counters, index(slot), 1)
 
     ^table =

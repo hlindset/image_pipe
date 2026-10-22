@@ -305,18 +305,21 @@ defmodule ImagePipe do
     do: ImagePipe.Run.write(resolve(config), builder, input, path, options)
 
   @doc """
-  Reports the bytes and entries a running instance's cache holds, and its
-  hits and misses since the VM started.
+  Reports the bytes and entries a running instance's cache holds, its hits
+  and misses since the VM started, and how many originals the instance
+  remembers.
 
       ImagePipe.cache_stats(MyApp.ImagePipe)
       #=> %{
       #=>   output: %{bytes: 812_345_678, entries: 5120, max_bytes: 1_073_741_824,
       #=>             counting?: false, hits: 9120, misses: 1310, read_errors: 0,
-      #=>             available: true, refused: false}
+      #=>             remembered_entries: 3100, max_remembered_entries: 21_474,
+      #=>             available: true, refused: false},
+      #=>   originals: %{entries: 4800, max_entries: 21_474}
       #=> }
 
-  The map has an `:output` entry for the `cache` option, and is empty when
-  no cache is configured. Raises `ArgumentError` when no instance with the
+  The map has an `:originals` entry, and an `:output` entry when the
+  `cache` option is set. Raises `ArgumentError` when no instance with the
   name is running.
 
   A cache whose `root` another node [owns](cache.md#cache-root-owner-file)
@@ -340,10 +343,17 @@ defmodule ImagePipe do
       counts.
     * `:read_errors` - stored entries the cache couldn't read, also counted
       as misses.
+    * `:remembered_entries` and `:max_remembered_entries` - the entries the
+      cache keeps in memory, and its `max_remembered_entries` (see
+      [Cache process and restarts](cache.md#cache-process-and-restarts)).
+
+  The `:originals` entry has `:entries`, the originals the instance
+  remembers, and `:max_entries`, its `max_remembered_originals` (see
+  [originals and processed images](caching-and-freshness.md#originals-and-processed-images)).
 
   Each node reports only its own counts.
   """
-  @spec cache_stats(atom()) :: %{optional(:output) => map()}
+  @spec cache_stats(atom()) :: %{optional(:output) => map(), optional(:originals) => map()}
   def cache_stats(name) when is_atom(name),
     do: ImagePipe.Cache.stats(Config.fetch_configured!(name).options)
 

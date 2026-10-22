@@ -4,7 +4,8 @@ defmodule ImagePipeServer.Stats do
 
   `GET /stats` answers with JSON and `GET /metrics` with Prometheus text.
   Both report, for each cache, `ImagePipe.cache_stats/1` and the free and
-  total space of the filesystem that holds its root. Every request must send
+  total space of the filesystem that holds its root, and how many originals
+  the instance remembers. Every request must send
   `Authorization: Bearer <token>` with the stats token, or gets a 401.
   `ImagePipeServer.Router` serves them on the image listener, ahead of the
   image auth token, and `ImagePipeServer.Health` on the `health_port`
@@ -83,8 +84,9 @@ defmodule ImagePipeServer.Stats do
   end
 
   defp read_snapshot(stats, roots, disk) do
-    Map.new(stats, fn {cache, stats} ->
-      {cache, Map.merge(stats, Disk.read(disk, Map.fetch!(roots, cache)))}
+    Map.new(stats, fn
+      {:originals, originals} -> {:originals, originals}
+      {cache, stats} -> {cache, Map.merge(stats, Disk.read(disk, Map.fetch!(roots, cache)))}
     end)
   end
 
@@ -92,6 +94,8 @@ defmodule ImagePipeServer.Stats do
     bytes: "Bytes the cache stores.",
     max_bytes: "The cache's size cap in bytes.",
     entries: "Entries the cache stores.",
+    remembered_entries: "Entries whose metadata the cache keeps in memory.",
+    max_remembered_entries: "The most entries whose metadata the cache keeps in memory.",
     counting?: "1 until the cache has counted the entries on disk at startup.",
     refused: "1 when another node owns the cache's root, so this node doesn't use it.",
     available: "0 when the cache didn't report its bytes and entries within a second.",
@@ -103,7 +107,8 @@ defmodule ImagePipeServer.Stats do
   @lookups [hit: :hits, miss: :misses]
 
   defp prometheus(snapshot) do
-    caches = Enum.sort(snapshot)
+    {originals, caches} = Map.pop(snapshot, :originals)
+    caches = Enum.sort(caches)
     # A refused cache has no counts.
     counted = Enum.reject(caches, fn {_cache, stats} -> stats.refused end)
 
@@ -156,7 +161,22 @@ defmodule ImagePipeServer.Stats do
       end
     ]
 
-    IO.iodata_to_binary([gauges, lookups, read_errors])
+    IO.iodata_to_binary([gauges, lookups, read_errors, originals(originals)])
+  end
+
+  defp originals(nil), do: []
+
+  defp originals(%{entries: entries, max_entries: max_entries}) do
+    [
+      header("image_pipe_remembered_originals", "Originals the server remembers.", "gauge"),
+      ["image_pipe_remembered_originals ", Integer.to_string(entries), ?\n],
+      header(
+        "image_pipe_max_remembered_originals",
+        "The most originals the server remembers.",
+        "gauge"
+      ),
+      ["image_pipe_max_remembered_originals ", Integer.to_string(max_entries), ?\n]
+    ]
   end
 
   defp header(name, help, type),

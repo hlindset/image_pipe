@@ -5,6 +5,7 @@ defmodule ImagePipe.Cache.FileSystem.ReconciliationTest do
   alias ImagePipe.Cache.Entry
   alias ImagePipe.Cache.FileSystem
   alias ImagePipe.Cache.FileSystem.Admission
+  alias ImagePipe.Cache.FileSystem.Policy
   alias ImagePipe.Cache.FileSystem.Store
   alias ImagePipe.Cache.Key
   alias ImagePipe.Test.Caches
@@ -25,13 +26,13 @@ defmodule ImagePipe.Cache.FileSystem.ReconciliationTest do
       prefix = ctx.prefix ++ [:"run_#{System.unique_integer([:positive])}"]
       Enum.each(1..count, &seed_entry(key(&1), "body", root))
       attach_batches(prefix, self(), false)
-      pid = start_cache(opts(root, prefix, cap_entries * 4), limit)
+      pid = start_cache(opts(root, prefix, cap_entries * Policy.charged_bytes(4)), limit)
       assert :ok = Admission.await_scan(pid)
       batches = batches(pid, [])
       assert Enum.all?(batches, &(&1 <= limit))
       assert Enum.sum(batches) == count - cap_entries
       assert length(Path.wildcard(Path.join(root, "**/*.body"))) == cap_entries
-      assert stored_bytes(pid) == cap_entries * 4
+      assert stored_bytes(pid) == cap_entries * Policy.charged_bytes(4)
     end
   end
 
@@ -41,7 +42,7 @@ defmodule ImagePipe.Cache.FileSystem.ReconciliationTest do
     Enum.each(keys, &seed_entry(&1, body, ctx.root))
 
     gate = attach_batches(ctx.prefix, self(), true)
-    opts = opts(ctx.root, ctx.prefix, 100)
+    opts = opts(ctx.root, ctx.prefix, Policy.charged_bytes(100))
     pid = start_cache(opts, 1)
     opts = Keyword.delete(opts, :telemetry_prefix)
     tasks = start_supervised!(Task.Supervisor)
@@ -72,7 +73,7 @@ defmodule ImagePipe.Cache.FileSystem.ReconciliationTest do
       assert {:hit, %{body: retained}} = FileSystem.get(kept, opts)
       assert retained == String.duplicate("y", 100)
       assert FileSystem.get(other, opts) == :miss
-      assert stored_bytes(pid) == 100
+      assert stored_bytes(pid) == Policy.charged_bytes(100)
     after
       close_gate(ctx.prefix, gate, pid)
     end
@@ -83,7 +84,7 @@ defmodule ImagePipe.Cache.FileSystem.ReconciliationTest do
     orphan = orphan_body(ctx.root)
     gate = attach_batches(ctx.prefix, self(), true)
     attach_sweep(ctx.prefix, self())
-    pid = start_cache(opts(ctx.root, ctx.prefix, 4), 1)
+    pid = start_cache(opts(ctx.root, ctx.prefix, Policy.charged_bytes(4)), 1)
 
     try do
       assert_receive {:batch, ^pid, 1}, 1000

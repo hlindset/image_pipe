@@ -57,6 +57,7 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
       # Lifecycle events use the prefix captured at init, without request options.
       telemetry_prefix: [:image_pipe],
       pool: :output,
+      # The entries' charged bytes (`Policy.charged_bytes/1`).
       stored_bytes: 0,
       # Keys dropped, deleted or committed while the startup scan runs, so a
       # stale scanned entry for them is skipped. nil after the scan.
@@ -96,7 +97,12 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
     doorkeeper_cardinality = Keyword.fetch!(opts, :doorkeeper_cardinality)
     doorkeeper_fpr = Keyword.fetch!(opts, :doorkeeper_fpr)
     :ok = Lookups.ensure(Keyword.fetch!(opts, :root))
-    :ok = Memo.start(Keyword.fetch!(opts, :root), Keyword.fetch!(opts, :max_size_bytes))
+    max_size_bytes = Keyword.fetch!(opts, :max_size_bytes)
+
+    limit =
+      Keyword.get_lazy(opts, :max_remembered_entries, fn -> Memo.limit_for(max_size_bytes) end)
+
+    :ok = Memo.start(Keyword.fetch!(opts, :root), limit)
 
     state = %State{
       registry: Keyword.fetch!(opts, :registry),
@@ -364,7 +370,9 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
       bytes: state.stored_bytes,
       entries: :ets.info(state.entries, :size),
       max_bytes: state.max_size_bytes,
-      counting?: not state.scan_complete?
+      counting?: not state.scan_complete?,
+      remembered_entries: Memo.size(state.root),
+      max_remembered_entries: Memo.limit(state.root)
     }
 
     {:reply, usage, state}
@@ -423,7 +431,7 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
     needed = needed(state, descriptor, pending)
 
     cond do
-      descriptor.size_bytes > state.max_size_bytes ->
+      charged(descriptor) > state.max_size_bytes ->
         {:reject, :over_cap}
 
       needed <= 0 ->
@@ -448,7 +456,7 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
           %{body_filename: ^body_filename} = victim <- [entry(state, key_hash)],
           do: victim
 
-    covered = victims |> Enum.map(& &1.size_bytes) |> Enum.sum()
+    covered = victims |> Enum.map(&charged/1) |> Enum.sum()
 
     cond do
       needed <= 0 ->
@@ -468,7 +476,7 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
 
   defp needed(state, descriptor, pending) do
     replaced = state |> entry(descriptor.key_hash) |> entry_size()
-    added = pending + descriptor.size_bytes - replaced
+    added = pending + charged(descriptor) - replaced
     min(state.stored_bytes + added - state.max_size_bytes, added)
   end
 
@@ -549,7 +557,7 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
       sample ->
         victim = Enum.min_by(sample, &Policy.victim_score(&1, frequency(state, &1.key_hash)))
         taken = MapSet.put(taken, victim.key_hash)
-        sample_victims(state, taken, needed - victim.size_bytes, [victim | victims])
+        sample_victims(state, taken, needed - charged(victim), [victim | victims])
     end
   end
 
@@ -636,7 +644,9 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
   end
 
   defp entry_size(nil), do: 0
-  defp entry_size(entry), do: entry.size_bytes
+  defp entry_size(entry), do: charged(entry)
+
+  defp charged(entry), do: Policy.charged_bytes(entry.size_bytes)
 
   defp to_entry({key, size, cost, body_sha256}) do
     key_hash = hex(key)
@@ -661,15 +671,18 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
       {raw(descriptor.key_hash), descriptor.size_bytes, descriptor.cost_us, raw(body_sha256)}
     )
 
-    %{state | stored_bytes: state.stored_bytes + descriptor.size_bytes}
+    %{state | stored_bytes: state.stored_bytes + charged(descriptor)}
   end
 
   defp forget(state, key_hash) do
     note_scan_change(state, key_hash)
 
     case :ets.take(state.entries, raw(key_hash)) do
-      [{_key, size, _cost, _body_sha256}] -> %{state | stored_bytes: state.stored_bytes - size}
-      [] -> state
+      [{_key, size, _cost, _body_sha256}] ->
+        %{state | stored_bytes: state.stored_bytes - Policy.charged_bytes(size)}
+
+      [] ->
+        state
     end
   end
 

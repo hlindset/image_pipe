@@ -24,5 +24,14 @@ defmodule ImagePipe.Cache.SourceRecords do
   @spec put_new(atom(), String.t(), ImagePipe.Source.Record.t(), pos_integer()) :: :ok
   defdelegate put_new(table, key, record, limit), to: RecentTable
 
+  # A table that is missing while its owner restarts holds no records.
+  @spec size(atom()) :: non_neg_integer()
+  def size(table) do
+    case :ets.info(table, :size) do
+      :undefined -> 0
+      size -> size
+    end
+  end
+
   defp now, do: System.monotonic_time(:second)
 end
