@@ -238,6 +238,9 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   for new originals, the originals cache can drop fewer writes (logged as
   `stage_dropped (writer_limit)`). A dropped write means the original is
   downloaded again on its next request.
+- Without an originals cache, concurrent requests for different sizes or
+  formats of an original from an HTTP or S3 source share one download.
+  Before, each request downloaded the original itself.
 
 ### Removed
 

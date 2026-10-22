@@ -9,7 +9,8 @@ defmodule ImagePipe.Cache.Resources do
   end
 
   def start_link(table), do: GenServer.start_link(__MODULE__, table, name: __MODULE__)
-  def track(path), do: call({:track, self(), path})
+  # `owner` releases the file, or leaves it to be deleted when it stops.
+  def track(path, owner \\ self()), do: call({:track, owner, path})
 
   # Hands a tracked file to `owner`, which then releases it, or leaves it to
   # be deleted when it stops.

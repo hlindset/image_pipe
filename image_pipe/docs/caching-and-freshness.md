@@ -163,10 +163,10 @@ they must use the same `root`. Otherwise the configuration fails to load.
 When many requests for a new processed image arrive at once, the original is
 downloaded once, and the image is made once and sent to all of them. This
 needs a processed-image cache, and applies only to images that may be stored.
-Requests for different sizes or formats of one original share its download
-only when an originals cache is configured. Otherwise each of them downloads
-the original itself. When either cache is configured, requests that check a
-previously downloaded original with its origin share one check. When
+Requests for different sizes or formats of an original from an HTTP or S3
+source share its download while it runs, with or without a cache. When
+either cache is configured, requests that check a previously downloaded
+original with its origin share one check. When
 [caching is turned off](cache.md#source-cache-settings) for the source,
 nothing is shared.
 

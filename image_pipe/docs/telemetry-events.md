@@ -569,9 +569,9 @@ One-shot. Emitted when concurrent requests for the same original or image
 are coordinated (see [request coalescing](caching-and-freshness.md#request-coalescing)).
 Which requests emit it:
 
-- `:source`: none for a source with `internal_cache: :disabled`. Without an
-  originals cache, only a request that checks an original downloaded earlier,
-  when a processed-image cache is configured.
+- `:source`: none for a source with `internal_cache: :disabled`. For a
+  local file without an originals cache, only a request that checks a file
+  read earlier, when a processed-image cache is configured.
 - `:download`: only a request for an original that no cache has fetched yet,
   or whose details were evicted, when a processed-image cache is configured, caching is on for the
   source, and [storage](caching-and-freshness.md#storage-permission) isn't

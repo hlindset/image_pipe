@@ -208,8 +208,7 @@ background checks (see
   1,024 requests waiting. A waiting request stops waiting after the source's
   `fetch_timeout` plus one second (60 seconds for sources without one, such
   as files). A request that stops waiting, or arrives past either limit,
-  downloads the original itself without an originals cache. With one, it
-  waits for the download like a request for another size.
+  then waits for the download like a request for another size.
 - Up to 16 background checks run at once. Each has a 60-second deadline.
   After a background check for a processed image finishes, no other check
   for that image starts for one second. Checks for other sizes or formats of

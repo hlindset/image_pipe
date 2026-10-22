@@ -66,6 +66,17 @@ defmodule ImagePipe.Execution.SourceCache do
     end
   end
 
+  # A first download is shared with the other requests for the same original
+  # made with the same settings.
+  defp download_cohort(source, config) do
+    MaterialDigest.of({
+      :download,
+      source.fetch,
+      source.cache_semantics,
+      Keyword.take(config, [:max_body_bytes, :clock, :cache, :input_cache])
+    })
+  end
+
   defp acquire_local(
          source,
          key,
@@ -112,6 +123,8 @@ defmodule ImagePipe.Execution.SourceCache do
   # `cohort` is the validation cohort this request may share a validation
   # with, or nil.
   defp acquire_locked(source, key, previous, preparation, config, download, cohort \\ nil) do
+    cohort = if is_nil(previous), do: download_cohort(source, config), else: cohort
+
     coordinate(
       shared_work?(source, previous, config),
       key,
@@ -131,6 +144,7 @@ defmodule ImagePipe.Execution.SourceCache do
             _validate -> fetch(source, key, record, preparation, config, {lease, download})
           end
 
+        if is_nil(previous), do: share_download(coordination, result, source)
         complete_validation(coordination, result, source, cohort)
       end,
       work_opts(source, config, cohort)
@@ -191,12 +205,15 @@ defmodule ImagePipe.Execution.SourceCache do
 
       :miss ->
         coordinate(
-          storable?(record, source) and Keyword.has_key?(config, :input_cache),
+          storable?(record, source) and
+            (Keyword.has_key?(config, :input_cache) or staged?(source)),
           key,
           fn coordination, _outcome ->
-            open_or_fetch(source, key, record, preparation, config, coordination)
+            result = open_or_fetch(source, key, record, preparation, config, coordination)
+            share_download(coordination, result, source)
+            result
           end,
-          work_opts(source, config)
+          work_opts(source, config, download_cohort(source, config))
         )
         |> waited()
         |> finish_overlap()
@@ -204,23 +221,65 @@ defmodule ImagePipe.Execution.SourceCache do
   end
 
   # A request waits for another one's work on the same source only when that
-  # work can leave something it uses: a stored original, or a shared check of
-  # a known one. A request that gets only a new original's record still has
-  # to download the original to make its image, so without an originals cache
-  # it doesn't wait for a first download.
+  # work can leave something it uses: a stored original, a staged one it
+  # shares (`share_download/3`), or a shared check of a known one.
   defp coordinate(true, key, fun, opts), do: Work.run({:source, key.hash}, fun, opts)
   defp coordinate(false, _key, fun, _opts), do: fun.(false, :uncoordinated)
 
   defp shared_work?(%{internal_cache: :disabled}, _previous, _config), do: false
 
-  defp shared_work?(_source, previous, config),
+  defp shared_work?(source, previous, config),
     do:
-      Keyword.has_key?(config, :input_cache) or
+      Keyword.has_key?(config, :input_cache) or staged?(source) or
         (previous != nil and Keyword.has_key?(config, :cache))
+
+  # The requests waiting for this download each get their own hard link to
+  # the staged original, tracked for that request, or the bytes of one held
+  # in memory. A link that can't be made leaves its request queued, to take
+  # the lease next. Nothing is shared for an original that may not be stored.
+  defp share_download(
+         lease,
+         {:ok, %Acquisition{response: %Response{} = response, record: record} = acquisition},
+         source
+       )
+       when is_reference(lease) do
+    with true <- storable?(record, source),
+         [_ | _] = waiting <- Work.sharing(lease) do
+      shared = %{acquisition | processing: nil, processing_deadline: nil}
+
+      values =
+        for pid <- waiting,
+            {:ok, copy} <- [shared_copy(shared, response, pid)],
+            into: %{},
+            do: {pid, {:ok, copy}}
+
+      Work.complete_each(lease, values)
+    end
+  end
+
+  defp share_download(_lease, _result, _source), do: :ok
+
+  defp shared_copy(%Acquisition{lease: :unavailable} = acquisition, _response, _pid),
+    do: {:ok, acquisition}
+
+  defp shared_copy(acquisition, %Response{path: path} = response, pid) when is_binary(path) do
+    link = Input.temporary_path(Input.staging_dir())
+
+    with :ok <- RawFile.make_link(path, link),
+         {_token, ^link} = lease <- Resources.track(link, pid) do
+      {:ok, %{acquisition | response: %{response | path: link}, lease: lease}}
+    else
+      _failed ->
+        RawFile.delete(link)
+        :error
+    end
+  end
+
+  defp shared_copy(_acquisition, _response, _pid), do: :error
 
   # A request waiting behind another one's download gives up a second after
   # that download's own deadline, with the same timeout error.
-  defp work_opts(source, config, cohort \\ nil) do
+  defp work_opts(source, config, cohort) do
     case wait_timeout(source) do
       nil -> coordination_opts(config, cohort)
       timeout -> Keyword.put(coordination_opts(config, cohort), :wait, timeout)

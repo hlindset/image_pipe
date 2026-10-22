@@ -74,6 +74,20 @@ defmodule ImagePipe.Cache.Work do
   # A lease handed to a writer stays locked until the writer releases it.
   def complete(ref, value), do: call({:complete, ref, value}, 5_000)
 
+  # The processes of the queued requests `complete_each/2` can answer: those
+  # whose `share:` matches the holder's.
+  def sharing(ref) do
+    case call({:sharing, ref}, 5_000) do
+      pids when is_list(pids) -> pids
+      :busy -> []
+    end
+  end
+
+  # Like `complete/2`, with a value of its own for each waiting process in
+  # `values`, such as a resource handed to it. A matching request that isn't
+  # in `values` stays queued.
+  def complete_each(ref, values), do: call({:complete_each, ref, values}, 5_000)
+
   # The holder of `ref` found that its work will store nothing, so the
   # requests waiting for it go ahead on their own, without a lease, and the
   # key is free for later arrivals. The holder's lease is no longer current.
@@ -187,7 +201,25 @@ defmodule ImagePipe.Cache.Work do
   end
 
   def handle_call({:complete, ref, value}, _from, state) do
-    {:reply, :ok, complete_cohort(state, ref, value)}
+    {:reply, :ok, complete_cohort(state, ref, fn _pid -> {:ok, value} end)}
+  end
+
+  def handle_call({:sharing, ref}, _from, state) do
+    pids =
+      with {:ok, key} <- Map.fetch(state.refs, ref),
+           %{owner: ^ref} = lock <- Map.fetch!(state.locks, key) do
+        for {_ref, {pid, _tag}, context} <- lock.waiters,
+            lock.context != nil and context == lock.context,
+            do: pid
+      else
+        _ -> []
+      end
+
+    {:reply, pids, state}
+  end
+
+  def handle_call({:complete_each, ref, values}, _from, state) do
+    {:reply, :ok, complete_cohort(state, ref, &Map.fetch(values, &1))}
   end
 
   def handle_call({:release_waiters, ref}, _from, state) do
@@ -338,6 +370,8 @@ defmodule ImagePipe.Cache.Work do
     end
   end
 
+  # `value` gives each matching waiter's process `{:ok, value}`, or `:error`
+  # to leave it queued.
   defp complete_cohort(state, ref, value) do
     case Map.fetch(state.refs, ref) do
       :error ->
@@ -347,14 +381,15 @@ defmodule ImagePipe.Cache.Work do
         %{owner: ^ref} = lock = Map.fetch!(state.locks, key)
 
         {shared, waiters} =
-          Enum.split_with(lock.waiters, fn {_ref, _from, context} ->
-            lock.context != nil and context == lock.context
+          Enum.split_with(lock.waiters, fn {_ref, {pid, _tag}, context} ->
+            lock.context != nil and context == lock.context and value.(pid) != :error
           end)
 
         shared_refs =
-          Enum.map(shared, fn {waiter, from, _context} ->
+          Enum.map(shared, fn {waiter, {pid, _tag} = from, _context} ->
+            {:ok, shared} = value.(pid)
             Process.demonitor(waiter, [:flush])
-            GenServer.reply(from, {:shared, value})
+            GenServer.reply(from, {:shared, shared})
             waiter
           end)
 
