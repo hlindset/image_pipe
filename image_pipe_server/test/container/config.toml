@@ -23,4 +23,4 @@ max_size_bytes = 10000000
 
 [stats]
 enabled = true
-token = "smoke-stats-token"
+token = "smoke-stats-token-0123456789abcdef"

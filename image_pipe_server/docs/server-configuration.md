@@ -153,7 +153,7 @@ TOML types; defaults are the library's.
 
 ### `[server]`
 
-The HTTP listener. Times are in milliseconds. `read_timeout` closes connections that send nothing for that long, idle keep-alive connections included. With `auth_token`, requests other than the health checks, `/stats`, and `/metrics` must send `Authorization: Bearer <token>`. On shutdown, `/health/ready` answers `503` while the server keeps serving for `shutdown_delay`. Then in-flight requests get `shutdown_timeout` to finish. `health_port` serves the health checks on a separate listener, outside `max_connections`. See [health and shutdown](server-deployment.md#health-and-shutdown).
+The HTTP listener. Times are in milliseconds. `read_timeout` closes connections that send nothing for that long, idle keep-alive connections included. With `auth_token`, requests other than the health checks, `/stats`, and `/metrics` must send `Authorization: Bearer <token>`. The token needs at least 32 characters. On shutdown, `/health/ready` answers `503` while the server keeps serving for `shutdown_delay`. Then in-flight requests get `shutdown_timeout` to finish. `health_port` serves the health checks on a separate listener, outside `max_connections`. See [health and shutdown](server-deployment.md#health-and-shutdown).
 
 | Key | Type | Default |
 | --- | --- | --- |
@@ -436,7 +436,7 @@ Response settings: the CORS origin and the HTTP cache headers. See [serving imag
 
 ### `[stats]`
 
-`enabled` turns on `GET /stats`, which answers with JSON, and `GET /metrics`, which answers with Prometheus text. They report each cache's size, its hits and misses since the server started, and the free space on the disk that holds it. Every request must send `Authorization: Bearer <token>` with `token`, which is required when `enabled` is true. The `[server]` `auth_token` doesn't give access to them. With `health_port`, that listener serves them too. See [cache stats](server-deployment.md#cache-stats).
+`enabled` turns on `GET /stats`, which answers with JSON, and `GET /metrics`, which answers with Prometheus text. They report each cache's size, its hits and misses since the server started, and the free space on the disk that holds it. Every request must send `Authorization: Bearer <token>` with `token`, which is required when `enabled` is true and needs at least 32 characters. The `[server]` `auth_token` doesn't give access to them. With `health_port`, that listener serves them too. See [cache stats](server-deployment.md#cache-stats).
 
 | Key | Type | Default |
 | --- | --- | --- |

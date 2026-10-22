@@ -102,8 +102,9 @@ or CDN in front of it, and have it connect to the server with HTTP/1.1.
 - `[server] max_connections` (2048) caps concurrent connections. Beyond it,
   new connections wait up to five seconds for room, then are closed.
 - `[server] auth_token` requires `Authorization: Bearer <token>` on every
-  request except the health checks, answering `401` otherwise. Use it when a trusted
-  edge adds the header, for example with unsigned URLs. Pass it as a secret:
+  request except the health checks, answering `401` otherwise. The token
+  needs at least 32 characters. Use `auth_token` when a trusted edge adds
+  the header, for example with unsigned URLs. Pass it as a secret:
   `IPS_SERVER__AUTH_TOKEN_FILE=/run/secrets/auth_token`.
 
 ## Health and shutdown
@@ -242,12 +243,13 @@ requests find what they need in the cache, and the space left on the
 cache's disk.
 `GET /metrics` reports the same numbers for Prometheus.
 
-Turn both on in `[stats]`, with a token of their own:
+Turn both on in `[stats]`, with a token of their own. Use a token of at
+least 32 characters, such as the output of `openssl rand -hex 16`:
 
 ```toml
 [stats]
 enabled = true
-token = "a-long-random-string"
+token = "3b9f6c1e8a2d4f7b0c5e9a1d6f2b8c4e"
 ```
 
 To keep the token out of the file, set `IPS_STATS__TOKEN`, or pass it as a
@@ -259,7 +261,7 @@ its own endpoints. To serve the stats on the health listener as well, set
 Check that it works:
 
 ```bash
-curl -H "Authorization: Bearer a-long-random-string" http://localhost:8080/stats
+curl -H "Authorization: Bearer 3b9f6c1e8a2d4f7b0c5e9a1d6f2b8c4e" http://localhost:8080/stats
 ```
 
 ```json

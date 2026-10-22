@@ -6,6 +6,7 @@ defmodule ImagePipeServer.ConfigTest do
   alias ImagePipeServer.ConfigError
 
   @key32 :binary.copy(<<7>>, 32)
+  @token "sekrit-" <> String.duplicate("t", 25)
 
   defp error(fun), do: assert_raise(ConfigError, fun).message
 
@@ -488,11 +489,11 @@ defmodule ImagePipeServer.ConfigTest do
         Config.build!(
           Config.options!(%{
             "url" => %{"allow_unsigned" => true},
-            "server" => %{"auth_token" => {:env, "sekrit"}}
+            "server" => %{"auth_token" => {:env, @token}}
           })
         )
 
-      assert config.server[:auth_token_hash] == :crypto.hash(:sha256, "sekrit")
+      assert config.server[:auth_token_hash] == :crypto.hash(:sha256, @token)
       refute inspect(config) =~ "sekrit"
     end
 
@@ -503,18 +504,18 @@ defmodule ImagePipeServer.ConfigTest do
         Config.build!(
           Config.options!(%{
             "url" => %{"allow_unsigned" => true},
-            "stats" => %{"enabled" => true, "token" => {:env, "sekrit"}}
+            "stats" => %{"enabled" => true, "token" => {:env, @token}}
           })
         )
 
-      assert config.stats_token_hash == :crypto.hash(:sha256, "sekrit")
+      assert config.stats_token_hash == :crypto.hash(:sha256, @token)
       refute inspect(config) =~ "sekrit"
 
       for stats <- [
             %{"enabled" => true},
             %{"enabled" => true, "token" => ""},
-            %{"token" => "sekrit"},
-            %{"enabled" => false, "token" => "sekrit"}
+            %{"token" => @token},
+            %{"enabled" => false, "token" => @token}
           ] do
         message =
           error(fn ->
@@ -528,16 +529,22 @@ defmodule ImagePipeServer.ConfigTest do
       end
     end
 
-    test "rejects an empty auth token" do
-      assert error(fn ->
-               Config.build!(
-                 Config.options!(%{
-                   "url" => %{"allow_unsigned" => true},
-                   "server" => %{"auth_token" => ""}
-                 })
-               )
-             end) =~
-               "server.auth_token"
+    test "rejects an auth token or stats token shorter than 32 characters" do
+      short = String.duplicate("s", 31)
+
+      for options <- [
+            %{"server" => %{"auth_token" => ""}},
+            %{"server" => %{"auth_token" => short}},
+            %{"stats" => %{"enabled" => true, "token" => short}}
+          ] do
+        message =
+          error(fn ->
+            Config.build!(Config.options!(Map.put(options, "url", %{"allow_unsigned" => true})))
+          end)
+
+        assert message =~ "at least 32 characters"
+        refute message =~ short
+      end
     end
 
     test "rejects a port above 65535" do

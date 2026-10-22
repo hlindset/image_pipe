@@ -87,7 +87,7 @@ stats_status=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:${port}/
   echo "stats: answered $stats_status without the token, expected 401" >&2
   exit 1
 }
-stats=$(curl -fsS -H "Authorization: Bearer smoke-stats-token" "http://127.0.0.1:${port}/stats")
+stats=$(curl -fsS -H "Authorization: Bearer smoke-stats-token-0123456789abcdef" "http://127.0.0.1:${port}/stats")
 for expected in '"misses":3' '"disk_total_bytes":[0-9]'; do
   printf '%s' "$stats" | grep -q "$expected" || {
     echo "stats: the response lacks $expected: $stats" >&2

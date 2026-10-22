@@ -21,8 +21,8 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   owns its root. The disk space is read every 15 seconds, and both
   endpoints report how many seconds ago it was read. A cache that doesn't
   answer within a second has `"available": false`. Turn them on with
-  `[stats] enabled = true` and a `[stats] token` that requests send as a
-  bearer token. See [cache stats](docs/server-deployment.md#cache-stats).
+  `[stats] enabled = true` and a `[stats] token` of at least 32 characters
+  that requests send as a bearer token. See [cache stats](docs/server-deployment.md#cache-stats).
 - With `[telemetry] log_requests`, a request without a valid
   `[server] auth_token` logs its `401` at `warning`, and a request outside
   `mount_path` logs its `404` at `info`, each with the method, path, status,
@@ -37,6 +37,9 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   startup. Serve public traffic with signed URLs, and set `allow_unsigned`
   only for a server that nothing outside a private network can reach. See
   [`[url]`](docs/server-configuration.md#url).
+- **Breaking:** `[server] auth_token` needs at least 32 characters, and the
+  server doesn't start with a shorter one. Replace a shorter token, for
+  example with the output of `openssl rand -hex 16`.
 - The hash of each local file and the cache headers of each origin image
   are kept in memory instead of in the `output` cache, so they no longer
   take its space. After a restart, a local file is hashed again, and an
