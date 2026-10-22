@@ -317,14 +317,14 @@ defmodule ImagePipe.Cache do
     do: Sink.write_chunk(sink, chunk, opts)
 
   @doc false
-  # Runs a source fetch's writes to memory under the source's publication
-  # lock, so they never interleave with another fetch's for the same source.
-  # A lease that is no longer current skips them, except an invalidation,
-  # since dropping a record is always safe.
-  def publish(hash, _lease, {:invalidate, fun}), do: publish_locked(hash, nil, fun)
-  def publish(hash, lease, fun) when is_function(fun, 0), do: publish_locked(hash, lease, fun)
+  # Runs a source fetch's writes to memory. A leased fetch's run under the
+  # source's publication lock, so they never interleave with another leased
+  # fetch's for the same source, and a lease that is no longer current skips
+  # them. An invalidation always runs, since dropping a record is always safe.
+  def publish(hash, _lease, {:invalidate, fun}), do: publish_with(hash, nil, fun)
+  def publish(hash, lease, fun) when is_function(fun, 0), do: publish_with(hash, lease, fun)
 
-  defp publish_locked(hash, lease, fun) do
+  defp publish_with(hash, lease, fun) do
     _result = Work.publish(hash, lease, fun)
     :ok
   end
