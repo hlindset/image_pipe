@@ -32,8 +32,8 @@ defmodule Mix.Tasks.Imgproxy.Bench do
       `cache`, `concurrency`), or `perf` for 34 reference cases that cover
       every family and kind of source. With `--compare`, `perf` adds the 13
       `ImagePipe.Test.Perf.Cases` every `perf` pull request times and the
-      `burst_grid` case, and `nightly` all 29 of them and the 5
-      `concurrency` cases.
+      `burst_grid` and two `burst_overload` cases, and `nightly` all 29 of
+      them and the 7 `concurrency` cases.
     * `--cpus` - CPUs pinned to each server, default 4. Must leave at least
       one CPU for `oha`.
     * `--concurrency` - server worker count and the second load level,
@@ -75,14 +75,16 @@ defmodule Mix.Tasks.Imgproxy.Bench do
 
   The `concurrency` family isn't timed by oha. Its `nightly` cases send
   `--concurrency` requests at once for a new original, which the origin sends
-  at about 512 KiB/s, so they overlap its download. Its `burst_grid` cases,
-  in the `perf` set, send 100 requests at once, each for a new original sent
-  at full rate. It runs three such bursts per image and round, each in a
-  container with the caches the case names, and records the time to the
-  last response, the downloads the origin served, the generations the
-  server's stage log shows, and the cache writes it logs as dropped. The
-  counts don't vary between runs, so the report marks any difference in
-  them.
+  at about 512 KiB/s, so they overlap its download. Its `burst_grid` and
+  `burst_overload` cases, in the `perf` set, send many requests at once, each
+  for a new original sent at full rate. The `burst_overload` cases send more
+  than the pool takes, with the server's default queue settings, and accept
+  `503`. It runs three such bursts per image and round, each in a container
+  with the caches the case names, and records the time to the last
+  response, the downloads the origin served, the generations the server's
+  stage log shows, the cache writes it logs as dropped, the requests
+  answered `503`, and how long they waited for it. The counts barely vary
+  between runs, so the report marks any difference in them.
 
     * `--compare` - the image to judge.
     * `--against` - `NAME=IMAGE`, an image to judge it against. Repeatable;
@@ -174,7 +176,7 @@ defmodule Mix.Tasks.Imgproxy.Bench do
   }
   """
   @configs [:plain, :cached] ++
-             for(caches <- [:none, :output], do: {:burst, caches})
+             for(caches <- [:none, :output, :overload], do: {:burst, caches})
   # Bursts per image and round for each `concurrency` case.
   @bursts 3
   # The stage log line each generation writes.
@@ -254,7 +256,7 @@ defmodule Mix.Tasks.Imgproxy.Bench do
       Mix.raise("--cpus #{cpus} leaves no CPU for oha; Docker sees #{host_cpus}")
     end
 
-    network = "imgproxy-bench-#{System.unique_integer([:positive])}"
+    network = "imgproxy-bench-#{token()}"
 
     settings = %{
       server_cpus: "0-#{cpus - 1}",
@@ -562,7 +564,7 @@ defmodule Mix.Tasks.Imgproxy.Bench do
   # `/tmp` tmpfs, whose pages would count as the server's memory. Their sizes
   # leave a measurement window nothing to evict.
   defp server_config(settings, config) do
-    plain_config(settings) <> extra_config(config, settings)
+    plain_config(settings, config) <> extra_config(config, settings)
   end
 
   defp extra_config(:plain, _settings), do: ""
@@ -593,6 +595,7 @@ defmodule Mix.Tasks.Imgproxy.Bench do
   end
 
   defp caches_config(:none), do: ""
+  defp caches_config(:overload), do: caches_config(:output)
 
   defp caches_config(:output) do
     """
@@ -603,7 +606,7 @@ defmodule Mix.Tasks.Imgproxy.Bench do
     """
   end
 
-  defp plain_config(settings) do
+  defp plain_config(settings, config) do
     """
     [url]
     keys = ["#{@signing_key}"]
@@ -627,9 +630,19 @@ defmodule Mix.Tasks.Imgproxy.Bench do
 
     [pool]
     max_concurrency = #{settings.concurrency}
+    processing_timeout = 120000
+    #{queue_config(config)}
+    """
+  end
+
+  # A queue nothing overflows, except in the bursts that measure overload,
+  # which keep the server's defaults.
+  defp queue_config({:burst, :overload}), do: ""
+
+  defp queue_config(_config) do
+    """
     max_queue = 4096
     queue_timeout = 120000
-    processing_timeout = 120000
     """
   end
 
@@ -930,35 +943,49 @@ defmodule Mix.Tasks.Imgproxy.Bench do
     finch = burst_finch(length(b.natives))
     started = System.monotonic_time(:millisecond)
 
-    statuses =
+    responses =
       b.natives
       |> Enum.with_index()
       |> Task.async_stream(
         fn {native, index} ->
-          Req.get(info.base_url <> sign("/#{native}/src/origin/#{burst_source(b, token, index)}"),
-            finch: [name: finch],
-            decode_body: false,
-            retry: false,
-            receive_timeout: 120_000
-          )
+          sent = System.monotonic_time(:millisecond)
+
+          response =
+            Req.get(
+              info.base_url <> sign("/#{native}/src/origin/#{burst_source(b, token, index)}"),
+              finch: [name: finch],
+              decode_body: false,
+              retry: false,
+              receive_timeout: 120_000
+            )
+
+          {response, System.monotonic_time(:millisecond) - sent}
         end,
         max_concurrency: length(b.natives),
         timeout: :infinity
       )
       |> Enum.map(fn
-        {:ok, {:ok, %Req.Response{status: status}}} -> status
-        other -> inspect(other)
+        {:ok, {{:ok, %Req.Response{status: status}}, ms}} -> {status, ms}
+        other -> {inspect(other), nil}
       end)
 
     ms = System.monotonic_time(:millisecond) - started
-    if Enum.any?(statuses, &(&1 != 200)), do: Mix.raise("#{b.id} got #{inspect(statuses)}")
+    statuses = Enum.map(responses, &elem(&1, 0))
+    allowed = if b.config == {:burst, :overload}, do: [200, 503], else: [200]
+
+    if Enum.any?(statuses, &(&1 not in allowed)),
+      do: Mix.raise("#{b.id} got #{inspect(statuses)}")
+
     Process.sleep(500)
+    rejected = for {503, ms} <- responses, do: ms
 
     %{
       "ms" => ms,
       "downloads" => log_count(settings.origin, "/r/#{token}"),
       "generations" => log_count(info.name, @generation_line) - before,
-      "drops" => log_count(info.name, @drop_line) - dropped
+      "drops" => log_count(info.name, @drop_line) - dropped,
+      "rejected" => length(rejected),
+      "rejected_ms" => rejected
     }
   end
 
