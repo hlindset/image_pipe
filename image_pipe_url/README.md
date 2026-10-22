@@ -5,8 +5,9 @@ without the image processing runtime. Use it in an application that only
 generates URLs, while a separate service running `image_pipe` serves them.
 
 It contains the URL grammar, the processing plan model and its validation,
-preset references, signing, and source encryption. Its only runtime dependencies are
-`nimble_options`, `color`, and `mime`; it starts no processes and loads no NIFs.
+preset references, signing, and source encryption. Its only runtime
+dependencies are `nimble_options` and `color`. It starts no processes and
+loads no NIFs.
 `image_pipe` depends on this package, so a single application that both builds
 and serves URLs needs only `image_pipe`.
 
@@ -28,7 +29,8 @@ url_config =
   )
 
 url =
-  ImagePipe.URL.new(url_config, presets: ["card"])
+  ImagePipe.URL.new(url_config)
+  |> ImagePipe.URL.group(presets: ["card"])
   |> ImagePipe.URL.output(format: :webp)
   |> ImagePipe.URL.url!("photos/beach.jpg")
 ```

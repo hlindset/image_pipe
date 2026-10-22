@@ -1,5 +1,9 @@
 defmodule ImagePipe.Plan.Output.PngOptions do
-  @moduledoc "libvips `pngsave` encoder options (neutral; imgproxy `pngo` translates here)."
+  @moduledoc """
+  PNG encoder options, set with `png_options:` in `ImagePipe.URL.output/2`
+  or [`png-options`](https://hexdocs.pm/image_pipe/output.html#png-options)
+  in a URL. A field left `nil` keeps the encoder's default.
+  """
   defstruct [:interlace, :palette, :bitdepth, :filter]
 
   @type t :: %__MODULE__{

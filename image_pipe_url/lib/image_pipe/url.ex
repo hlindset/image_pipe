@@ -65,9 +65,12 @@ defmodule ImagePipe.URL do
   | `output=info,blurhash` | `terminal: {:info, [:blurhash]}` |
   | `wm-src64=<base64>` | `watermark_source: "logos/mark.png"`, the plain source |
 
-  An option with several comma-separated values in the URL, such as
-  `gradient`, takes a keyword list, as in
-  `gradient: [opacity: 0.8, color: "black", direction: :left]`. With
+  An option with several settings, such as `gradient`, takes a keyword list
+  named by setting, as in
+  `gradient: [opacity: 0.8, color: "black", direction: :left]`. A
+  coordinate or size option, such as `crop`, `focus`, or `anchor_offset`,
+  takes a tuple in the URL's order: `crop=400,300` is `crop: {400, 300}`.
+  `padding:` takes one number or a tuple of sides. With
   `encrypt_source: true` in the configuration, `watermark_source:` is
   written as `wm-enc`. Lengths, percentages, and colors are described under
   [option values](https://hexdocs.pm/image_pipe/requesting-images.html#option-values).
@@ -395,6 +398,9 @@ defmodule ImagePipe.URL do
 
   @doc """
   Checks the plan as the server would, without generating a URL.
+
+      # :validate_against turns on the server's checks.
+      config = ImagePipe.URL.config(validate_against: [presets: %{}])
 
       ImagePipe.URL.new(config)
       |> ImagePipe.URL.group(resize: [fit: :cover])
