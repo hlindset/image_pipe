@@ -31,8 +31,9 @@ defmodule Mix.Tasks.Imgproxy.Bench do
       with `--compare`, `decode`, `colour`, `autoquality`, `placeholder`,
       `cache`, `concurrency`), or `perf` for 34 reference cases that cover
       every family and kind of source. With `--compare`, `perf` adds the 13
-      `ImagePipe.Test.Perf.Cases` every `perf` pull request times, and
-      `nightly` all 29 of them and the 6 `concurrency` cases.
+      `ImagePipe.Test.Perf.Cases` every `perf` pull request times and the 2
+      `burst_grid` cases, and `nightly` all 29 of them and the 8
+      `concurrency` cases.
     * `--cpus` - CPUs pinned to each server, default 4. Must leave at least
       one CPU for `oha`.
     * `--concurrency` - server worker count and the second load level,
@@ -72,12 +73,14 @@ defmodule Mix.Tasks.Imgproxy.Bench do
   source that reads the bench's sources from an `nginx` container on the
   same network. Every other case runs without a cache, as above.
 
-  The `concurrency` family, in the `nightly` set, isn't timed by oha. Each
-  case sends `--concurrency` requests at once for a new original, which the
-  origin sends at about 512 KiB/s, so they overlap its download. It runs
-  three such bursts per image and round, each in a container with the caches
-  the case names, and records the time to the last response, the downloads
-  the origin served, and the generations the server's stage log shows. The
+  The `concurrency` family isn't timed by oha. Its `nightly` cases send
+  `--concurrency` requests at once for a new original, which the origin sends
+  at about 512 KiB/s, so they overlap its download. Its `burst_grid` cases,
+  in the `perf` set, send 100 requests at once, each for a new original sent
+  at full rate. It runs three such bursts per image and round, each in a
+  container with the caches the case names, and records the time to the
+  last response, the downloads the origin served, the generations the
+  server's stage log shows, and the cache writes it logs as dropped. The
   counts don't vary between runs, so the report marks any difference in
   them.
 
@@ -176,6 +179,8 @@ defmodule Mix.Tasks.Imgproxy.Bench do
   @bursts 3
   # The stage log line each generation writes.
   @generation_line "image_pipe transform execute:"
+  # The line the default Logger writes for a cache write it drops.
+  @drop_line "stage_dropped"
   # ImagePipe servers check signatures, so the bench signs every request with
   # this key. Every image compared, old or new, accepts a 32-byte hex key.
   @signing_key String.duplicate("0123456789abcdef", 4)
@@ -914,7 +919,8 @@ defmodule Mix.Tasks.Imgproxy.Bench do
     }
   end
 
-  # Each burst case's bursts: `%{"ms", "downloads", "generations"}` for each.
+  # Each burst case's bursts: `%{"ms", "downloads", "generations", "drops"}`
+  # for each.
   defp run_bursts(server, bursts, settings) do
     server
     |> each_config(by_config(bursts), settings, fn info, _config, group ->
@@ -925,22 +931,28 @@ defmodule Mix.Tasks.Imgproxy.Bench do
     |> Enum.reduce(%{}, &Map.merge/2)
   end
 
-  # Sends a burst's requests at once, for a source path no request has used.
+  # Sends a burst's requests at once, for source paths no request has used.
   # Logger writes a request's stage lines around its response, so the counts
   # wait a moment for them.
   defp burst(b, info, settings) do
     token = token()
     before = log_count(info.name, @generation_line)
+    dropped = log_count(info.name, @drop_line)
+    finch = burst_finch(length(b.natives))
     started = System.monotonic_time(:millisecond)
 
     statuses =
       b.natives
+      |> Enum.with_index()
       |> Task.async_stream(
-        &Req.get(info.base_url <> sign("/#{&1}/src/origin/slow/r/#{token}/#{b.source}"),
-          decode_body: false,
-          retry: false,
-          receive_timeout: 120_000
-        ),
+        fn {native, index} ->
+          Req.get(info.base_url <> sign("/#{native}/src/origin/#{burst_source(b, token, index)}"),
+            finch: [name: finch],
+            decode_body: false,
+            retry: false,
+            receive_timeout: 120_000
+          )
+        end,
         max_concurrency: length(b.natives),
         timeout: :infinity
       )
@@ -955,10 +967,26 @@ defmodule Mix.Tasks.Imgproxy.Bench do
 
     %{
       "ms" => ms,
-      "downloads" => log_count(settings.origin, "/slow/r/#{token}/"),
-      "generations" => log_count(info.name, @generation_line) - before
+      "downloads" => log_count(settings.origin, "/r/#{token}"),
+      "generations" => log_count(info.name, @generation_line) - before,
+      "drops" => log_count(info.name, @drop_line) - dropped
     }
   end
+
+  # Req's default pool holds 50 connections, fewer than `burst_grid` sends at
+  # once.
+  defp burst_finch(size) do
+    name = Module.concat(__MODULE__, "BurstFinch#{size}")
+
+    case Finch.start_link(name: name, pools: %{default: [size: size]}) do
+      {:ok, _pid} -> name
+      {:error, {:already_started, _pid}} -> name
+    end
+  end
+
+  # `:one` paces a single original so the requests overlap its download.
+  defp burst_source(%{originals: :one} = b, token, _index), do: "slow/r/#{token}/#{b.source}"
+  defp burst_source(%{originals: :each} = b, token, index), do: "r/#{token}-#{index}/#{b.source}"
 
   defp log_count(container, needle) do
     {logs, 0} = System.cmd("docker", ["logs", container], stderr_to_stdout: true)

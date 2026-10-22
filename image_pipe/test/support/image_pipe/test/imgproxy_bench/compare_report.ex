@@ -12,7 +12,8 @@ defmodule ImagePipe.Test.ImgproxyBench.CompareReport do
   round has it more than 10% better.
 
   Bursts of concurrent requests get a table of their own: each image's median
-  time to the last response, and the downloads and generations a burst took.
+  time to the last response, and the downloads, generations and dropped cache
+  writes a burst took.
   Those counts don't vary between runs, so a candidate count above or below
   every compared image's is marked.
   """
@@ -192,7 +193,7 @@ defmodule ImagePipe.Test.ImgproxyBench.CompareReport do
 
         head =
           Enum.map_join(keys, "", fn key ->
-            "<th>#{escape(key)} time</th><th>downloads</th><th>generations</th>"
+            "<th>#{escape(key)} time</th><th>downloads</th><th>generations</th><th>drops</th>"
           end)
 
         rows = Enum.map_join(bursts, "\n", &burst_row_html(&1, keys))
@@ -215,8 +216,8 @@ defmodule ImagePipe.Test.ImgproxyBench.CompareReport do
 
       bursts ->
         keys = ["candidate" | results["against"]]
-        head = Enum.map_join(keys, " | ", &"#{&1} time | downloads | generations")
-        align = Enum.map_join(keys, " | ", fn _key -> "---: | ---: | ---:" end)
+        head = Enum.map_join(keys, " | ", &"#{&1} time | downloads | generations | drops")
+        align = Enum.map_join(keys, " | ", fn _key -> "---: | ---: | ---: | ---:" end)
 
         rows = Enum.map_join(bursts, "\n", &burst_row_markdown(&1, keys))
 
@@ -253,14 +254,15 @@ defmodule ImagePipe.Test.ImgproxyBench.CompareReport do
   defp burst_cell_markdown({text, nil}), do: text
 
   defp bursts_intro do
-    "Each case sends its requests at once for a new original, which the origin sends " <>
-      "slowly enough that they overlap its download. Times are the median time to the " <>
-      "last response; counts are a burst's downloads from the origin and images " <>
-      "generated, as the lowest–highest over every burst. 🔴 marks a candidate count " <>
-      "above every compared image's, 🟢 one below."
+    "Each case sends its requests at once: burst_same and burst_sizes for one new " <>
+      "original, which the origin sends slowly enough that they overlap its download, " <>
+      "and burst_grid for a new original each. Times are the median time to the last " <>
+      "response; counts are a burst's downloads from the origin, images generated, and " <>
+      "cache writes dropped, as the lowest–highest over every burst. 🔴 marks a " <>
+      "candidate count above every compared image's, 🟢 one below."
   end
 
-  # Time, downloads and generations for each image, with the candidate's
+  # Time, downloads, generations and drops for each image, with the candidate's
   # counts marked against the others'.
   defp burst_cells(b, keys) do
     Enum.flat_map(keys, fn key ->
@@ -268,7 +270,7 @@ defmodule ImagePipe.Test.ImgproxyBench.CompareReport do
       time = "#{round(median(Enum.map(bursts, & &1["ms"])))} ms"
 
       counts =
-        for name <- ["downloads", "generations"] do
+        for name <- ["downloads", "generations", "drops"] do
           {count_text(bursts, name), count_mark(b, keys, key, name)}
         end
 
