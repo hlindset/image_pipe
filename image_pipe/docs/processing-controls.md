@@ -48,7 +48,7 @@ max_queue = 16
 - `max_concurrency` is how many images are processed at once. It defaults
   to the number of CPU cores. Lower it when other heavy work runs on the
   same machine.
-- `max_queue` is how many requests may wait for a turn, 64 by default. A
+- `max_queue` is how many requests may wait for a turn, 1,024 by default. A
   request that finds the queue full gets a `503`. With `0`, every request
   beyond `max_concurrency` gets a `503` straight away. The second turn of a
   request (see [deadlines](#deadlines)) doesn't count toward it.

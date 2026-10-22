@@ -221,7 +221,7 @@ defmodule ImagePipeServer.ConfigTest do
              ]
 
       assert config.pool[:max_concurrency] == System.schedulers_online()
-      assert config.pool[:max_queue] == 64
+      assert config.pool[:max_queue] == 1024
       assert config.image_pipe.options[:processing_pool] == config.pool[:name]
       assert config.telemetry == [level: :info, stages: false]
       assert config.trust_traceparent == false

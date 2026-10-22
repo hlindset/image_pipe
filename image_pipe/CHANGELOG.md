@@ -237,6 +237,9 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - An instance keeps the bytes of up to 64 recently used watermark images in
   memory, so a watermark from an origin is no longer downloaded for every
   processed image. See [What is stored](docs/cache.md#what-is-stored).
+- The processing pool's `max_queue` defaults to 1,024 instead of 64, so a
+  burst of quick requests waits for a turn instead of answering `503`. See
+  [choosing values](docs/processing-controls.md#choosing-values).
 
 ### Removed
 
