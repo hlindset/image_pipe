@@ -417,7 +417,8 @@ unless changed. With `meta=keep`, the original's density.
 
 `dpi` writes the image's density in pixels per inch, under any `meta`
 value. It changes only the stored density value, never the pixels, the
-dimensions, or `dpr` scaling.
+dimensions, or `dpr` scaling. With `meta=strip`, a JPEG, WebP, or AVIF
+image at 72 dpi stores no density, and viewers read it as 72 dpi.
 
 <!-- tabs-open -->
 

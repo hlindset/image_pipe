@@ -55,7 +55,7 @@ defmodule ImagePipe.APIErrorPathsTest do
     end
   end
 
-  # A `stream!/2`-shaped `image_module` seam (`ImagePipe.Output.Encoder`'s
+  # A `write_to_stream/2`-shaped `image_module` seam (`ImagePipe.Output.Encoder`'s
   # existing test-injection point, already threaded transparently through
   # the runner's `config` since `build_and_pump/6` hands `config`
   # straight to `Encoder.stream_output/3`) that emits one real chunk, then
@@ -63,7 +63,7 @@ defmodule ImagePipe.APIErrorPathsTest do
   # 200 has already gone out on the wire.
   defmodule RaisingAfterFirstChunkImage do
     @moduledoc false
-    def stream!(_image, [{:suffix, ".jpg"} | _]) do
+    def write_to_stream(_image, ".jpg" <> _options) do
       Stream.resource(
         fn -> :first end,
         fn
@@ -75,17 +75,17 @@ defmodule ImagePipe.APIErrorPathsTest do
     end
   end
 
-  # A lazy `stream!/2` seam that raises on the FIRST pull, before any chunk is
+  # A lazy `write_to_stream/2` seam that raises on the FIRST pull, before any chunk is
   # emitted. Because `Processing.build_fun/5` forces the first chunk inside the
   # producer (before ever calling `pump`), this surfaces as a pre-header 500,
   # not a mid-stream abort of an already-committed 200 — the
   # `ImagePipe.PlugTest.FailingStreamBeforeHeaderImage` pin. The lazy
-  # `Stream.resource` (rather than a synchronous raise in `stream!`) is what
+  # `Stream.resource` (rather than a synchronous raise in `write_to_stream`) is what
   # makes the FORCE load-bearing: without it, the raise would land in `pump`
   # after the chunked 200 had already gone out.
   defmodule RaisingBeforeFirstChunkImage do
     @moduledoc false
-    def stream!(_image, [{:suffix, ".jpg"} | _]) do
+    def write_to_stream(_image, ".jpg" <> _options) do
       Stream.resource(
         fn -> :start end,
         fn :start -> raise "boom before first chunk" end,

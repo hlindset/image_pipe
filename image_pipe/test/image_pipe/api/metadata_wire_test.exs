@@ -126,7 +126,8 @@ defmodule ImagePipe.API.MetadataWireTest do
       config = mount()
 
       assert_density(response("format=jpeg", config), :jpeg, 72)
-      assert_density(response("format=jpeg/meta=strip", config), :jpeg, 72)
+      stripped = response("format=jpeg/meta=strip", config) |> decoded()
+      assert round(VipsImage.xres(stripped) * 25.4) == 72
       assert_density(response("w=50/format=jpeg/meta=keep", config), :jpeg, 300)
       assert_density(response("gradient=0.5,black/format=jpeg/meta=keep", config), :jpeg, 300)
 
@@ -145,6 +146,19 @@ defmodule ImagePipe.API.MetadataWireTest do
       assert_density(response("w=50/format=png/dpi=150", config), :png, 150)
       assert_density(response("format=webp/dpi=150", config), :webp, 150)
       assert_density(response("format=avif/dpi=150", config), :avif, 150)
+    end
+
+    test "stripped output at 72 dpi has no EXIF block" do
+      config = mount()
+
+      for format <- ["jpeg", "png", "webp", "avif"] do
+        image = response("format=#{format}/meta=strip", config) |> decoded()
+        assert header(image, "exif-data") == nil, format
+      end
+
+      image = response("format=webp/meta=strip/dpi=150", config) |> decoded()
+      assert header(image, "exif-ifd0-Copyright") == nil
+      assert header(image, "exif-ifd0-ImageDescription") == nil
     end
 
     test "density leaves pixels and dimensions unchanged" do
@@ -227,7 +241,12 @@ defmodule ImagePipe.API.MetadataWireTest do
     assert response.status == 200
     image = Image.from_binary!(response.resp_body)
     {:ok, fields} = VipsImage.header_field_names(image)
-    {:ok, exif} = Image.exif(image)
+
+    exif =
+      case Image.exif(image) do
+        {:ok, exif} -> exif
+        {:error, _no_exif} -> %{}
+      end
 
     case expected do
       :keep ->
@@ -250,9 +269,9 @@ defmodule ImagePipe.API.MetadataWireTest do
     end
   end
 
+  # PNG carries density in pHYs, and the other formats in EXIF.
   # JFIF stores integer DPI; PNG stores pixels per metre and EXIF a
-  # three-decimal rational, so compare to the nearest inch. `Image.exif/1`
-  # cannot parse PNG's eXIf chunk, so PNG is checked through pHYs alone.
+  # three-decimal rational, so compare to the nearest inch.
   defp assert_density(response, format, dpi) do
     assert response.status == 200
     assert get_resp_header(response, "content-type") == ["image/#{format}"]
