@@ -79,7 +79,7 @@ defmodule ImagePipe.Source.S3Test do
            ]
 
     refute inspect(resolved.identity) =~ "AKIA"
-    refute_received {:fetch_credentials, _, _}
+    refute_received {:fetch_credentials, _}
   end
 
   test "timeout configuration is validated and carried into fetch payload" do
@@ -136,11 +136,11 @@ defmodule ImagePipe.Source.S3Test do
   test "per-bucket credential providers are selected by exact bucket only during fetch" do
     plug = fn conn -> Plug.Conn.send_resp(conn, 200, "image bytes") end
 
-    # unique bucket names: the credential RefreshCache is application-global and
-    # this suite is async, so a shared scope would let another test warm the
-    # entry and make these assert/refute_received calls pass tautologically.
-    tenant_a = "tenant-a-#{System.unique_integer([:positive])}"
-    tenant_b = "tenant-b-#{System.unique_integer([:positive])}"
+    # The credential RefreshCache is application-global and this suite is
+    # async, so `report_to: self()` keeps these providers' options, and their
+    # cache entries, apart from other tests'.
+    tenant_a = "tenant-a"
+    tenant_b = "tenant-b"
 
     config =
       Source.validate_config!(
@@ -176,7 +176,7 @@ defmodule ImagePipe.Source.S3Test do
                []
              )
 
-    refute_received {:fetch_credentials, _, _}
+    refute_received {:fetch_credentials, _}
 
     assert {:ok, %Response{} = response} =
              Source.fetch(
@@ -186,8 +186,8 @@ defmodule ImagePipe.Source.S3Test do
              )
 
     assert Enum.join(response.stream) == "image bytes"
-    assert_receive {:fetch_credentials, ^tenant_b, [role: "tenant-b"]}
-    refute_received {:fetch_credentials, ^tenant_a, _}
+    assert_receive {:fetch_credentials, [role: "tenant-b"]}
+    refute_received {:fetch_credentials, [role: "tenant-a"]}
   end
 
   test "invalid credential configuration and endpoints fail during option validation" do
@@ -303,9 +303,7 @@ defmodule ImagePipe.Source.S3Test do
       |> Plug.Conn.send_resp(200, "image bytes")
     end
 
-    # unique bucket name — the credential RefreshCache is application-global and
-    # this suite is async, so a shared scope could pre-warm the entry elsewhere.
-    tenant = "tenant-a-#{System.unique_integer([:positive])}"
+    tenant = "tenant-a"
 
     config =
       Source.validate_config!(
@@ -329,7 +327,7 @@ defmodule ImagePipe.Source.S3Test do
 
     assert {:ok, resolved} = Source.resolve(source, config, [])
     assert resolved.identity[:endpoint] == "https://minio.test"
-    refute_received {:fetch_credentials, _, _}
+    refute_received {:fetch_credentials, _}
 
     assert {:ok, %Response{} = response} =
              Source.fetch(
@@ -339,7 +337,7 @@ defmodule ImagePipe.Source.S3Test do
              )
 
     assert Enum.join(response.stream) == "image bytes"
-    assert_receive {:fetch_credentials, ^tenant, [role: "tenant-a"]}
+    assert_receive {:fetch_credentials, [role: "tenant-a"]}
     assert_receive {:s3_request, headers, path, "versionId=abc"}
     assert path == "/#{tenant}/images/cat.jpg"
     assert {"authorization", authorization} = List.keyfind(headers, "authorization", 0)
@@ -578,7 +576,7 @@ defmodule ImagePipe.Source.S3Test do
       def validate_options(_opts), do: :ok
 
       @impl true
-      def fetch_credentials(_scope, _provider_opts),
+      def fetch_credentials(_provider_opts),
         do: {:error, {:source, :credentials_unavailable}}
     end
 

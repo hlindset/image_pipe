@@ -86,7 +86,7 @@ defmodule ImagePipeServer.Config do
     * `:stats_token_hash` - the SHA-256 of the stats token when the stats
       endpoints are on, or `nil`.
     * `:credential_warmups` - `ImagePipe.Source.S3.CredentialWarmup` options,
-      one per named S3 bucket whose credentials come from a provider.
+      one per credential provider and options the S3 sources use.
   """
   @type t :: %__MODULE__{
           server: keyword(),
@@ -532,16 +532,30 @@ defmodule ImagePipeServer.Config do
     validate!([name: @pool] ++ options, ImagePipe.ProcessingPool.options_schema(), "pool")
   end
 
-  # Credentials are scoped by bucket, so only named buckets can be warmed.
+  # Each provider an S3 source uses: the default's when any bucket is
+  # allowed, and otherwise each named bucket's.
   defp credential_warmups(sources) do
     for {_name, mount} <- sources,
         Keyword.fetch!(mount, :adapter) == ImagePipe.Source.S3,
-        options = Keyword.fetch!(mount, :options),
-        default = Keyword.fetch!(options, :default),
-        {bucket, overrides} <- Enum.sort(Keyword.get(options, :buckets, %{})),
-        {:provider, provider, opts} <-
-          [Keyword.get(overrides, :credentials, default[:credentials])],
-        do: [provider: provider, opts: opts, scope: bucket]
+        credentials <- s3_credentials(Keyword.fetch!(mount, :options)),
+        uniq: true,
+        do: credentials
+  end
+
+  defp s3_credentials(options) do
+    default = Keyword.fetch!(options, :default)
+
+    buckets =
+      case Keyword.get(options, :buckets) do
+        nil -> [[]]
+        buckets -> buckets |> Enum.sort() |> Enum.map(&elem(&1, 1))
+      end
+
+    for overrides <- buckets,
+        {:provider, provider, opts} <- [
+          Keyword.get(overrides, :credentials, default[:credentials])
+        ],
+        do: [provider: provider, opts: opts]
   end
 
   defp trust_traceparent(options), do: Keyword.get(options, :trust_traceparent, false)

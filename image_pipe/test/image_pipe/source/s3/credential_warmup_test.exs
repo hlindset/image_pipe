@@ -20,21 +20,19 @@ defmodule ImagePipe.Source.S3.CredentialWarmupTest do
     def validate_options(_opts), do: :ok
 
     @impl true
-    def fetch_credentials(scope, opts) do
-      send(Keyword.fetch!(opts, :test), {:warmed, scope})
+    def fetch_credentials(opts) do
+      send(Keyword.fetch!(opts, :test), {:warmed, Keyword.fetch!(opts, :id)})
       {:ok, [access_key_id: "A", secret_access_key: "S", token: "T"], :never}
     end
   end
 
   test "rejects invalid startup options before fetching credentials" do
-    valid = [provider: OnceProvider, scope: "warmup-config", opts: [test: self()]]
+    valid = [provider: OnceProvider, opts: [test: self(), id: :config]]
 
     for opts <- [
           Keyword.delete(valid, :provider),
-          Keyword.delete(valid, :scope),
           Keyword.put(valid, :unknown, true),
           Keyword.put(valid, :provider, "provider"),
-          Keyword.put(valid, :scope, :bucket),
           Keyword.put(valid, :opts, %{test: self()})
         ] do
       assert_raise RuntimeError, ~r/ArgumentError/, fn ->
@@ -47,7 +45,7 @@ defmodule ImagePipe.Source.S3.CredentialWarmupTest do
 
   test "a provider that isn't a provider module raises before fetching credentials" do
     assert_raise RuntimeError, ~r/UndefinedFunctionError/, fn ->
-      start_supervised!({CredentialWarmup, provider: nil, scope: "warmup-nil", opts: []})
+      start_supervised!({CredentialWarmup, provider: nil, opts: []})
     end
   end
 
@@ -55,39 +53,34 @@ defmodule ImagePipe.Source.S3.CredentialWarmupTest do
     assert_raise ArgumentError, ~r/invalid credential provider options: .*unknown/, fn ->
       CredentialWarmup.start_link(
         provider: ImagePipe.Source.S3.InstanceRole,
-        scope: "warmup-invalid-provider",
         opts: [unknown: true]
       )
     end
   end
 
   test "warms the cache entry at start so a later fetch does not re-fetch" do
-    scope = "bucket-#{System.unique_integer([:positive])}"
-    opts = [test: self()]
-
-    pid =
-      start_supervised!({CredentialWarmup, provider: OnceProvider, opts: opts, scope: scope})
-
+    opts = [test: self(), id: :warm]
+    pid = start_supervised!({CredentialWarmup, provider: OnceProvider, opts: opts})
     ref = Process.monitor(pid)
-    assert_receive {:warmed, ^scope}
+    assert_receive {:warmed, :warm}
     # the worker warms once then stops :normal; give the teardown DOWN generous
     # slack so a slow runner doesn't flake it (issue #425).
     assert_receive {:DOWN, ^ref, :process, ^pid, reason}, 5_000
     assert reason in [:normal, :noproc]
 
     # cache is warm: fetching does not invoke the provider again
-    assert {:ok, _} = Credentials.fetch(scope, {:provider, OnceProvider, opts})
-    refute_received {:warmed, ^scope}
+    assert {:ok, _} = Credentials.fetch({:provider, OnceProvider, opts})
+    refute_received {:warmed, :warm}
   end
 
-  test "warmups for different buckets start side by side without explicit ids" do
-    opts = [test: self()]
-    scopes = for n <- 1..2, do: "bucket-#{n}-#{System.unique_integer([:positive])}"
-
-    for scope <- scopes,
+  test "warmups for different provider options start side by side without explicit ids" do
+    for id <- [:first, :second],
         do:
-          start_supervised!({CredentialWarmup, provider: OnceProvider, opts: opts, scope: scope})
+          start_supervised!(
+            {CredentialWarmup, provider: OnceProvider, opts: [test: self(), id: id]}
+          )
 
-    for scope <- scopes, do: assert_receive({:warmed, ^scope})
+    assert_receive {:warmed, :first}
+    assert_receive {:warmed, :second}
   end
 end

@@ -12,8 +12,8 @@ defmodule ImagePipe.Source.S3.CredentialsCacheTest do
     def validate_options(_opts), do: :ok
 
     @impl true
-    def fetch_credentials(scope, opts) do
-      send(Keyword.fetch!(opts, :test), {:fetched, scope})
+    def fetch_credentials(opts) do
+      send(Keyword.fetch!(opts, :test), {:fetched, Keyword.fetch!(opts, :id)})
 
       {:ok, [access_key_id: "AKIA", secret_access_key: "SECRET", token: "TOK"], :never}
     end
@@ -25,48 +25,40 @@ defmodule ImagePipe.Source.S3.CredentialsCacheTest do
     @impl true
     def validate_options(_opts), do: :ok
     @impl true
-    def fetch_credentials(_scope, opts) do
+    def fetch_credentials(opts) do
       {:ok, [access_key_id: "AKIA", secret_access_key: "SECRET"], Keyword.fetch!(opts, :expiry)}
     end
   end
 
   test "fails closed for expired and malformed provider expiry values" do
     for expiry <- [DateTime.add(DateTime.utc_now(), -60, :second), nil, "tomorrow"] do
-      scope = "invalid-expiry-#{System.unique_integer([:positive])}"
-      provider = {:provider, ExpiryProvider, [expiry: expiry]}
-
-      assert {:error, {:source, :credentials_unavailable}} =
-               Credentials.fetch(scope, provider)
+      provider = {:provider, ExpiryProvider, [expiry: expiry, test: self()]}
+      assert {:error, {:source, :credentials_unavailable}} = Credentials.fetch(provider)
     end
   end
 
-  test "provider results are cached per scope and normalized" do
-    opts = [test: self()]
-    provider = {:provider, CountingProvider, opts}
-    # the RefreshCache is application-global and this suite is async: true, so
-    # scopes MUST be unique per test or assert/refute_received pass tautologically.
-    bucket_a = "bucket-a-#{System.unique_integer([:positive])}"
-    bucket_b = "bucket-b-#{System.unique_integer([:positive])}"
+  test "provider results are cached per provider options and normalized" do
+    # The RefreshCache is application-global and this suite is async, so
+    # `test: self()` keeps these options apart from other tests'.
+    provider_a = {:provider, CountingProvider, test: self(), id: :a}
+    provider_b = {:provider, CountingProvider, test: self(), id: :b}
 
-    assert {:ok, creds} = Credentials.fetch(bucket_a, provider)
+    assert {:ok, creds} = Credentials.fetch(provider_a)
     assert creds[:access_key_id] == "AKIA"
     assert creds[:token] == "TOK"
-    assert_received {:fetched, ^bucket_a}
+    assert_received {:fetched, :a}
 
-    # cached: no second fetch for the same scope
-    assert {:ok, _} = Credentials.fetch(bucket_a, provider)
-    refute_received {:fetched, ^bucket_a}
+    assert {:ok, _} = Credentials.fetch(provider_a)
+    refute_received {:fetched, :a}
 
-    # different scope → separate entry → fetched
-    assert {:ok, _} = Credentials.fetch(bucket_b, provider)
-    assert_received {:fetched, ^bucket_b}
+    assert {:ok, _} = Credentials.fetch(provider_b)
+    assert_received {:fetched, :b}
   end
 
   test "credential cache process names do not expose provider secrets" do
     secret = "fake-provider-secret-#{System.unique_integer([:positive])}"
-    provider = {:provider, CountingProvider, [test: self(), secret: secret]}
-    scope = "diagnostics-#{System.unique_integer([:positive])}"
-    assert {:ok, _} = Credentials.fetch(scope, provider)
+    provider = {:provider, CountingProvider, [test: self(), id: :secret, secret: secret]}
+    assert {:ok, _} = Credentials.fetch(provider)
 
     keys =
       Registry.select(ImagePipe.Source.S3.RefreshCache.Registry, [
@@ -83,21 +75,18 @@ defmodule ImagePipe.Source.S3.CredentialsCacheTest do
       @impl true
       def validate_options(_opts), do: :ok
       @impl true
-      def fetch_credentials(_scope, _opts), do: {:error, :nope}
+      def fetch_credentials(_opts), do: {:error, :nope}
     end
 
-    provider = {:provider, FailingProvider, [secret: "fake-option-secret"]}
-    bucket = "bucket-c-#{System.unique_integer()}"
+    provider = {:provider, FailingProvider, [secret: "fake-option-secret", test: self()]}
 
     log =
       capture_log(fn ->
-        assert {:error, {:source, :credentials_unavailable}} =
-                 Credentials.fetch(bucket, provider)
+        assert {:error, {:source, :credentials_unavailable}} = Credentials.fetch(provider)
       end)
 
     assert log =~
-             ~s(S3 credentials for bucket "#{bucket}" from #{inspect(FailingProvider)} ) <>
-               "could not be fetched: :nope"
+             "S3 credentials from #{inspect(FailingProvider)} could not be fetched: :nope"
 
     refute log =~ "fake-option-secret"
   end
@@ -113,10 +102,9 @@ defmodule ImagePipe.Source.S3.CredentialsCacheTest do
       "<AssumeRoleResponse><AssumeRoleResult><Credentials><AccessKeyId>ASIAX</AccessKeyId><SecretAccessKey>sx</SecretAccessKey><SessionToken>tx</SessionToken><Expiration>#{expiration}</Expiration></Credentials></AssumeRoleResult></AssumeRoleResponse>"
 
     test = self()
-    scope = "assume-#{System.unique_integer([:positive])}"
 
     plug = fn conn ->
-      send(test, {:sts_called, scope})
+      send(test, :sts_called)
       Plug.Conn.send_resp(conn, 200, xml)
     end
 
@@ -127,13 +115,13 @@ defmodule ImagePipe.Source.S3.CredentialsCacheTest do
        region: "us-east-1",
        plug: plug}
 
-    assert {:ok, creds} = Credentials.fetch(scope, provider)
+    assert {:ok, creds} = Credentials.fetch(provider)
     assert creds[:access_key_id] == "ASIAX"
     assert creds[:token] == "tx"
-    assert_received {:sts_called, ^scope}
+    assert_received :sts_called
 
-    # cached: no second STS call for the same scope
-    assert {:ok, _} = Credentials.fetch(scope, provider)
-    refute_received {:sts_called, ^scope}
+    # cached: no second STS call for the same options
+    assert {:ok, _} = Credentials.fetch(provider)
+    refute_received :sts_called
   end
 end

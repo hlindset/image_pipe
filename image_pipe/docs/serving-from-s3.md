@@ -267,39 +267,37 @@ Other buckets then answer `404`.
 
 ## Fetch credentials at startup
 
-Credentials from a provider are fetched on the first request for each
-bucket, which adds a round trip to that request. To fetch them at startup
+Credentials from a provider are fetched on the first request that needs
+them, which adds a round trip to that request. To fetch them at startup
 instead:
 
 <!-- tabs-open -->
 
 ### Plug
 
-Add an `ImagePipe.Source.S3.CredentialWarmup` for each bucket to your
-supervision tree, with the same provider and options as the source:
+Add an `ImagePipe.Source.S3.CredentialWarmup` to your supervision tree for
+each provider and options your S3 sources use:
 
 ```elixir
 # lib/my_app/application.ex
 children = [
   {ImagePipe.Source.S3.CredentialWarmup,
-   provider: ImagePipe.Source.S3.InstanceRole, opts: [], scope: "photos"},
-  {ImagePipe.Source.S3.CredentialWarmup,
-   provider: ImagePipe.Source.S3.InstanceRole, opts: [], scope: "archive"},
+   provider: ImagePipe.Source.S3.InstanceRole, opts: []},
   MyAppWeb.Endpoint
 ]
 ```
 
 ### image_pipe_server
 
-The server fetches credentials at startup for each bucket listed under
-`buckets` whose credentials come from a provider.
+The server fetches credentials at startup for each provider its S3 sources
+use.
 
 <!-- tabs-close -->
 
 The fetched credentials are kept, and refreshed before they expire, until the
-first request for the bucket. After that, credentials that no request uses
-are dropped after five to ten minutes. A failed fetch at startup is retried
-by the first request.
+first request uses them. After that, credentials that no request uses are
+dropped after five to ten minutes. A failed fetch at startup is retried by
+the first request.
 
 ## Request object versions
 

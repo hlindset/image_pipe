@@ -60,6 +60,9 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Concurrent requests for different sizes or formats of an image from an
   HTTP or S3 source share one download. Before, without `[cache.input]`,
   each request downloaded the original.
+- The server fetches S3 credentials from a provider at startup when an S3
+  source allows any bucket. Before, it fetched them at startup only for
+  buckets listed under `buckets`.
 - The server keeps the bytes of up to 64 recently used watermark images in
   memory, so a watermark from an origin is no longer downloaded for every
   processed image.

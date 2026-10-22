@@ -626,7 +626,7 @@ defmodule ImagePipeServer.ConfigTest do
              end) =~ "processing.detector_warmup: invalid value"
     end
 
-    test "warms S3 credential providers for each named bucket" do
+    test "warms each S3 credential provider its named buckets use" do
       provider = %{"provider" => "instance_role", "ttl_seconds" => 300}
 
       config =
@@ -654,12 +654,28 @@ defmodule ImagePipeServer.ConfigTest do
         )
 
       assert config.credential_warmups == [
-               [
-                 provider: ImagePipe.Source.S3.InstanceRole,
-                 opts: [ttl_seconds: 300],
-                 scope: "inherits"
-               ]
+               [provider: ImagePipe.Source.S3.InstanceRole, opts: [ttl_seconds: 300]]
              ]
+    end
+
+    test "warms the default S3 credential provider when any bucket is allowed" do
+      config =
+        Config.build!(
+          Config.options!(%{
+            "url" => %{"allow_unsigned" => true},
+            "sources" => %{
+              "media" => %{
+                "adapter" => "s3",
+                "match" => %{"scheme" => "s3"},
+                "region" => "us-east-1",
+                "endpoint" => "https://s3.example.com",
+                "credentials" => %{"provider" => "instance_role"}
+              }
+            }
+          })
+        )
+
+      assert config.credential_warmups == [[provider: ImagePipe.Source.S3.InstanceRole, opts: []]]
     end
 
     test "never echoes invalid signing keys" do

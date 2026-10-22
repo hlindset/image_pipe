@@ -191,13 +191,13 @@ defmodule ImagePipe.API.SourceWireTest do
     response = request("format=jpeg", "s3://bucket/images/cat.jpg?v1", config)
 
     assert response.status == 200
-    assert_receive {:fetch_credentials, _, _}
+    assert_receive {:fetch_credentials, _}
     assert_receive :object_fetch
     second = request("format=jpeg", "s3://bucket/images/cat.jpg?v1", config)
     assert second.status == 200
     assert second.resp_body == response.resp_body
     assert_receive {:cache_lookup, :response, _key}
-    refute_receive {:fetch_credentials, _, _}
+    refute_receive {:fetch_credentials, _}
     refute_receive :object_fetch
   end
 
@@ -210,7 +210,7 @@ defmodule ImagePipe.API.SourceWireTest do
     # Hands out the next token on every fetch, as a temporary-credential
     # provider does after each rotation.
     @impl true
-    def fetch_credentials(_scope, opts) do
+    def fetch_credentials(opts) do
       token =
         Agent.get_and_update(Keyword.fetch!(opts, :tokens), fn [next | rest] -> {next, rest} end)
 

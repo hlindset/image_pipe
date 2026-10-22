@@ -139,6 +139,14 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   report `:bypass` with `reason: :not_stored`, and `:download` reports
   `:bypass`, with `reason: :not_stored` or `reason: :watermark_not_stored`
   when storage is the cause.
+- **Breaking:** An `ImagePipe.Source.S3.CredentialProvider`'s
+  `fetch_credentials/1` takes only the provider's options, without the
+  bucket, and `ImagePipe.Source.S3.CredentialWarmup` has no `:scope`
+  option. Credentials are now cached per provider and options and shared
+  by every bucket. Remove the bucket argument from `fetch_credentials`,
+  give buckets that need different credentials different provider options
+  under `:buckets`, and remove `scope:` from each warmup, keeping one per
+  provider and options.
 - A WebP original scaled down a lot matches the same image as a JPEG or PNG
   original. Like a JPEG, it's decoded at 1/2, 1/4, or 1/8 of its size, the
   smallest that stays at or above the requested size, and the resize does the
@@ -337,6 +345,9 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   paths took tens of milliseconds. Telemetry redacts every request path
   before its URL signature is checked, so an unsigned request could cause
   this.
+- An S3 credential fetch from a provider that hangs fails after 30 seconds,
+  and the next request fetches again. Before, a hung fetch held up every
+  request for those credentials until the server restarted.
 - An HTTP source fetch that runs out of `fetch_timeout` while waiting for a
   pooled connection reports `:receive_timeout` in logs and telemetry
   instead of `:pool_timeout`. When the source's host resolves to several
