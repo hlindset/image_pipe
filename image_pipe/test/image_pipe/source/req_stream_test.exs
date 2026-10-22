@@ -89,6 +89,105 @@ defmodule ImagePipe.Source.ReqStreamTest do
     assert Enum.join(stream) == "bytes"
   end
 
+  test "cross-origin redirects keep only the conditional headers" do
+    plug = fn conn ->
+      case conn.host do
+        "first.test" ->
+          assert Plug.Conn.get_req_header(conn, "x-api-key") == ["private"]
+
+          conn
+          |> Plug.Conn.put_resp_header("location", "https://second.test/image")
+          |> Plug.Conn.send_resp(302, "")
+
+        "second.test" ->
+          assert Plug.Conn.get_req_header(conn, "x-api-key") == []
+          assert Plug.Conn.get_req_header(conn, "x-custom") == []
+          assert Plug.Conn.get_req_header(conn, "if-none-match") == [~s("v1")]
+          Plug.Conn.send_resp(conn, 200, "bytes")
+      end
+    end
+
+    stream =
+      open_body!(
+        [
+          url: "https://first.test/image",
+          plug: plug,
+          headers: [
+            {"x-api-key", "private"},
+            {"X-Custom", "private"},
+            {"if-none-match", ~s("v1")}
+          ]
+        ],
+        max_redirects: 1
+      )
+
+    assert Enum.join(stream) == "bytes"
+  end
+
+  test "redirects to another port or scheme on the same host are cross-origin" do
+    for {from, to} <- [
+          {"https://first.test/image", "https://first.test:8443/image"},
+          {"http://first.test/image", "https://first.test/image"}
+        ] do
+      plug = fn conn ->
+        if Plug.Conn.request_url(conn) == from do
+          assert Plug.Conn.get_req_header(conn, "authorization") == ["Bearer private"]
+
+          conn
+          |> Plug.Conn.put_resp_header("location", to)
+          |> Plug.Conn.send_resp(302, "")
+        else
+          assert Plug.Conn.get_req_header(conn, "authorization") == [], to
+          assert Plug.Conn.get_req_header(conn, "cookie") == [], to
+          Plug.Conn.send_resp(conn, 200, "bytes")
+        end
+      end
+
+      stream =
+        open_body!(
+          [url: from, plug: plug, auth: {:bearer, "private"}, headers: [{"cookie", "a=b"}]],
+          max_redirects: 1
+        )
+
+      assert Enum.join(stream) == "bytes"
+    end
+  end
+
+  test "a redirect from https to http is refused" do
+    plug = fn conn ->
+      case conn.scheme do
+        :https ->
+          conn
+          |> Plug.Conn.put_resp_header("location", "http://first.test/image")
+          |> Plug.Conn.send_resp(302, "")
+
+        :http ->
+          flunk("must not follow a redirect from https to http")
+      end
+    end
+
+    assert ReqStream.open([url: "https://first.test/image", plug: plug], max_redirects: 1) ==
+             {:error, {:source, :invalid_redirect}}
+  end
+
+  test "a redirect location with a user name or password is refused" do
+    for location <- ["https://user:pass@second.test/image", "//user@second.test/image"] do
+      plug = fn
+        %{host: "first.test"} = conn ->
+          conn
+          |> Plug.Conn.put_resp_header("location", location)
+          |> Plug.Conn.send_resp(302, "")
+
+        _conn ->
+          flunk("must not follow #{location}")
+      end
+
+      assert ReqStream.open([url: "https://first.test/image", plug: plug], max_redirects: 1) ==
+               {:error, {:source, :invalid_redirect}},
+             location
+    end
+  end
+
   @tag :ipv6
   test "streams an IPv6 origin with bounded connection and pool timeouts" do
     origin =
@@ -419,11 +518,11 @@ defmodule ImagePipe.Source.ReqStreamTest do
     assert_receive {:DOWN, ^server_ref, :process, ^server, _reason}
   end
 
-  test "a scheme-downgrade redirect is normalized and validated with the new scheme" do
+  test "a scheme-upgrade redirect is normalized and validated with the new scheme" do
     plug = fn
       %{request_path: "/r.jpg"} = conn ->
         conn
-        |> Plug.Conn.put_resp_header("location", "http://assets.example.com/plain.jpg")
+        |> Plug.Conn.put_resp_header("location", "https://assets.example.com/plain.jpg")
         |> Plug.Conn.send_resp(302, "")
 
       conn ->
@@ -435,7 +534,7 @@ defmodule ImagePipe.Source.ReqStreamTest do
 
     stream =
       open_body!(
-        [url: "https://assets.example.com/r.jpg", plug: plug],
+        [url: "http://assets.example.com/r.jpg", plug: plug],
         validate_target: fn url ->
           send(seen, {:validated, url})
           :ok
@@ -444,9 +543,9 @@ defmodule ImagePipe.Source.ReqStreamTest do
       )
 
     assert Enum.join(stream) == "image bytes"
-    assert_received {:validated, "https://assets.example.com/r.jpg"}
-    assert_received {:validated, "http://assets.example.com/plain.jpg"}
-    assert_received {:got, :http, "/plain.jpg"}
+    assert_received {:validated, "http://assets.example.com/r.jpg"}
+    assert_received {:validated, "https://assets.example.com/plain.jpg"}
+    assert_received {:got, :https, "/plain.jpg"}
   end
 
   # Binds an ephemeral port, then frees it so a connection attempt is refused.

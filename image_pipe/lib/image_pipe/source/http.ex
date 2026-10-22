@@ -130,8 +130,11 @@ defmodule ImagePipe.Source.HTTP do
                         default: 0,
                         doc: """
                         Redirects to follow. Each target is checked against \
-                        `:allowed_hosts` and `:address_policy`. A redirect beyond the \
-                        limit fails the request with `502`.
+                        `:allowed_hosts` and `:address_policy`. A redirect to another \
+                        host, port, or scheme is sent without the `:req_options` \
+                        headers and credentials. A redirect beyond the limit, from \
+                        `https` to `http`, or to a URL with a user name or password \
+                        fails the request with `502`.
                         """
                       ],
                       address_policy: [
