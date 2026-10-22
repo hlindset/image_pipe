@@ -62,7 +62,7 @@ defmodule ImagePipe.Telemetry.Trace.Handler do
     # integer, never a secret
     :sig_key_index,
     # the parsed source and watermark sources, which arrive with their
-    # credentials redacted (ImagePipe.Telemetry.source_url/1)
+    # query values and userinfo redacted (ImagePipe.Telemetry.source_url/1)
     :source_url,
     :watermark_source_urls,
     # preset lookup: host-chosen preset names and counts

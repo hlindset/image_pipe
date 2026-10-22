@@ -120,9 +120,8 @@ is `REDACTED`. It keeps the URL signature, which authorizes only that URL.
 Once a request parses, `:source_url` and `:watermark_source_urls` show its
 sources as ImagePipe parsed them: decoded from `src64`, or decrypted from
 `enc`, so an encrypted source is visible to anyone who reads your telemetry.
-A presigned URL's credentials, such as an `X-Amz-Signature` value, are
-replaced with `REDACTED`
-([parameters](telemetry-events.md#request)). A request that fails before it
+Each query value, such as a presigned URL's `X-Amz-Signature`, is replaced
+with `REDACTED`, as is a user name and password. A request that fails before it
 parses, such as one with a bad signature, has only the path.
 
 Metadata does include values

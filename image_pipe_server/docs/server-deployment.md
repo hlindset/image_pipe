@@ -466,13 +466,11 @@ event lists the fields.
 The path is logged with `mount_path`, and ends at the source: the `src`,
 `src64`, or `enc` segment is followed by `REDACTED`, and each `wm-src64=`
 value is `REDACTED`. The source follows as a `source_url=` field, decoded
-from `src64` or decrypted from `enc`, with a presigned URL's credentials,
-such as an `X-Amz-Signature` value, replaced with `REDACTED`. A watermark
+from `src64` or decrypted from `enc`, with each query value, such as a
+presigned URL's `X-Amz-Signature`, replaced with `REDACTED`. A watermark
 given by its source URL (`wm-src64=`, `wm-enc=`, or a preset) gets a
 `watermark_source_url=` field the same way. A request that fails before its
 URL parses, such as one with a bad signature, has no `source_url=` field.
-The [`[:request]`](../../image_pipe/docs/telemetry-events.md#request) event
-lists the credential parameters.
 
 Change what's logged in `[telemetry]`:
 
