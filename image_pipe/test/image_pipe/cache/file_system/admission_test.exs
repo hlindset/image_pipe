@@ -4,6 +4,7 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
   alias ImagePipe.Cache.Entry
   alias ImagePipe.Cache.FileSystem
   alias ImagePipe.Cache.FileSystem.Admission
+  alias ImagePipe.Cache.FileSystem.Policy
   alias ImagePipe.Cache.FileSystem.Sketch
   alias ImagePipe.Cache.FileSystem.Store
   alias ImagePipe.Cache.Key
@@ -95,7 +96,7 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
     assert entry_row(pid, hash) ==
              {hash, byte_size("persisted body"), 0, descriptor.body_filename}
 
-    assert stored_bytes(pid) == byte_size("persisted body")
+    assert stored_bytes(pid) == Policy.charged_bytes(byte_size("persisted body"))
   end
 
   test "hit/2 on an untracked key deleted since it was read is dropped",
@@ -184,38 +185,40 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
   end
 
   test "a write into a cache over its cap evicts only its own bytes", ctx do
-    pid = start_cache(ctx, 10_000)
-    pool = [root: ctx.tmp_dir, max_size_bytes: 10_000]
+    cap = 10 * Policy.charged_bytes(1_000)
+    pid = start_cache(ctx, cap)
+    pool = [root: ctx.tmp_dir, max_size_bytes: cap]
     for i <- 1..10, do: :ok = put_with_cost(pool, "resident-#{i}", 1_000)
 
     # As after the cap was lowered, before the startup batches catch up. The
     # new entry costs far more, so it wins the admission gate.
-    :sys.replace_state(pid, &%{&1 | max_size_bytes: 5_000})
+    :sys.replace_state(pid, &%{&1 | max_size_bytes: div(cap, 2)})
 
     assert :ok = put_with_cost(pool, "new", 1_000_000)
-    assert stored_bytes(pid) == 10_000
+    assert stored_bytes(pid) == cap
   end
 
   describe "admission gate" do
     setup %{registry: registry, tmp_dir: tmp_dir} do
-      opts = base_opts(registry: registry, tmp_dir: tmp_dir, max_size_bytes: 10_000)
+      cap = 10 * Policy.charged_bytes(1_000)
+      opts = base_opts(registry: registry, tmp_dir: tmp_dir, max_size_bytes: cap)
       pid = start_supervised!({Admission, opts})
       Admission.await_scan(pid)
-      pool = [root: tmp_dir, max_size_bytes: 10_000]
+      pool = [root: tmp_dir, max_size_bytes: cap]
       for i <- 1..10, do: :ok = put_with_cost(pool, "resident-#{i}", 1_000)
-      %{pid: pid, pool: pool}
+      %{pid: pid, pool: pool, cap: cap}
     end
 
     test "admits a once-seen entry that is costlier per byte than its victim", ctx do
       assert :ok = put_with_cost(ctx.pool, "costly", 100_000)
       assert tracked?(ctx.pid, "costly")
-      assert stored_bytes(ctx.pid) == 10_000
+      assert stored_bytes(ctx.pid) == ctx.cap
     end
 
     test "rejects a once-seen entry that is cheaper per byte than its victim", ctx do
       assert {:ok, :rejected} = put_with_cost(ctx.pool, "cheap", 10)
       refute tracked?(ctx.pid, "cheap")
-      assert stored_bytes(ctx.pid) == 10_000
+      assert stored_bytes(ctx.pid) == ctx.cap
     end
 
     test "syncs only the writes it admits", ctx do
@@ -256,8 +259,9 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
 
   describe "sampled eviction" do
     test "evicts the lowest-scoring entry", ctx do
-      pid = start_cache(ctx, 3_000)
-      pool = [root: ctx.tmp_dir, max_size_bytes: 3_000]
+      cap = 3 * Policy.charged_bytes(1_000)
+      pid = start_cache(ctx, cap)
+      pool = [root: ctx.tmp_dir, max_size_bytes: cap]
 
       # Scores (frequency × cost / size): a 4 × 1_000, b 1 × 2_000, c 1 × 3_000.
       :ok = put_entry(pool, "a", 1_000, 1_000)
@@ -270,17 +274,19 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
       refute tracked?(pid, "b")
       assert FileSystem.get(key("b"), pool) == :miss
       assert Enum.all?(["a", "c", "candidate"], &tracked?(pid, &1))
-      assert stored_bytes(pid) == 3_000
+      assert stored_bytes(pid) == cap
     end
 
     test "takes the lowest-scoring entries until the write fits", ctx do
-      pid = start_cache(ctx, 4_000)
-      pool = [root: ctx.tmp_dir, max_size_bytes: 4_000]
+      cap = 4 * Policy.charged_bytes(1_000)
+      pid = start_cache(ctx, cap)
+      pool = [root: ctx.tmp_dir, max_size_bytes: cap]
 
       for cost <- [3_000, 1_000, 4_000, 2_000],
           do: :ok = put_entry(pool, "cost-#{cost}", 1_000, cost)
 
-      assert :ok = put_entry(pool, "candidate", 2_500, 1_000_000)
+      # Charged more than two entries but no more than three.
+      assert :ok = put_entry(pool, "candidate", 4 * 4096, 1_000_000)
 
       for cost <- [1_000, 2_000, 3_000] do
         refute tracked?(pid, "cost-#{cost}")
@@ -289,24 +295,25 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
 
       assert tracked?(pid, "cost-4000")
       assert tracked?(pid, "candidate")
-      assert stored_bytes(pid) == 3_500
+      assert stored_bytes(pid) == Policy.charged_bytes(1_000) + Policy.charged_bytes(4 * 4096)
     end
 
     test "a rejected replacement leaves the entry it would replace", ctx do
-      pid = start_cache(ctx, 2_000)
-      pool = [root: ctx.tmp_dir, max_size_bytes: 2_000]
+      cap = 2 * Policy.charged_bytes(1_000)
+      pid = start_cache(ctx, cap)
+      pool = [root: ctx.tmp_dir, max_size_bytes: cap]
       old_body = body("a", 1_000)
 
       :ok = put_entry(pool, "a", 1_000, 1_000_000)
       :ok = put_entry(pool, "b", 1_000, 1_000_000)
       old_row = entry_row(pid, hash("a"))
 
-      assert {:ok, :rejected} = put_entry(pool, "a", 1_500, 1)
+      assert {:ok, :rejected} = put_entry(pool, "a", 2 * 4096, 1)
 
       assert {:hit, %{body: ^old_body}} = FileSystem.get(key("a"), pool)
       assert entry_row(pid, hash("a")) == old_row
       assert tracked?(pid, "b")
-      assert stored_bytes(pid) == 2_000
+      assert stored_bytes(pid) == cap
     end
   end
 
@@ -324,7 +331,7 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
 
     size = byte_size("encoded image body")
     assert entry_row(pid, hash) == {hash, size, 1_234, descriptor.body_filename}
-    assert stored_bytes(pid) == size
+    assert stored_bytes(pid) == Policy.charged_bytes(size)
   end
 
   test "background scan reads no metadata for a key with one body", %{
@@ -342,7 +349,7 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
 
     size = byte_size("encoded image body")
     assert entry_row(pid, hash) == {hash, size, 1_234, descriptor.body_filename}
-    assert stored_bytes(pid) == size
+    assert stored_bytes(pid) == Policy.charged_bytes(size)
   end
 
   test "scan does not overwrite a key already inserted by runtime traffic", %{
@@ -369,7 +376,7 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
     # snapshot, which has a different size and body.
     assert {^hash, 4_321, _cost, body_filename} = entry_row(pid, hash)
     assert body_filename == runtime_descriptor.body_filename
-    assert stored_bytes(pid) == 4_321
+    assert stored_bytes(pid) == Policy.charged_bytes(4_321)
   end
 
   # Puts Admission back in the state it keeps while a startup scan runs, so the
@@ -401,7 +408,8 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
 
   test "a scan snapshot of an entry evicted mid-scan is skipped", ctx do
     hash = hex_hash("e")
-    opts = base_opts(registry: ctx.registry, tmp_dir: ctx.tmp_dir, max_size_bytes: 50)
+    max_size_bytes = div(Policy.charged_bytes(100), 2)
+    opts = base_opts(registry: ctx.registry, tmp_dir: ctx.tmp_dir, max_size_bytes: max_size_bytes)
 
     during_scan(ctx, opts, fn pid ->
       put_disk_entry(ctx.tmp_dir, hash, String.duplicate("x", 100))
@@ -410,7 +418,7 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
       # A hit tracks the entry before the scan reaches it, and the over-cap
       # entry is then evicted.
       Admission.hit(pid, entry)
-      assert stored_bytes(pid) == 100
+      assert stored_bytes(pid) == Policy.charged_bytes(100)
       assert :ok = GenServer.call(pid, :reconcile_to_cap)
       assert stored_bytes(pid) == 0
 
@@ -421,23 +429,24 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
 
   test "a write rejected mid-scan leaves its key's entry on disk counted", ctx do
     hash = hex_hash("d2")
-    opts = base_opts(registry: ctx.registry, tmp_dir: ctx.tmp_dir, max_size_bytes: 1_000)
+    cap = 2 * Policy.charged_bytes(500)
+    opts = base_opts(registry: ctx.registry, tmp_dir: ctx.tmp_dir, max_size_bytes: cap)
 
     pid =
       during_scan(ctx, opts, fn pid ->
         put_disk_entry(ctx.tmp_dir, hash, String.duplicate("x", 500))
         {paths, entry} = snapshot(ctx.tmp_dir, hash)
-        pool = [root: ctx.tmp_dir, max_size_bytes: 1_000]
+        pool = [root: ctx.tmp_dir, max_size_bytes: cap]
 
         assert {:ok, :rejected} =
-                 put_bytes(pool, %Key{hash: hash, data: []}, String.duplicate("y", 2_000))
+                 put_bytes(pool, %Key{hash: hash, data: []}, String.duplicate("y", cap))
 
         assert :ok = apply_snapshot(pid, entry)
         assert File.exists?(paths.meta_path)
       end)
 
     assert entry_row(pid, hash) != nil
-    assert stored_bytes(pid) == 500
+    assert stored_bytes(pid) == Policy.charged_bytes(500)
   end
 
   test "a write replacing an entry the scan hasn't reached deletes the old body", ctx do
@@ -456,7 +465,7 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
         assert [_one] = Path.wildcard(Path.join(paths.dir, "*.body"))
       end)
 
-    assert stored_bytes(pid) == byte_size("new body")
+    assert stored_bytes(pid) == Policy.charged_bytes(byte_size("new body"))
   end
 
   test "a stale sweep report doesn't forget an entry committed since", ctx do
@@ -469,12 +478,13 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
     GenServer.cast(pid, {:swept, [{hash("a"), :meta}]})
 
     assert tracked?(pid, "a")
-    assert stored_bytes(pid) == 700
+    assert stored_bytes(pid) == Policy.charged_bytes(700)
   end
 
   test "a hit that counts an untracked entry over the cap evicts back under it", ctx do
-    pid = start_cache(ctx, 1_000)
-    pool = [root: ctx.tmp_dir, max_size_bytes: 1_000]
+    cap = 3 * Policy.charged_bytes(300)
+    pid = start_cache(ctx, cap)
+    pool = [root: ctx.tmp_dir, max_size_bytes: cap]
     for seed <- ["a", "b", "c"], do: :ok = put_entry(pool, seed, 300, 1_000)
 
     hash = hex_hash("e3")
@@ -483,12 +493,13 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
     Admission.hit(pid, descriptor)
     _ = :sys.get_state(pid)
 
-    assert stored_bytes(pid) <= 1_000
+    assert stored_bytes(pid) <= cap
   end
 
   test "a crashed scan still evicts down to the cap", ctx do
-    pid = start_cache(ctx, 1_000)
-    pool = [root: ctx.tmp_dir, max_size_bytes: 1_000]
+    cap = 3 * Policy.charged_bytes(300)
+    pid = start_cache(ctx, cap)
+    pool = [root: ctx.tmp_dir, max_size_bytes: cap]
     for seed <- ["a", "b", "c"], do: :ok = put_entry(pool, seed, 300, 1_000)
     ref = make_ref()
 
@@ -496,7 +507,7 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
     :sys.replace_state(pid, fn state ->
       %{
         state
-        | max_size_bytes: 500,
+        | max_size_bytes: div(cap, 2),
           scan_task_ref: ref,
           scan_complete?: false,
           scan_changes: :ets.new(:scan_changes, [:set, :private])
@@ -508,7 +519,7 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
       _ = :sys.get_state(pid)
     end)
 
-    assert stored_bytes(pid) <= 500
+    assert stored_bytes(pid) <= div(cap, 2)
   end
 
   test "boot reconciliation evicts until usage is under cap", %{
@@ -518,12 +529,13 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
     hashes = for seed <- ["c1", "c2", "c3"], do: hex_hash(seed)
     for hash <- hashes, do: put_disk_entry(tmp_dir, hash, String.duplicate("x", 4_000))
 
-    # All three (12_000 bytes) overshoot the cap; evicting one fits.
-    opts = base_opts(registry: registry, tmp_dir: tmp_dir, max_size_bytes: 9_000)
+    # All three overshoot the cap; evicting one fits.
+    max_size_bytes = 2 * Policy.charged_bytes(4_000) + 1_000
+    opts = base_opts(registry: registry, tmp_dir: tmp_dir, max_size_bytes: max_size_bytes)
     pid = start_supervised!({Admission, opts})
     Admission.await_scan(pid, 5_000)
 
-    assert stored_bytes(pid) == 8_000
+    assert stored_bytes(pid) == 2 * Policy.charged_bytes(4_000)
 
     remaining =
       Enum.filter(hashes, fn hash ->
@@ -544,7 +556,8 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
     put_disk_entry(tmp_dir, dear_a, String.duplicate("x", 4_000), 90_000)
     put_disk_entry(tmp_dir, dear_b, String.duplicate("x", 4_000), 90_000)
 
-    opts = base_opts(registry: registry, tmp_dir: tmp_dir, max_size_bytes: 9_000)
+    max_size_bytes = 2 * Policy.charged_bytes(4_000) + 1_000
+    opts = base_opts(registry: registry, tmp_dir: tmp_dir, max_size_bytes: max_size_bytes)
     pid = start_supervised!({Admission, opts})
     Admission.await_scan(pid, 5_000)
 

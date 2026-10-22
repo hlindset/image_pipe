@@ -289,6 +289,10 @@ entries that are requested often and took the most work to make for their
 size, so an AVIF made with automatic quality outlasts a JPEG thumbnail
 requested as often.
 
+`max_size_bytes` counts each entry as the disk it takes: its body rounded up
+to whole 4 KiB blocks, plus one more block. A 30-byte BlurHash counts
+8 KiB, so a 1 GB cache holds at most about 120,000 of them.
+
 ### Cache process and restarts
 
 Each `root` runs one process that tracks the cache's size and chooses which
@@ -303,10 +307,10 @@ again.
 
 The process also keeps the metadata of recently served entries in memory, so
 a repeated hit reads only the body file from disk. It holds one entry's
-metadata for each 50 KB of `max_size_bytes`, from 1,000 to 200,000 entries,
-at about 1.5 KB each: about 30 MB for a 1 GB cache, and at most about
-300 MB. This memory isn't counted against `max_size_bytes`. A restart empties
-it.
+metadata for each 50 KB of `max_size_bytes`, from 1,000 to 50,000 entries,
+at about 1.8 KB each: about 36 MB for a 1 GB cache, and at most about
+90 MB. Set `max_remembered_entries` to change the number of entries. This
+memory isn't counted against `max_size_bytes`. A restart empties it.
 
 ### Work to make an entry
 

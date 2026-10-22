@@ -17,19 +17,19 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `image_pipe.parse` and `image_pipe.request` spans. See
   [`[:parse]`](docs/telemetry-events.md#parse).
 - `ImagePipe.cache_stats/1` reports the cache's stored bytes and entries,
-  its size cap, and its hits and misses since start, or `refused: true`
-  when another node owns its root. A cache that doesn't report its
+  its size cap, its hits and misses since start, and the entries it keeps
+  in memory, or `refused: true` when another node owns its root. It also
+  reports how many originals the instance remembers. A cache that doesn't report its
   size within a second has `available: false`. See
   [Usage and hit rate](docs/cache.md#usage-and-hit-rate).
 - `max_remembered_originals` sets how many originals an instance remembers
   in memory: a local file's hash, or an origin image's cache headers. It
   defaults to one for each 50 KB of `:cache`'s `:max_size_bytes`, at least
-  10,000 and at most 1,000,000, and forgets originals that weren't used
+  10,000 and at most 200,000, and forgets originals that weren't used
   recently first. A remembered file isn't read and hashed again while it's
   unchanged, and the processed images of a remembered origin image are
-  served without downloading it again. Each
-  takes about 700 bytes for a local file and about 1 KB for an image from an
-  origin.
+  served without downloading it again. Each takes about 1 KB for a local
+  file and about 1.4 KB for an image from an origin.
 - The `X-ImagePipe-Source-Progressive` debug header says whether a JPEG
   original is progressive. See
   [Debug response headers](docs/debug_headers.md).
@@ -141,6 +141,11 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   smallest that stays at or above the requested size, and the resize does the
   rest. Before, it was decoded straight at the requested size, so a thumbnail
   under about 200 pixels wide differed visibly from the JPEG or PNG one.
+- A cache's `max_size_bytes` counts each entry's body rounded up to whole
+  4 KiB blocks, plus one block for its metadata file, instead of the body
+  alone, so many tiny entries, such as BlurHash or LQIP responses, can't
+  take far more disk than the cap. A cache whose entries now count past its
+  cap evicts down to it at startup after the upgrade.
 - When a cache with `max_size_bytes` is full, a new processed image that
   many requests want is kept sooner. The cache now counts
   each request that misses it, including requests that wait for another
@@ -223,7 +228,8 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `forward "/images", ImagePipe.Plug`. Before, the mount path was left out.
 - A `FileSystem` cache keeps the metadata of recently served entries in
   memory, so a repeated hit reads only the body file from disk. It takes
-  about 30 MB for a 1 GB cache, and at most about 300 MB. See
+  about 36 MB for a 1 GB cache, and at most about 90 MB unless
+  `max_remembered_entries` sets the number of entries. See
   [Cache process and restarts](docs/cache.md#cache-process-and-restarts).
 
 - A second instance whose cache `root` another instance in the VM already

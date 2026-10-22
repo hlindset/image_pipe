@@ -428,10 +428,10 @@ defmodule ImagePipe.Config do
                   served without downloading the original again. When the limit is \
                   reached, originals that weren't used recently are forgotten first. \
                   Defaults to one for each 50 KB of `:cache`'s `:max_size_bytes` \
-                  (100,000 for 5 GB), at most 1,000,000, and to 10,000 when that is \
-                  less or there's no `:cache`. Each takes about 700 bytes for a local \
-                  file and about 1 KB for an image from an origin, so 100,000 take \
-                  70–100 MB. Needs an instance (see `ImagePipe.child_spec/1`).
+                  (100,000 for 5 GB), at most 200,000, and to 10,000 when that is \
+                  less or there's no `:cache`. Each takes about 1 KB for a local file \
+                  and about 1.4 KB for an image from an origin, so 100,000 take \
+                  100–140 MB. Needs an instance (see `ImagePipe.child_spec/1`).
                   """
                 ],
                 vary_on: [

@@ -8,18 +8,32 @@ defmodule ImagePipe.Cache.FileSystem.Policy do
           optional(atom()) => term()
         }
 
+  @block 4096
+
+  @doc """
+  The bytes an entry counts against the cap: its body rounded up to whole
+  4 KiB blocks, plus one block for its metadata file. Filesystems allocate
+  whole blocks, so a 30-byte BlurHash takes as much disk as a 4 KiB body,
+  and the charge also bounds how many tiny entries a cap holds. Erlang can't
+  read a filesystem's block size, so 4 KiB, the default on ext4, XFS, and
+  APFS, is assumed.
+  """
+  @spec charged_bytes(non_neg_integer()) :: pos_integer()
+  def charged_bytes(size_bytes), do: div(size_bytes + @block - 1, @block) * @block + @block
+
   @doc """
   Compute the cost-aware score for an entry given its frequency.
 
-  score = freq × effective_cost / max(size_bytes, 1)
+  score = freq × effective_cost / charged_bytes
 
-  effective_cost = cost_us when cost_us > 0, else size_bytes (size-neutral
+  effective_cost = cost_us when cost_us > 0, else charged_bytes (size-neutral
   fallback that collapses scoring to freq alone).
   """
   @spec score(descriptor(), non_neg_integer()) :: float()
   def score(%{cost_us: cost_us, size_bytes: size_bytes}, freq) do
-    effective_cost = if cost_us > 0, do: cost_us, else: size_bytes
-    freq * effective_cost / max(size_bytes, 1)
+    charged = charged_bytes(size_bytes)
+    effective_cost = if cost_us > 0, do: cost_us, else: charged
+    freq * effective_cost / charged
   end
 
   @doc """
@@ -32,7 +46,7 @@ defmodule ImagePipe.Cache.FileSystem.Policy do
 
   @doc """
   Compute the weighted-average value-per-byte across a list of victim
-  descriptors. Weighting is by size_bytes. Returns 0.0 for empty input.
+  descriptors. Weighting is by charged bytes. Returns 0.0 for empty input.
 
   freq_fn maps a descriptor's key_hash to its current frequency.
   """
@@ -43,8 +57,9 @@ defmodule ImagePipe.Cache.FileSystem.Policy do
     {numerator, denominator} =
       Enum.reduce(victims, {0, 0}, fn v, {num, den} ->
         freq = freq_fn.(v.key_hash)
-        effective_cost = if v.cost_us > 0, do: v.cost_us, else: v.size_bytes
-        {num + freq * effective_cost, den + v.size_bytes}
+        charged = charged_bytes(v.size_bytes)
+        effective_cost = if v.cost_us > 0, do: v.cost_us, else: charged
+        {num + freq * effective_cost, den + charged}
       end)
 
     if denominator == 0, do: 0.0, else: numerator / denominator

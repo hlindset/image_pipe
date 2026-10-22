@@ -238,6 +238,18 @@ in `processing_pool`.
 `max_input_pixels` caps the decoded original, and `max_intermediate_pixels`
 caps frames read during processing.
 
+An instance also keeps two things in memory that `max_size_bytes` doesn't
+count:
+
+- The originals it remembers, about 1 KB each for a local file and 1.4 KB
+  for an image from an origin, up to `max_remembered_originals`: at most
+  about 280 MB by default. See
+  [originals and processed images](caching-and-freshness.md#originals-and-processed-images).
+- The metadata of recently served cache entries, about 1.8 KB each, up to
+  the cache's `max_remembered_entries` (see `ImagePipe.Cache.FileSystem`):
+  at most about 90 MB by default. See
+  [Cache process and restarts](cache.md#cache-process-and-restarts).
+
 libvips also keeps its recent operations and their images in an operation
 cache, 100 operations by default. Each request decodes its original again, so
 the cache rarely gets a hit and mostly keeps decoded images in memory. In a

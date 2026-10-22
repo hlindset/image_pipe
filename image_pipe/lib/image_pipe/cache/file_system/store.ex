@@ -32,10 +32,20 @@ defmodule ImagePipe.Cache.FileSystem.Store do
                       required: true,
                       type: :pos_integer,
                       doc: """
-                      Cap, in bytes, on the total size of stored bodies. Writes evict \
-                      the entries least worth keeping to stay under it: those requested \
-                      least often and quickest to make for their size. An entry larger \
-                      than a twentieth of the cap, or 256 MiB, is never stored.
+                      Cap, in bytes, on the disk the stored entries take. Each entry \
+                      counts its body rounded up to whole 4 KiB blocks, plus a block for \
+                      its metadata file. Writes evict the entries least worth keeping \
+                      to stay under it: those requested least often and quickest to \
+                      make for their size. An entry larger than a twentieth of the cap, \
+                      or 256 MiB, is never stored.
+                      """
+                    ],
+                    max_remembered_entries: [
+                      type: :pos_integer,
+                      doc: """
+                      How many recently served entries the cache keeps in memory, so a \
+                      repeated hit reads only the body file. Defaults to one for each \
+                      50 KB of `max_size_bytes`, at least 1,000 and at most 50,000.
                       """
                     ]
                   )
@@ -110,15 +120,14 @@ defmodule ImagePipe.Cache.FileSystem.Store do
 
   # `sighting?: false` reads without counting a hit for admission, for a
   # request that already counted when it missed.
-  def get(%Key{} = key, opts, sighting? \\ true) when is_list(opts) do
+  # `decode` builds the entry, without its body, from stored metadata.
+  def get(%Key{} = key, opts, sighting?, decode) when is_list(opts) do
     case paths(key, opts) do
       {:ok, paths} ->
-        case read_entry(paths) do
-          {:hit, entry, meta} ->
-            # read_entry already parsed/validated the meta payload; reuse its
-            # fields rather than re-reading the file.
-            sight_hit(sighting?, opts, key, meta)
-            {:hit, entry, meta}
+        case read_entry(paths, decode) do
+          {:hit, entry, hit} ->
+            sight_hit(sighting?, opts, key, hit)
+            {:hit, entry}
 
           other ->
             other
@@ -371,35 +380,38 @@ defmodule ImagePipe.Cache.FileSystem.Store do
   defp options_validation_error(%NimbleOptions.ValidationError{key: key, message: message}),
     do: {:invalid_option, key, message}
 
-  # A hit reads the metadata from the memo when it's there. A remembered
-  # entry whose body won't open is read again from disk, so the memo never
-  # turns a hit into anything a read from disk wouldn't.
-  defp read_entry(paths) do
+  # A hit reads the entry from the memo when it's there: the decoded entry
+  # and the body file's name, size, and cost. A remembered entry whose body
+  # won't open is read again from disk, so the memo never turns a hit into
+  # anything a read from disk wouldn't.
+  defp read_entry(paths, decode) do
     case Memo.get(paths.root, paths.hash) do
-      {metadata, body_path} -> read_remembered(paths, metadata, body_path)
-      nil -> read_stored(paths)
+      {entry, hit} -> read_remembered(paths, decode, entry, hit)
+      nil -> read_stored(paths, decode)
     end
   end
 
-  defp read_remembered(paths, metadata, body_path) do
-    case CacheFile.open(body_path, metadata.body_byte_size) do
+  defp read_remembered(paths, decode, entry, hit) do
+    case CacheFile.open(Path.join(paths.dir, hit.body_filename), hit.body_byte_size) do
       {:ok, file} ->
-        {:hit, file, metadata}
+        {:hit, %{entry | body: file}, hit}
 
       _gone_or_changed ->
         Memo.drop(paths.root, paths.hash)
-        read_stored(paths)
+        read_stored(paths, decode)
     end
   end
 
-  defp read_stored(paths) do
+  defp read_stored(paths, decode) do
     epoch = Memo.epoch(paths.root, paths.hash)
 
     with {:ok, metadata} <- read_metadata(paths),
          {:ok, body_path} <- body_path_from_metadata(paths, metadata),
+         {:ok, entry} <- decode.(metadata),
          {:ok, file} <- CacheFile.open(body_path, metadata.body_byte_size) do
-      Memo.remember(paths.root, paths.hash, epoch, {metadata, body_path})
-      {:hit, file, metadata}
+      hit = Map.take(metadata, [:body_filename, :body_byte_size, :cost_us])
+      Memo.remember(paths.root, paths.hash, epoch, {entry, hit})
+      {:hit, %{entry | body: file}, hit}
     end
   end
 

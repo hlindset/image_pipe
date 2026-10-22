@@ -39,7 +39,7 @@ Unless the source is [immutable](#immutable-sources), an instance remembers
 each original's content hash in memory to find its processed images,
 together with the origin's cache headers or a local file's size and
 timestamps. It remembers one original for each 50 KB of the processed-image
-cache's size, at least 10,000 and at most 1,000,000, and forgets originals
+cache's size, at least 10,000 and at most 200,000, and forgets originals
 that weren't used recently first. The limit is `max_remembered_originals` in
 `ImagePipe.config/1`, or
 [`[cache] max_remembered_originals`](../../image_pipe_server/docs/server-configuration.md#cache)

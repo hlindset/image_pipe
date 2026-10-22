@@ -7,6 +7,7 @@ defmodule ImagePipe.Cache.WriterTest do
   alias ImagePipe.Cache.Entry
   alias ImagePipe.Cache.FileSystem
   alias ImagePipe.Cache.FileSystem.Owner
+  alias ImagePipe.Cache.FileSystem.Policy
   alias ImagePipe.Cache.FileSystem.Writers
   alias ImagePipe.Cache.Key
   alias ImagePipe.Test.Caches
@@ -225,7 +226,7 @@ defmodule ImagePipe.Cache.WriterTest do
   end
 
   test "unfinished writes count against max_size_bytes", ctx do
-    opts = cache_opts(ctx, max_size_bytes: 10_000)
+    opts = cache_opts(ctx, max_size_bytes: 2 * Policy.charged_bytes(5_000))
     cache = Keyword.fetch!(opts, :cache)
     assert :ok = commit(cache, key("a"), String.duplicate("a", 5_000))
 

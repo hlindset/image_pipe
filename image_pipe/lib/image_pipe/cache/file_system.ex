@@ -12,8 +12,8 @@ defmodule ImagePipe.Cache.FileSystem do
         MyAppWeb.Endpoint
       ]
 
-  `:max_size_bytes` caps the stored bodies: a write evicts entries to make
-  room before it's stored, or is rejected. The cache keeps the entries that
+  `:max_size_bytes` caps the disk the stored entries take: a write evicts
+  entries to make room before it's stored, or is rejected. The cache keeps the entries that
   are requested often and took the most work to make for their size.
 
   To set up the cache, see
@@ -90,19 +90,16 @@ defmodule ImagePipe.Cache.FileSystem do
   def missed(key, opts), do: Store.miss(key, opts)
 
   @doc false
-  def open(key, opts, sighting? \\ true) do
-    case Store.get(key, opts, sighting?) do
-      {:hit, file, metadata} -> decode_entry(file, metadata)
-      other -> other
-    end
-  end
+  def open(key, opts, sighting? \\ true), do: Store.get(key, opts, sighting?, &decode_entry/1)
 
-  defp decode_entry(file, metadata) do
+  # The entry, without its body, that stored metadata describes. The cache
+  # remembers it, so a hit from memory doesn't validate the metadata again.
+  defp decode_entry(metadata) do
     with {:ok, meta} <- validate_metadata(metadata),
          {:ok, created_at} <- parse_created_at(meta.created_at) do
-      {:hit,
+      {:ok,
        %Entry{
-         body: file,
+         body: nil,
          content_type: meta.content_type,
          headers: meta.headers,
          created_at: created_at,
@@ -110,9 +107,7 @@ defmodule ImagePipe.Cache.FileSystem do
          debug: meta.debug
        }}
     else
-      {:error, reason} ->
-        CacheFile.close(file)
-        handle_invalid_metadata(reason)
+      {:error, reason} -> handle_invalid_metadata(reason)
     end
   end
 

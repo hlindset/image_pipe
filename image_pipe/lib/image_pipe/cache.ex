@@ -105,8 +105,10 @@ defmodule ImagePipe.Cache do
   # named after it, so an unchanged local file is hashed once rather than on
   # every request. Unless set, the table holds one record for each 50 KB the
   # output cache may store, so it doesn't forget originals whose processed
-  # images are still cached, up to about 1 GB of memory. A second table keeps
-  # the bytes of its recently used watermark assets (`WatermarkBytes`).
+  # images are still cached, from 10,000 to 200,000 records. A record takes
+  # about 1 KB for a local file and 1.4 KB for an origin image, so at most
+  # about 280 MB. A second table keeps the bytes of its recently used
+  # watermark assets (`WatermarkBytes`).
   @spec put_source_records(keyword(), atom()) :: keyword()
   def put_source_records(options, instance) do
     options
@@ -114,7 +116,7 @@ defmodule ImagePipe.Cache do
     |> Keyword.put(:watermark_bytes, Module.concat(instance, WatermarkBytes))
     |> Keyword.put_new_lazy(:max_remembered_originals, fn ->
       max_size_bytes = get_in(options, [:cache, :max_size_bytes]) || 0
-      max_size_bytes |> div(50_000) |> max(10_000) |> min(1_000_000)
+      max_size_bytes |> div(50_000) |> max(10_000) |> min(200_000)
     end)
   end
 
@@ -237,12 +239,26 @@ defmodule ImagePipe.Cache do
   @doc false
   # Usage and lookups since start of the cache in `options`. A cache another
   # node holds has only `refused` and `max_bytes`. A cache whose Admission
-  # doesn't answer has no usage.
-  @spec stats(keyword()) :: %{optional(:output) => map()}
+  # doesn't answer has no usage. `originals` counts the remembered originals.
+  @spec stats(keyword()) :: %{optional(:output) => map(), optional(:originals) => map()}
   def stats(options) do
-    case Keyword.get(options, :cache) do
-      nil -> %{}
-      cache_opts -> %{output: cache_stats(cache_opts)}
+    caches =
+      case Keyword.get(options, :cache) do
+        nil -> %{}
+        cache_opts -> %{output: cache_stats(cache_opts)}
+      end
+
+    case Keyword.get(options, :source_records) do
+      nil ->
+        caches
+
+      table ->
+        originals = %{
+          entries: SourceRecords.size(table),
+          max_entries: Keyword.fetch!(options, :max_remembered_originals)
+        }
+
+        Map.put(caches, :originals, originals)
     end
   end
 

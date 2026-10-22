@@ -10,15 +10,20 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `[cache] max_remembered_originals` sets how many originals the server
   remembers in memory: a local file's hash, or an origin image's cache
   headers. It defaults to one for each 50 KB of `output.max_size_bytes`, at
-  least 10,000 and at most 1,000,000, and forgets originals that weren't
+  least 10,000 and at most 200,000, and forgets originals that weren't
   used recently first. A remembered file isn't read and hashed again while
   it's unchanged, and the processed images of a remembered origin image are
-  served without downloading it again. Each takes about 700 bytes
-  for a local file and about 1 KB for an image from an origin. See
+  served without downloading it again. Each takes about 1 KB for a local
+  file and about 1.4 KB for an image from an origin. See
   [`[cache]`](docs/server-configuration.md#cache).
+- `[cache.output] max_remembered_entries` sets how many recently served
+  entries the cache keeps in memory, so a repeated hit reads only the body
+  file. It defaults to one for each 50 KB of `max_size_bytes`, at least
+  1,000 and at most 50,000, about 1.8 KB each.
 - `GET /stats` (JSON) and `GET /metrics` (Prometheus text) report each
-  cache's size, hits, misses, and free disk space, or that another replica
-  owns its root. The disk space is read every 15 seconds, and both
+  cache's size, hits, misses, entries kept in memory, and free disk space,
+  or that another replica owns its root, and how many originals the server
+  remembers. The disk space is read every 15 seconds, and both
   endpoints report how many seconds ago it was read. A cache that doesn't
   answer within a second has `"available": false`. Turn them on with
   `[stats] enabled = true` and a `[stats] token` that requests send as a

@@ -12,7 +12,11 @@ defmodule ImagePipe.Cache.FileSystem.MemoTest do
   setup context do
     root = Path.join(System.tmp_dir!(), "image_pipe_memo_#{System.unique_integer([:positive])}")
     on_exit(fn -> File.rm_rf!(root) end)
-    opts = [root: root, max_size_bytes: Map.get(context, :max_size_bytes, 1_000_000_000)]
+
+    opts =
+      [root: root, max_size_bytes: Map.get(context, :max_size_bytes, 1_000_000_000)] ++
+        Map.get(context, :options, [])
+
     {:ok, opts} = FileSystem.validate_options(opts)
     start_supervised!(FileSystem.child_spec(opts))
     [{admission, _}] = Registry.lookup(FileSystem.registry_name(root), root)
@@ -141,7 +145,12 @@ defmodule ImagePipe.Cache.FileSystem.MemoTest do
 
   @tag max_size_bytes: 100_000_000_000
   test "a large cache's limit is capped", %{root: root} do
-    assert Memo.limit(root) == 200_000
+    assert Memo.limit(root) == 50_000
+  end
+
+  @tag options: [max_remembered_entries: 7]
+  test "max_remembered_entries sets the limit", %{root: root} do
+    assert Memo.limit(root) == 7
   end
 
   defp get(key, opts), do: FileSystem.get(key, opts)

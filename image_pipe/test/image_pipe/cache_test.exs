@@ -6,6 +6,7 @@ defmodule ImagePipe.CacheTest do
   alias ImagePipe.Cache
   alias ImagePipe.Cache.Entry
   alias ImagePipe.Cache.FileSystem
+  alias ImagePipe.Cache.FileSystem.Policy
   alias ImagePipe.Cache.Key
   alias ImagePipe.Output.Resolved
   alias ImagePipe.Test.Caches
@@ -246,7 +247,12 @@ defmodule ImagePipe.CacheTest do
 
   test "commit_sink reports admission rejection on the cache write span", %{root: root} do
     prefix = attach_telemetry([[:cache, :write, :stop]])
-    opts = cache_opts(root, telemetry_prefix: prefix, cache: [max_size_bytes: 100])
+
+    opts =
+      cache_opts(root,
+        telemetry_prefix: prefix,
+        cache: [max_size_bytes: Policy.charged_bytes(98)]
+      )
 
     # A stored entry fills the cache, and a new key seen once doesn't score
     # higher than the entry it would evict, so the cache declines it.

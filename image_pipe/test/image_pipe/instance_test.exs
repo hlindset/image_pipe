@@ -358,7 +358,7 @@ defmodule ImagePipe.InstanceTest do
       assert [_ | _] = stored_bodies(ctx.cache_root)
     end
 
-    test "remembers one original per 50 KB of the output cache, from 10,000 to 1,000,000",
+    test "remembers one original per 50 KB of the output cache, from 10,000 to 200,000",
          ctx do
       limit = fn options ->
         name = Module.concat(ctx.name, "L#{System.unique_integer([:positive])}")
@@ -380,7 +380,7 @@ defmodule ImagePipe.InstanceTest do
       assert limit.([]) == 10_000
 
       huge = [root: Path.join(ctx.cache_root, "huge"), max_size_bytes: 1_000_000_000_000]
-      assert limit.(cache: huge) == 1_000_000
+      assert limit.(cache: huge) == 200_000
 
       big = Keyword.put(big, :root, Path.join(ctx.cache_root, "set"))
       assert limit.(cache: big, max_remembered_originals: 7) == 7
