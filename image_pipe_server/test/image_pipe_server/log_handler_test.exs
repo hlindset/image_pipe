@@ -22,7 +22,8 @@ defmodule ImagePipeServer.LogHandlerTest do
   defp assert_overload_options(config) do
     assert config.burst_limit_enable == false
     assert config.sync_mode_qlen == config.drop_mode_qlen
-    assert config.drop_mode_qlen >= 1000
+    assert config.drop_mode_qlen >= 10_000
+    assert config.flush_qlen > config.drop_mode_qlen
   end
 
   defp release_logger_config(toml) do

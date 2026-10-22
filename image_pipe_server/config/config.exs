@@ -19,16 +19,20 @@ config :logger, :default_formatter,
   colors: [enabled: false]
 
 # A request logs its line from its connection process, so the handler never
-# makes that process wait: past 1,000 queued lines it drops new ones until it
+# makes that process wait: past 10,000 queued lines it drops new ones until it
 # catches up, and logs when it starts and stops dropping. Sync mode starts at
-# the same queue length as drop mode, so it never applies. OTP's burst limit,
-# which drops lines past 500 a second without saying so, is off.
+# the same queue length as drop mode, so it never applies. A queued line costs
+# its length plus about 300 bytes, so 10,000 lines of about 500 bytes hold
+# about 8 MB. Past 20,000 the handler discards its whole queue. Under
+# sustained overload the handler switches in and out of drop mode as the
+# queue crosses the limit. OTP's burst limit, which drops lines past 500 a
+# second without saying so, is off.
 config :logger, :default_handler,
   config: [
     burst_limit_enable: false,
-    sync_mode_qlen: 1000,
-    drop_mode_qlen: 1000,
-    flush_qlen: 5000
+    sync_mode_qlen: 10_000,
+    drop_mode_qlen: 10_000,
+    flush_qlen: 20_000
   ]
 
 # The sibling image_pipe_svg project builds its NIF from source; the Hex

@@ -442,7 +442,9 @@ A `5xx`, or a response that failed partway through sending, logs at
 `error`. A `4xx` logs at `warning`, and so does a result that didn't come
 out as requested, such as a crop that used attention because detection
 failed or no detector is configured, or an image scaled down to the limits.
-A request without a valid
+A [low-priority request](../../image_pipe/docs/processing/request.md#priority)
+that the full processing pool turned away logs its `503` at `info`. A
+request without a valid
 [`auth_token`](server-configuration.md#server) logs its `401` at `warning`,
 and a path outside [`mount_path`](server-configuration.md#server) logs its
 `404` at `info`. These two lines have only the method, path, status, and
@@ -479,18 +481,21 @@ Change what's logged in `[telemetry]`:
   `docker run -t`, doesn't store color codes.
 
 The request log can miss lines under heavy load, so count requests at the
-CDN, or count cache hits and misses with [`/metrics`](#cache-stats). The
-server writes about 1,000 lines a second, and fewer when the log collector
-reads the container's output slowly. Lines past that are dropped, so that
-requests don't wait for the log. Cache hits are the likeliest to reach that
-rate, since they are the cheapest requests. The server logs a `notice` line
-when it starts dropping lines and another when it stops, at any
-`log_level`:
+CDN, or count cache hits and misses with [`/metrics`](#cache-stats). Requests
+never wait for their log line. When requests log faster than the server can
+write, or than the log collector reads the container's output, lines queue
+up. Once 10,000 are waiting, new lines are dropped until the queue is below
+that again. Cache hits are the likeliest to fill the queue, since they are
+the cheapest requests. The server logs a `notice` line when it starts
+dropping lines and another when it stops, at any `log_level`:
 
 ```text
-2026-10-15 21:42:22.104 [notice] Handler default switched from async to drop mode
-2026-10-15 21:42:22.391 [notice] Handler default switched from drop to async mode
+2026-10-15 21:42:22.104 [notice] Handler :default switched from :async to :drop mode
+2026-10-15 21:42:22.391 [notice] Handler :default switched from :drop to :async mode
 ```
+
+Under sustained overload the pair repeats each time the queue crosses
+10,000 lines.
 
 Every response carries an `x-request-id` header, and every log line for that
 request is tagged `request_id=<id>`. The server generates the ID. Behind a

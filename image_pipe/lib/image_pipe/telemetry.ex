@@ -75,9 +75,10 @@ defmodule ImagePipe.Telemetry do
   event: the method, path, status, duration, and bytes sent, then the
   request's other fields as `key=value`. The fields are also in the line's
   Logger metadata, as a map under `:image_pipe`. Cache sweeps and evictions,
-  which belong to no request, log their own lines. Failed and dropped cache
-  writes also log their own lines, at `:warning`, because a write can finish
-  after its request's line. With `stages: true`, every stage of each request
+  which belong to no request, log their own lines, and so does a request
+  that raised, which has no summary. Failed and dropped cache writes also
+  log their own lines, at `:warning`, because a write can finish after its
+  request's line. With `stages: true`, every stage of each request
   logs a line as well.
 
   Call it once at application startup. Calling it again replaces the
@@ -87,9 +88,9 @@ defmodule ImagePipe.Telemetry do
   ## Event groups
 
   `:events` selects groups from the
-  [event reference](telemetry-events.md). Without `stages: true`, only the
-  `:request` group's summary and the `:cache` group's sweeps, evictions, and
-  failed or dropped writes have lines:
+  [event reference](telemetry-events.md). Without `stages: true`, only these
+  have lines: from `:request`, the summary and raised requests, and from
+  `:cache`, sweeps, evictions, and failed or dropped writes. The groups are:
 
     * `:request`: the request summary, and request, processing pool, send,
       deliver, and encode events, except the encode-search probe cost spans,

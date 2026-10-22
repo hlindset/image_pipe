@@ -24,6 +24,24 @@ There are two kinds of event:
 Which events a request emits depends on its path. A conditional `304` or an
 output-cache hit emits no fetch, decode, transform, or encode events.
 
+## Default Logger lines
+
+`ImagePipe.Telemetry.attach_default_logger/1` logs a line for these events
+only:
+
+- [`[:request, :summary]`](#request-summary), one line per request.
+- [`[:request, :exception]`](#request), for a request that raised, which
+  has no summary.
+- [`[:cache, :sweep]`](#cache-sweep) and
+  [`[:cache, :eviction, :stop]`](#cache-eviction-stop), which belong to no
+  request.
+- Failures of [`[:cache, :write]`](#cache-write) and
+  [`[:cache, :stage]`](#cache-stage), at `:warning`, since a write can end
+  after its request's line.
+
+With `stages: true`, every other event logs a line too. Any other Logger
+line an entry below describes appears only with `stages: true`.
+
 ## Measurements
 
 Spans carry the measurements of `:telemetry.span/3`:
@@ -217,8 +235,9 @@ preset lookup, and URL parsing. Why a request was rejected is on the
 One-shot. Emitted after parsing when the URL wrote options that have no
 effect, which the request [ignores](requesting-images.md#ignored-options).
 `ImagePipe.run/4` emits it too, for options the plan sets. Options that a
-preset or the request defaults supply aren't reported. The default Logger
-logs it at its base level, as
+preset or the request defaults supply aren't reported. The request summary
+lists them as `:ignored`. With `stages: true`, the default Logger also logs
+the event at its base level, as
 `image_pipe request ignored options: ok (fit, enlarge)`.
 
 - Metadata:
