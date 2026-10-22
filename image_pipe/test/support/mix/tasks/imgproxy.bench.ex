@@ -707,13 +707,18 @@ defmodule Mix.Tasks.Imgproxy.Bench do
   defp estimate_minutes(cases, %{servers: nil} = settings),
     do: ceil(length(cases) * 2 * (2 * settings.duration + 1) / 60)
 
-  # A burst takes about two seconds, and its container about five to start.
+  # A burst takes about two seconds, an overload burst about its queue timeout
+  # and the encodes already started, and its container about five to start.
   defp estimate_minutes(cases, settings) do
     runs = length(settings.servers) * length(shard_rounds(settings.rounds, settings.shard))
     {bursts, cases} = Enum.split_with(cases, &burst?/1)
-    seconds = length(cases) * (2 * settings.duration + 1) + length(bursts) * (2 * @bursts + 5)
+    burst_seconds = Enum.sum_by(bursts, &(burst_seconds(&1) * @bursts + 5))
+    seconds = length(cases) * (2 * settings.duration + 1) + burst_seconds
     ceil(runs * seconds / 60)
   end
+
+  defp burst_seconds(%{config: {:burst, :overload}}), do: 15
+  defp burst_seconds(_burst), do: 2
 
   defp burst?(c), do: Map.get(c, :kind) == :burst
 
@@ -921,8 +926,8 @@ defmodule Mix.Tasks.Imgproxy.Bench do
     }
   end
 
-  # Each burst case's bursts: `%{"ms", "downloads", "generations", "drops"}`
-  # for each.
+  # Each burst case's bursts: `%{"ms", "downloads", "generations", "drops",
+  # "rejected", "rejected_ms"}` for each.
   defp run_bursts(server, bursts, settings) do
     server
     |> each_config(by_config(bursts), settings, fn info, _config, group ->

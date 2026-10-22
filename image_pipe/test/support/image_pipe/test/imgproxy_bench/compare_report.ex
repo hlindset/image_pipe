@@ -273,20 +273,26 @@ defmodule ImagePipe.Test.ImgproxyBench.CompareReport do
       "image's, 🟢 one below."
   end
 
-  # Time, downloads, generations and drops for each image, with the candidate's
-  # counts marked against the others'.
+  # Time, downloads, generations, drops and rejections for each image, with
+  # the candidate's counts marked against the others'.
   defp burst_cells(b, keys) do
     Enum.flat_map(keys, fn key ->
       bursts = List.flatten(b["rounds"][key])
       time = "#{round(median(Enum.map(bursts, & &1["ms"])))} ms"
 
       counts =
-        for name <- ["downloads", "generations", "drops", "rejected"] do
-          {count_text(bursts, name), count_mark(b, keys, key, name)}
-        end
+        Enum.map(
+          ["downloads", "generations", "drops", "rejected"],
+          &count_cell(b, keys, key, bursts, &1)
+        )
 
       [{time, nil} | counts] ++ [{rejected_after(bursts), nil}]
     end)
+  end
+
+  defp count_cell(b, keys, key, bursts, name) do
+    mark = if marked?(b, name), do: count_mark(b, keys, key, name)
+    {count_text(bursts, name), mark}
   end
 
   defp rejected_after(bursts) do
@@ -296,8 +302,14 @@ defmodule ImagePipe.Test.ImgproxyBench.CompareReport do
     end
   end
 
+  # An overload burst serves what its queue admits, so more downloads and
+  # generations there are better, and its rejections vary with each
+  # runner's speed. Only a clear difference in rejections is marked.
+  defp marked?(%{"id" => "burst_overload" <> _}, name), do: name == "rejected"
+  defp marked?(_b, _name), do: true
+
   defp count_text(bursts, name) do
-    case bursts |> Enum.map(& &1[name]) |> Enum.min_max() do
+    case bursts |> Enum.map(&(&1[name] || 0)) |> Enum.min_max() do
       {same, same} -> "#{same}"
       {low, high} -> "#{low}–#{high}"
     end
@@ -307,17 +319,26 @@ defmodule ImagePipe.Test.ImgproxyBench.CompareReport do
 
   defp count_mark(b, keys, "candidate", name) do
     count =
-      &(b["rounds"][&1] |> List.flatten() |> Enum.map(fn burst -> burst[name] end) |> median())
+      &(b["rounds"][&1]
+        |> List.flatten()
+        |> Enum.map(fn burst -> burst[name] || 0 end)
+        |> median())
 
     candidate = count.("candidate")
     others = keys |> tl() |> Enum.map(count)
+    margin = &(abs(candidate - &1) >= min_difference(b, &1))
 
     cond do
-      Enum.all?(others, &(candidate > &1)) -> :worse
-      Enum.all?(others, &(candidate < &1)) -> :better
+      Enum.all?(others, &(candidate > &1 and margin.(&1))) -> :worse
+      Enum.all?(others, &(candidate < &1 and margin.(&1))) -> :better
       true -> nil
     end
   end
+
+  # Overload counts move with the runner, so they need at least two requests
+  # and a tenth of the other image's count. Other counts don't vary.
+  defp min_difference(%{"id" => "burst_overload" <> _}, other), do: max(2, other / 10)
+  defp min_difference(_b, _other), do: 0
 
   defp mismatches_html([]), do: ""
 

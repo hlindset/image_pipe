@@ -49,7 +49,9 @@ max_queue = 16
   to the number of CPU cores. Lower it when other heavy work runs on the
   same machine.
 - `max_queue` is how many requests may wait for a turn, 1,024 by default. A
-  request that finds the queue full gets a `503`. With `0`, every request
+  request that finds the queue full gets a `503`. Under sustained overload, a
+  waiting request gets its `503` only after `queue_timeout`, so lower
+  `max_queue` if clients should fail sooner. With `0`, every request
   beyond `max_concurrency` gets a `503` straight away. The second turn of a
   request (see [deadlines](#deadlines)) doesn't count toward it.
 - `queue_timeout`, 10 seconds by default, is how long a request waits for a
