@@ -107,6 +107,42 @@ defmodule ImagePipe.Telemetry.SummaryTest do
                      %{status: 404, result: :source_error, reason: "source not found"}}
   end
 
+  test "signature, expiry, and concealed-source failures carry the reason the response gives",
+       ctx do
+    key = String.duplicate("a1", 32)
+    encryption_key = String.duplicate("b2", 32)
+
+    options =
+      start(ctx, keys: [key], source_encryption_keys: [encryption_key], clock: fn -> 100 end)
+
+    config = Caches.plug(options)
+    url_config = ImagePipe.URL.config(keys: [key])
+    expired = ImagePipe.URL.url!(ImagePipe.URL.new(url_config, expires: 99), "beach.jpg")
+    concealed = ImagePipe.URL.sign_path("/w=40/enc/not-a-token", url_config)
+
+    for {path, status, reason} <- [
+          {"/w=40/src/beach.jpg", 403, "invalid signature"},
+          {expired, 410, "expired"},
+          {concealed, 404, "not found"}
+        ] do
+      assert request(path, config, options).status == status
+      assert_received {:summary, _m, %{status: ^status, reason: ^reason}}
+    end
+  end
+
+  test "a signature sent to an instance without keys carries the reason the response gives",
+       ctx do
+    options = start(ctx)
+    path = "/sig=#{String.duplicate("A", 43)}/w=40/src/beach.jpg"
+    assert request(path, Caches.plug(options), options).status == 400
+
+    assert_received {:summary, _m,
+                     %{
+                       status: 400,
+                       reason: "sig is not accepted: no signing keys are configured"
+                     }}
+  end
+
   test "an invalid source URL is a parser error with the reason the response gives", ctx do
     options = start(ctx)
     config = Caches.plug(options)

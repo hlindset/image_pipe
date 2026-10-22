@@ -29,6 +29,8 @@ defmodule ImagePipe.Plug.Errors do
 
   def send(%Plug.Conn{} = conn, reason)
       when reason in [:missing_signature, :invalid_signature] do
+    Summary.put(%{reason: "invalid signature"})
+
     conn
     |> put_resp_content_type("text/plain")
     |> send_resp(403, "invalid signature")
@@ -42,6 +44,7 @@ defmodule ImagePipe.Plug.Errors do
     }
 
     body = DiagnosticRenderer.render(diagnostic_path(conn), [diagnostic])
+    Summary.put(%{reason: diagnostic.message})
 
     conn
     |> put_resp_content_type("text/plain")
@@ -49,12 +52,16 @@ defmodule ImagePipe.Plug.Errors do
   end
 
   def send(%Plug.Conn{} = conn, :expired) do
+    Summary.put(%{reason: "expired"})
+
     conn
     |> put_resp_content_type("text/plain")
     |> send_resp(410, "expired")
   end
 
   def send(%Plug.Conn{} = conn, :invalid_concealed_source) do
+    Summary.put(%{reason: "not found"})
+
     conn
     |> put_resp_content_type("text/plain")
     |> send_resp(404, "not found")
