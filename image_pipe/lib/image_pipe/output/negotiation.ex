@@ -6,12 +6,10 @@ defmodule ImagePipe.Output.Negotiation do
   alias Plug.Conn.Utils
 
   @modern_mime_types Map.new(Format.output_mime_types()) |> Map.take(Format.modern_formats())
+  @modern_mime_type_list Map.values(@modern_mime_types)
 
   # Server preference order; hosts may override it with `:format_order`.
   @default_order [:avif, :webp]
-
-  # RFC 9110 §12.4.2: qvalue = ( "0" [ "." 0*3DIGIT ] ) / ( "1" [ "." 0*3("0") ] )
-  @qvalue_pattern ~r/\A(0(\.[0-9]{0,3})?|1(\.0{0,3})?)\z/
 
   # `writable` is the formats the libvips build can write.
   @spec modern_candidates(String.t() | nil, keyword(), [atom()]) :: [:avif | :webp]
@@ -59,31 +57,24 @@ defmodule ImagePipe.Output.Negotiation do
     if acceptable?(mime_type, entries), do: [format], else: []
   end
 
+  # Modern formats require an explicit MIME type in Accept, and an explicit
+  # q=0 wins over duplicate positive entries for the same MIME type.
   defp acceptable?(mime_type, entries) do
-    mime_type = Format.canonical_mime_type(mime_type)
-
-    entries =
-      Enum.map(entries, fn {accepted, quality} ->
-        {Format.canonical_mime_type(accepted), quality}
-      end)
-
-    # Modern formats require an explicit MIME type in Accept.
-    qualities = for {^mime_type, quality} <- entries, do: quality
-    acceptable_quality?(qualities)
-  end
-
-  # An explicit q=0 wins over duplicate positive entries for the same MIME type.
-  defp acceptable_quality?(qualities) do
-    Enum.any?(qualities, &(&1 > 0)) and not Enum.any?(qualities, &(&1 == 0))
+    case for({^mime_type, zero?} <- entries, do: zero?) do
+      [] -> false
+      zeros -> not Enum.any?(zeros)
+    end
   end
 
   defp parse_accept(nil), do: []
 
+  # Keeps only the entries for modern MIME types, as `{mime_type, zero?}`.
   defp parse_accept(accept_header) do
-    accept_header
-    |> split_entries()
-    |> Enum.map(&parse_accept_entry/1)
-    |> Enum.reject(&is_nil/1)
+    for entry <- split_entries(accept_header),
+        {:ok, type, subtype, params} <- [Utils.media_type(entry)],
+        mime_type = type <> "/" <> subtype,
+        mime_type in @modern_mime_type_list,
+        do: {mime_type, zero_quality?(params)}
   end
 
   # Splits on commas outside quoted parameter values, which `Plug.Conn.Utils.list/1`
@@ -109,31 +100,13 @@ defmodule ImagePipe.Output.Negotiation do
     end
   end
 
-  defp parse_accept_entry(entry) do
-    case Utils.media_type(entry) do
-      {:ok, type, subtype, params} -> {type <> "/" <> subtype, quality_from_params(params)}
-      :error -> nil
-    end
-  end
+  # RFC 9110 §12.4.2: qvalue = ( "0" [ "." 0*3DIGIT ] ) / ( "1" [ "." 0*3("0") ] )
+  #
+  # Only a well-formed zero excludes. An invalid or out-of-range weight
+  # (`q=1.5`, `q=abc`) is ignored and counts as the default q=1, and any other
+  # valid weight is positive.
+  defp zero_quality?(%{"q" => value}),
+    do: String.trim(value) in ["0", "0.", "0.0", "0.00", "0.000"]
 
-  defp quality_from_params(params) do
-    params
-    |> Map.get("q", "1.0")
-    |> parse_quality()
-  end
-
-  # An invalid or out-of-range weight (`q=1.5`, `q=abc`) is ignored, not treated
-  # as an explicit `q=0` exclusion: drop the parameter and fall back to the
-  # default q=1 (RFC 9110 §12.4.2). Only a well-formed zero (`q=0`, `q=0.`,
-  # `q=0.000`) excludes.
-  defp parse_quality(value) do
-    value = String.trim(value)
-
-    if Regex.match?(@qvalue_pattern, value) do
-      {quality, _rest} = Float.parse(value)
-      quality
-    else
-      1.0
-    end
-  end
+  defp zero_quality?(_params), do: false
 end

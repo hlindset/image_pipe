@@ -130,6 +130,10 @@ defmodule ImagePipe.Output.NegotiationTest do
       end
     end
 
+    test "media types match case-insensitively" do
+      assert Negotiation.modern_candidates("IMAGE/AVIF, Image/WebP;Q=0", []) == [:avif]
+    end
+
     test "a comma inside a quoted parameter does not split the entry" do
       assert Negotiation.modern_candidates(~s|image/webp;x="a,b";q=0, image/avif|, []) ==
                [:avif]
