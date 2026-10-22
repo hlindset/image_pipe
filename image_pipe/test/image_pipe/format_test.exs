@@ -76,13 +76,6 @@ defmodule ImagePipe.FormatTest do
     assert Format.mime_type(:gif) == {:ok, "image/gif"}
   end
 
-  test "supports_color_profile?/1 mirrors imgproxy SupportsColourProfile" do
-    assert Format.supports_color_profile?(:jpeg) == true
-    assert Format.supports_color_profile?(:png) == true
-    assert Format.supports_color_profile?(:webp) == true
-    assert Format.supports_color_profile?(:avif) == true
-  end
-
   describe "supports_hdr?/1" do
     test "AVIF and PNG carry HDR; WebP and JPEG do not" do
       assert Format.supports_hdr?(:avif)

@@ -340,7 +340,7 @@ defmodule ImagePipe.Output.Encoder do
          %Resolved{color_profile: {:convert, target}} = resolved,
          source_color
        ) do
-    with {:ok, image} <- convert_to_target(image, target, resolved.format, source_color) do
+    with {:ok, image} <- convert_to_target(image, target, source_color) do
       {:ok, strip_metadata(image, resolved)}
     end
   end
@@ -352,7 +352,6 @@ defmodule ImagePipe.Output.Encoder do
     keep? =
       resolved.color_profile == :preserve_source and
         (is_binary(profile) or is_nil(header_value(image, "icc-profile-data"))) and
-        Format.supports_color_profile?(resolved.format) and
         holds_profile_space?(resolved.format, profile)
 
     with {:ok, image} <- restore_backup(image, profile),
@@ -413,17 +412,10 @@ defmodule ImagePipe.Output.Encoder do
   # Dialyzer can't see through Vix's generated Operation typings, so it reports
   # the icc_transform calls as failing; they succeed at runtime.
   @dialyzer {:no_fail_call, convert_from_source: 3, convert_from_srgb: 2}
-  defp convert_to_target(image, target, format, {profile, imported?}) do
-    cond do
-      not Format.supports_color_profile?(format) ->
-        {:ok, image}
-
-      is_binary(profile) and not imported? ->
-        convert_from_source(image, target, profile)
-
-      true ->
-        convert_from_srgb(image, target)
-    end
+  defp convert_to_target(image, target, {profile, imported?}) do
+    if is_binary(profile) and not imported?,
+      do: convert_from_source(image, target, profile),
+      else: convert_from_srgb(image, target)
   end
 
   # A source that kept its profile converts from that profile.

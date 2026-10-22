@@ -72,8 +72,6 @@ defmodule ImagePipe.Delivery.StreamPull do
     exception in [StreamError] -> {:error, {:source, exception.reason}}
     exception -> {:error, {:encode, exception, __STACKTRACE__}}
   catch
-    :exit, {%StreamError{reason: reason}, _stacktrace} -> {:error, {:source, reason}}
-    :exit, %StreamError{reason: reason} -> {:error, {:source, reason}}
     kind, reason -> {:error, {:encode, {kind, reason}, []}}
   end
 

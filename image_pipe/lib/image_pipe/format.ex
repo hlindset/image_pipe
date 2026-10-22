@@ -15,7 +15,6 @@ defmodule ImagePipe.Format do
   # browsers conditionally support). The negotiation *order* among them is a policy
   # decision owned by Output.Negotiation; this is only the membership set.
   @modern_formats [:avif, :webp]
-  @color_profile_formats [:avif, :webp, :jpeg, :png]
   @alpha_formats [:avif, :webp, :png]
   @hdr_formats [:avif, :png]
   @source_only_formats [:jpeg_xl, :heif, :tiff, :jpeg2000, :gif, :svg]
@@ -65,10 +64,6 @@ defmodule ImagePipe.Format do
 
   @spec source_only_format?(term()) :: boolean()
   def source_only_format?(format), do: format in @source_only_formats
-
-  @doc "Returns whether the format supports an embedded colour profile. Mirrors imgproxy's `SupportsColourProfile()`."
-  @spec supports_color_profile?(output_format()) :: boolean()
-  def supports_color_profile?(format), do: format in @color_profile_formats
 
   @doc "Returns whether the output format can carry an alpha channel. Mirrors imgproxy's `SupportsAlpha()` (AVIF/WebP/PNG true; JPEG false)."
   @spec supports_alpha?(output_format()) :: boolean()
