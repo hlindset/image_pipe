@@ -401,13 +401,12 @@ defmodule ImagePipeServer.Config do
       {false, nil} ->
         nil
 
-      {true, token} when is_binary(token) and token != "" ->
-        :crypto.hash(:sha256, token)
+      {true, token} when is_binary(token) ->
+        token_hash!(token, "stats.token")
 
-      {true, _missing} ->
+      {true, nil} ->
         raise ConfigError,
-              "invalid configuration: stats.token: needs a non-empty token when " <>
-                "stats.enabled = true"
+              "invalid configuration: stats.token: needs a token when stats.enabled = true"
 
       {false, _token} ->
         raise ConfigError,
@@ -416,12 +415,20 @@ defmodule ImagePipeServer.Config do
   end
 
   defp auth_token_hash!(nil), do: nil
+  defp auth_token_hash!(token), do: token_hash!(token, "server.auth_token")
 
-  defp auth_token_hash!(""),
-    do:
-      raise(ConfigError, "invalid configuration: server.auth_token: expected a non-empty string")
+  @min_token_length 32
 
-  defp auth_token_hash!(token), do: :crypto.hash(:sha256, token)
+  defp token_hash!(token, setting) do
+    if String.length(token) < @min_token_length,
+      do:
+        raise(
+          ConfigError,
+          "invalid configuration: #{setting}: needs at least #{@min_token_length} characters"
+        )
+
+    :crypto.hash(:sha256, token)
+  end
 
   defp ip!(bind) do
     case :inet.parse_address(String.to_charlist(bind)) do
