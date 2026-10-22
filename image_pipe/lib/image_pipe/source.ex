@@ -207,7 +207,8 @@ defmodule ImagePipe.Source do
   @settings_versioned [ImagePipe.Source.HTTP, ImagePipe.Source.S3]
 
   # Freezes dynamic origin credentials for the fetch before partitioning a
-  # cached request.
+  # cached request. Returns the digest of the fetch context, the effective
+  # origin request, which partitions the source's records.
   @doc false
   def prepare_cache_context(source, config) do
     {:ok, module, opts} = adapter_config(source, config)
@@ -223,17 +224,19 @@ defmodule ImagePipe.Source do
              location_options(module)
          ), identity_fetch(module, source, prepared)}
 
+      digest = ImagePipe.MaterialDigest.of(context)
+
       identity =
         case prepared.cache_semantics.byte_identity do
           {:strong, seed} when module in @settings_versioned ->
-            {:strong, {seed, ImagePipe.MaterialDigest.of(context)}}
+            {:strong, {seed, digest}}
 
           identity ->
             identity
         end
 
       {:ok, %{prepared | cache_semantics: %{prepared.cache_semantics | byte_identity: identity}},
-       context}
+       digest}
     end
   rescue
     _exception -> {:error, {:source, :credentials_unavailable}}

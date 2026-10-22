@@ -2,9 +2,12 @@ defmodule ImagePipe.API.InputIdentityTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
 
+  alias ImagePipe.MaterialDigest
   alias ImagePipe.Plug.Request, as: ParsedRequest
   alias ImagePipe.Processing
   alias ImagePipe.Representation
+
+  @fetch_digest MaterialDigest.of([])
 
   defp identity(path, headers \\ []) do
     config = ImagePipe.Plug.init(allow_unsigned: true, vary_on: [{:header, "x-tenant"}])
@@ -25,8 +28,8 @@ defmodule ImagePipe.API.InputIdentityTest do
     a = identity("/w=20/format=jpeg/src/cat.jpg")
     b = identity("/w=200/format=webp/src/cat.jpg")
 
-    assert Representation.input_key([source: "cat"], a, []) ==
-             Representation.input_key([source: "cat"], b, [])
+    assert Representation.input_key([source: "cat"], a, @fetch_digest) ==
+             Representation.input_key([source: "cat"], b, @fetch_digest)
 
     refute Representation.build([source: "cat"], a, {:strong, "bytes"}).cache_key ==
              Representation.build([source: "cat"], b, {:strong, "bytes"}).cache_key
@@ -36,13 +39,17 @@ defmodule ImagePipe.API.InputIdentityTest do
     material = identity("/src/cat.jpg")
 
     a =
-      Representation.input_key([source: "cat"], material,
-        headers: [{"authorization", "secret-a"}]
+      Representation.input_key(
+        [source: "cat"],
+        material,
+        MaterialDigest.of(headers: [{"authorization", "secret-a"}])
       )
 
     b =
-      Representation.input_key([source: "cat"], material,
-        headers: [{"authorization", "secret-b"}]
+      Representation.input_key(
+        [source: "cat"],
+        material,
+        MaterialDigest.of(headers: [{"authorization", "secret-b"}])
       )
 
     refute a.hash == b.hash
@@ -53,8 +60,8 @@ defmodule ImagePipe.API.InputIdentityTest do
     a = identity("/cb=one/src/cat.jpg")
     b = identity("/cb=two/src/cat.jpg")
 
-    refute Representation.input_key([source: "cat"], a, []).hash ==
-             Representation.input_key([source: "cat"], b, []).hash
+    refute Representation.input_key([source: "cat"], a, @fetch_digest).hash ==
+             Representation.input_key([source: "cat"], b, @fetch_digest).hash
 
     output_a = Representation.build([source: "cat"], a, {:strong, "bytes"})
     output_b = Representation.build([source: "cat"], b, {:strong, "bytes"})
@@ -67,8 +74,8 @@ defmodule ImagePipe.API.InputIdentityTest do
       a = identity("/src/cat.jpg", [{"x-tenant", tenant}])
       b = identity("/src/cat.jpg", [{"x-tenant", tenant <> "x"}])
 
-      assert Representation.input_key([source: "cat"], a, []).hash ==
-               Representation.input_key([source: "cat"], b, []).hash
+      assert Representation.input_key([source: "cat"], a, @fetch_digest).hash ==
+               Representation.input_key([source: "cat"], b, @fetch_digest).hash
 
       output_a = Representation.build([source: "cat"], a, {:strong, "bytes"})
       output_b = Representation.build([source: "cat"], b, {:strong, "bytes"})

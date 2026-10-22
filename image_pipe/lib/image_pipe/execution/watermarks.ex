@@ -170,8 +170,8 @@ defmodule ImagePipe.Execution.Watermarks do
   end
 
   defp prepare_cached(watermark, material, config) do
-    with {:ok, source, fetch_context} <- Source.prepare_cache_context(watermark.source, config) do
-      key = Representation.input_key(source.identity, material, fetch_context)
+    with {:ok, source, fetch_digest} <- Source.prepare_cache_context(watermark.source, config) do
+      key = Representation.input_key(source.identity, material, fetch_digest)
       watermark = %{watermark | source: source, input_key: key}
 
       record =
