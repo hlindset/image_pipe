@@ -150,6 +150,26 @@ defmodule ImagePipe.Transform.Executor.StepTest do
       assert state.materialized? == false
     end
 
+    test "streaming operations are copied to memory after every sixth one" do
+      {:ok, image} = Image.new(40, 20, color: :white)
+      prefix = [__MODULE__, :lazy_depth]
+      opts = [telemetry_prefix: prefix]
+      attach_events(prefix, [[:transform, :materialize, :stop]])
+      background = %Background{color: [0, 0, 0, 255]}
+
+      state =
+        Enum.reduce(1..13, %State{image: image, telemetry_opts: opts}, fn _step, state ->
+          assert {:ok, state} = Step.run(state, background, opts)
+          state
+        end)
+
+      event = prefix ++ [:transform, :materialize, :stop]
+      assert_received {:telemetry, ^event, _, %{result: :ok}}
+      assert_received {:telemetry, ^event, _, %{result: :ok}}
+      refute_received {:telemetry, ^event, _, _}
+      assert Image.get_pixel!(state.image, 0, 0) == [255, 255, 255]
+    end
+
     test "a corrupt sequential image returns a decode error during materialization" do
       # Open just enough bytes to satisfy the JPEG header parser but not enough to
       # read all pixel data. copy_memory fails when the materializing crop tries to

@@ -497,6 +497,10 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   to the nearest 8-bit level. Before, about a quarter of the values were one
   level off, so 65400 became 255 instead of 254. This also applies to
   `png-options=bitdepth:8` with `hdr=preserve`.
+- A request that chains many operations, such as a watermark in each of a
+  dozen groups, no longer crashes the Erlang VM. libvips ran out of stack
+  rendering the chain. The image is now copied to memory once six
+  operations have run since its last copy, which keeps the chain short.
 
 ## [0.3.0] - 2026-10-18
 

@@ -9,3 +9,7 @@
 ## calls, and waking a sleeping scheduler for each cut hit throughput by 17 to
 ## 30%.
 +sbwtdio very_short
+## libvips runs on dirty CPU schedulers and recurses through an image's whole
+## lazy graph when it reads or frees it. ImagePipe bounds that depth, and 8 MB
+## stacks (default 320 KB) leave room for anything it misses.
++sssdcpu 1024
