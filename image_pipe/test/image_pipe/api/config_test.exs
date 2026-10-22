@@ -353,6 +353,16 @@ defmodule ImagePipe.Plug.ConfigTest do
     assert error.message =~ ":base_url"
   end
 
+  test "reports an option given twice as a duplicate" do
+    error =
+      assert_raise ArgumentError, fn ->
+        ImagePipe.config(allow_unsigned: true, allow_unsigned: true)
+      end
+
+    assert error.message =~ "duplicate options [:allow_unsigned]"
+    refute error.message =~ "unknown options"
+  end
+
   test "normalizes hex-encoded 32-byte source encryption keys into a redacted keyring" do
     config =
       Config.validate!(

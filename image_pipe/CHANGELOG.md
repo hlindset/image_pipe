@@ -312,6 +312,8 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   origin credentials, such as S3 keys and authorization headers.
 - A request path with bytes that aren't valid UTF-8 no longer makes the
   telemetry path invalid UTF-8. They become `U+FFFD`.
+- `ImagePipe.config/1` raises a duplicate-option error for an option given
+  more than once. Before, it raised an unknown-option error for it.
 - Request headers and cookies named in `vary_on` no longer select a separate
   stored original. Every value shares one stored original. Only the
   processed images differ. A new cachebuster still downloads the original
