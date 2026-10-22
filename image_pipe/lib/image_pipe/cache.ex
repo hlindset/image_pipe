@@ -39,8 +39,10 @@ defmodule ImagePipe.Cache do
   alias ImagePipe.Cache.Key
   alias ImagePipe.Cache.Lookups
   alias ImagePipe.Cache.OutputWork
+  alias ImagePipe.Cache.RecentTable
   alias ImagePipe.Cache.Sink
   alias ImagePipe.Cache.SourceRecords
+  alias ImagePipe.Cache.WatermarkBytes
   alias ImagePipe.Output.Resolved
   alias ImagePipe.Output.Skipped
   alias ImagePipe.Telemetry
@@ -103,10 +105,13 @@ defmodule ImagePipe.Cache do
           cache_opts != nil,
           do: FileSystem.child_spec(Keyword.merge(cache_opts, telemetry))
 
-    case Keyword.get(options, :source_records) do
-      nil -> caches
-      table -> [{SourceRecords, table} | caches]
-    end
+    tables =
+      for key <- [:source_records, :watermark_bytes],
+          table = Keyword.get(options, key),
+          table != nil,
+          do: {RecentTable, table}
+
+    tables ++ caches
   end
 
   @doc false
@@ -114,11 +119,13 @@ defmodule ImagePipe.Cache do
   # named after it, so an unchanged local file is hashed once rather than on
   # every request. Unless set, the table holds one record for each 50 KB the
   # output cache may store, so it doesn't forget originals whose processed
-  # images are still cached, up to about 1 GB of memory.
+  # images are still cached, up to about 1 GB of memory. A second table keeps
+  # the bytes of its recently used watermark assets (`WatermarkBytes`).
   @spec put_source_records(keyword(), atom()) :: keyword()
   def put_source_records(options, instance) do
     options
     |> Keyword.put(:source_records, Module.concat(instance, SourceRecords))
+    |> Keyword.put(:watermark_bytes, Module.concat(instance, WatermarkBytes))
     |> Keyword.put_new_lazy(:max_remembered_originals, fn ->
       max_size_bytes = get_in(options, [:cache, :max_size_bytes]) || 0
       max_size_bytes |> div(50_000) |> max(10_000) |> min(1_000_000)
@@ -169,6 +176,22 @@ defmodule ImagePipe.Cache do
   end
 
   @doc false
+  # The bytes of the watermark asset at `input_key` whose identity is
+  # `byte_identity`, or nil.
+  def watermark_bytes(%Key{hash: hash}, byte_identity, opts) do
+    case Keyword.get(opts, :watermark_bytes) do
+      nil -> nil
+      table -> WatermarkBytes.get(table, hash, byte_identity)
+    end
+  end
+
+  def remember_watermark_bytes(%Key{hash: hash}, byte_identity, bytes, opts) do
+    case Keyword.get(opts, :watermark_bytes) do
+      nil -> :ok
+      table -> WatermarkBytes.put(table, hash, byte_identity, bytes)
+    end
+  end
+
   # Stores the record from the calling process, under the source's
   # publication lock, so the record is in place when it releases the source's
   # lease.

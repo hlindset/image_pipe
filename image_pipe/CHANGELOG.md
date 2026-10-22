@@ -241,6 +241,10 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Without an originals cache, concurrent requests for different sizes or
   formats of an original from an HTTP or S3 source share one download.
   Before, each request downloaded the original itself.
+- Without an originals cache, an instance keeps the bytes of up to 64
+  recently used watermark images in memory, so a watermark from an origin
+  is no longer downloaded for every processed image. See
+  [What is stored](docs/cache.md#what-is-stored).
 
 ### Removed
 

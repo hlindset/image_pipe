@@ -743,7 +743,11 @@ defmodule ImagePipe.Config do
         options:
           Keyword.merge(
             overridden.options,
-            Keyword.take(config.options, [:source_records, :max_remembered_originals])
+            Keyword.take(config.options, [
+              :source_records,
+              :watermark_bytes,
+              :max_remembered_originals
+            ])
           )
     }
   end

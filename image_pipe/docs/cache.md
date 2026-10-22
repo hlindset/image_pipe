@@ -61,6 +61,11 @@ stored.
 A watermarked response is stored or reused only when the original and every
 watermark source permit storage and have internal caching enabled.
 
+Without an [originals cache](#originals-cache), an instance keeps the bytes
+of up to 64 recently used watermark images, each up to 1 MiB, in memory, so
+a watermark from an origin isn't downloaded for every processed image. A
+stale watermark is checked with its origin, as an original is.
+
 A stored response keeps its body, content type, and two response headers:
 `vary` and `cache-control`. Header names are stored in lower case.
 

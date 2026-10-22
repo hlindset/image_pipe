@@ -9,8 +9,10 @@ defmodule ImagePipe.Execution.Watermarks do
   # it reuses a fresh input-cache record, or fetches (revalidating a stale
   # record). `open_async/2` reads the bytes of assets that prepare did not
   # fetch, after an output-cache miss. Both read whole bodies into memory and
-  # release their input leases before returning.
+  # release their input leases before returning. Without an originals cache,
+  # an asset's bytes are kept in the instance's memory (`Cache.watermark_bytes/3`).
 
+  alias ImagePipe.Cache
   alias ImagePipe.Execution.SourceCache
   alias ImagePipe.Execution.Watermark
   alias ImagePipe.Plan.Spec
@@ -176,8 +178,11 @@ defmodule ImagePipe.Execution.Watermarks do
         SourceCache.immutable_record(source, config) || SourceCache.lookup(source, key, config)
 
       case SourceCache.status(record, source, config) do
-        :fresh -> {:ok, %{watermark | record: record}}
-        _validate -> acquire(watermark, record, config)
+        :fresh ->
+          {:ok, %{watermark | record: record, bytes: remembered(watermark, record, config)}}
+
+        _validate ->
+          acquire(watermark, record, config)
       end
     end
   end
@@ -190,7 +195,7 @@ defmodule ImagePipe.Execution.Watermarks do
 
       case acquisition.response do
         nil -> {:ok, watermark}
-        response -> leased_bytes(watermark, response, acquisition.lease, config)
+        _response -> leased_bytes(watermark, acquisition, config)
       end
     end
   end
@@ -204,15 +209,34 @@ defmodule ImagePipe.Execution.Watermarks do
   defp open(watermark, config) do
     with {:ok, acquisition} <-
            SourceCache.input(watermark.source, watermark.input_key, watermark.record, nil, config) do
-      leased_bytes(watermark, acquisition.response, acquisition.lease, config)
+      leased_bytes(watermark, acquisition, config)
     end
   end
 
-  defp leased_bytes(watermark, response, lease, config) do
-    with {:ok, bytes} <- read(response, config), do: {:ok, %{watermark | bytes: bytes}}
+  # The bytes are kept under the identity of the record they were read with,
+  # which can be newer than the one the request prepared with.
+  defp leased_bytes(watermark, %{record: record} = acquisition, config) do
+    with {:ok, bytes} <- read(acquisition.response, config) do
+      if remembers?(watermark, record, config),
+        do:
+          Cache.remember_watermark_bytes(watermark.input_key, record.byte_identity, bytes, config)
+
+      {:ok, %{watermark | bytes: bytes}}
+    end
   after
-    SourceCache.release(lease)
+    SourceCache.release(acquisition.lease)
   end
+
+  defp remembered(watermark, record, config) do
+    if remembers?(watermark, record, config),
+      do: Cache.watermark_bytes(watermark.input_key, record.byte_identity, config)
+  end
+
+  # With an originals cache, assets are read from it instead.
+  defp remembers?(watermark, record, config),
+    do:
+      not Keyword.has_key?(config, :input_cache) and
+        SourceCache.storable?(record, watermark.source)
 
   defp read(%Response{path: path}, config) when is_binary(path) do
     limit = Keyword.fetch!(config, :max_body_bytes)
