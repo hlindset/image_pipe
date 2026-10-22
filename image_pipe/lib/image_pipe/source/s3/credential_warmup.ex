@@ -79,4 +79,8 @@ defmodule ImagePipe.Source.S3.CredentialWarmup do
     _ = Credentials.warm({:provider, state.provider, state.opts})
     {:stop, :normal, state}
   end
+
+  # Provider options can hold credentials, such as AssumeRole's base keys.
+  @impl true
+  def format_status(%{state: state} = status), do: %{status | state: %{state | opts: :redacted}}
 end

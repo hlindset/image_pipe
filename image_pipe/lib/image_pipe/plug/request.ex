@@ -54,7 +54,7 @@ defmodule ImagePipe.Plug.Request do
     end
   end
 
-  # The parsed sources for telemetry, credentials redacted: the request's
+  # The parsed sources for telemetry, query values redacted: the request's
   # source, and each group's watermark source, decoded or decrypted.
   defp source_metadata(%Spec{groups: groups}, source) do
     watermarks =

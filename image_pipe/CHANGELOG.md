@@ -10,7 +10,7 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The `[:parse]` and `[:request]` stops and the request summary carry
   `:source_url`, the request's source as ImagePipe parsed it, decoded from
   `src64` or decrypted from `enc`, and `:watermark_source_urls`, each
-  group's watermark source. Credential parameters, such as
+  group's watermark source. Each query value, such as an
   `X-Amz-Signature`, and a URL's user name and password are replaced with
   `REDACTED`. The default Logger writes them as `source_url=` and
   `watermark_source_url=` fields, and the tracer records them on the
@@ -73,9 +73,13 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   path, and the `url.path` trace attribute end at the source: the first
   `src`, `src64`, or `enc` segment is followed by `REDACTED`, and the rest
   of the path and the query string are left out, as in
-  `/w=200/src/REDACTED`. Each `wm-src64=` value is `REDACTED` too. Read
-  the source from the new `:source_url` instead. Before, the path was as
-  sent, with only a presigned source's credentials redacted.
+  `/w=200/src/REDACTED`. Each `wm-src64=` value is `REDACTED` too,
+  including the rest of a standard-base64 value split at its `/`. A path
+  without a source keeps its query string, and `url.query`, with every
+  value replaced with `REDACTED`. Read the source from the new
+  `:source_url` instead. Before, the path was as sent, with only the values
+  of a fixed list of credential parameters redacted, so values such as a
+  `token` or `api_key` were logged.
 - **Breaking:** `enc` and `wm-enc=` sources are now visible to telemetry
   handlers, logs, and traces, decrypted, in `:source_url` and
   `:watermark_source_urls`. Source encryption hides a source from whoever
@@ -294,6 +298,11 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   for a `403` invalid signature, a `400` for a signed URL sent to a mount
   without signing keys, a `410` expired URL, and a `404` concealed source that doesn't
   decrypt. Before, these lines had no reason.
+- A crash report from a streaming response, or from
+  `ImagePipe.Source.S3.CredentialWarmup`, no longer prints the configured
+  origin credentials, such as S3 keys and authorization headers.
+- A request path with bytes that aren't valid UTF-8 no longer makes the
+  telemetry path invalid UTF-8. They become `U+FFFD`.
 - Request headers and cookies named in `vary_on` no longer select a separate
   stored original. Every value shares one stored original. Only the
   processed images differ. A new cachebuster still downloads the original
@@ -369,6 +378,12 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - A `region` whose x or y is `0pct` gets the cache key and ETag of the same
   region written with `0`. Cached copies of such requests miss once after an
   upgrade.
+- A detector whose `warmup/1` raises no longer stops its `ImagePipe`
+  instance. The warmup logs a warning and retries, as it does for
+  `{:error, reason}`. A detector whose `available?/1` raises is skipped
+  with a warning. Before, these crashes used up the instance's restart
+  limit, and every later request raised. A crash report from the warmup no
+  longer prints the detector's options.
 - `detect=all:3`, one weight for every class, gets the cache key and ETag of
   `detect=all`, since a weight that every class shares doesn't move the
   crop. Cached copies of such requests miss once after an upgrade.

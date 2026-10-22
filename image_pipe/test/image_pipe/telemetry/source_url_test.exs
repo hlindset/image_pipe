@@ -4,22 +4,19 @@ defmodule ImagePipe.Telemetry.SourceURLTest do
 
   alias ImagePipe.Telemetry
 
-  @credentials ~w(AWSAccessKeyId Signature sig X-Goog-Signature X-Goog-Credential
-                  X-Amz-Signature X-Amz-Credential X-Amz-Security-Token)
-
   describe "source_url/1" do
-    test "redacts credential values in any case and percent-encoding" do
+    test "redacts every query value and keeps the names" do
       assert Telemetry.source_url(
-               "https://o.test/a.jpg?X-Amz-Signature=s&x-amz-credential=k;%73ig=s&keep=1"
+               "https://o.test/a.jpg?X-Amz-Signature=s&token=t;hdnts=exp~1&v=2&flag&empty="
              ) ==
-               "https://o.test/a.jpg?X-Amz-Signature=REDACTED&x-amz-credential=REDACTED;" <>
-                 "%73ig=REDACTED&keep=1"
+               "https://o.test/a.jpg?X-Amz-Signature=REDACTED&token=REDACTED;" <>
+                 "hdnts=REDACTED&v=REDACTED&flag&empty=REDACTED"
     end
 
     test "reads the query as the origin does" do
       # A name after a second `?` is part of the value before it.
       assert Telemetry.source_url("https://o.test/a.jpg?a=b?sig=s") ==
-               "https://o.test/a.jpg?a=b?sig=s"
+               "https://o.test/a.jpg?a=REDACTED"
 
       # A fragment isn't part of the query.
       assert Telemetry.source_url("https://o.test/a.jpg#sig=s") == "https://o.test/a.jpg#sig=s"
@@ -33,7 +30,10 @@ defmodule ImagePipe.Telemetry.SourceURLTest do
                "https://REDACTED@o.test/a.jpg"
 
       assert Telemetry.source_url("//user@o.test/a@b.jpg") == "//REDACTED@o.test/a@b.jpg"
+      assert Telemetry.source_url("https://a@b@o.test") == "https://REDACTED@o.test"
       assert Telemetry.source_url("photos/a@2x.jpg") == "photos/a@2x.jpg"
+      assert Telemetry.source_url("photos//a@2x.jpg") == "photos//a@2x.jpg"
+      assert Telemetry.source_url("1http://user@o.test/a.jpg") == "1http://user@o.test/a.jpg"
     end
 
     test "gives valid UTF-8 with control characters percent-encoded" do
@@ -43,39 +43,24 @@ defmodule ImagePipe.Telemetry.SourceURLTest do
                "a.jpg%0A[error] GET /x%0D%09%7F"
     end
 
-    test "keeps sources without credentials as they are" do
-      for source <- ["photos/cat.jpg", "https://o.test/a.jpg?w=1&h=2", "s3://bucket/key.png"] do
+    test "keeps sources without a query or userinfo as they are" do
+      for source <- ["photos/cat.jpg", "https://o.test/a.jpg#top", "s3://bucket/key.png"] do
         assert Telemetry.source_url(source) == source
       end
     end
 
-    property "changes only credential values" do
+    property "keeps every name and redacts every value" do
       check all(
               base <- member_of(["https://o.test/a.jpg", "photos/a.jpg", "//o.test/b"]),
               params <-
                 list_of(
-                  tuple(
-                    {one_of([member_of(@credentials), string(?a..?z, min_length: 1)]),
-                     string(:alphanumeric, min_length: 1)}
-                  ),
+                  tuple({string(:alphanumeric, min_length: 1), string(:alphanumeric)}),
                   min_length: 1,
                   max_length: 6
-                ),
-              cases <- list_of(member_of([:as_is, :downcased]), length: length(params))
+                )
             ) do
-        pairs =
-          Enum.zip_with(params, cases, fn {name, value}, spelling ->
-            {if(spelling == :downcased, do: String.downcase(name), else: name), value}
-          end)
-
-        query = Enum.map_join(pairs, "&", fn {name, value} -> name <> "=" <> value end)
-
-        expected =
-          Enum.map_join(pairs, "&", fn {name, value} ->
-            if String.downcase(name) in Enum.map(@credentials, &String.downcase/1),
-              do: name <> "=REDACTED",
-              else: name <> "=" <> value
-          end)
+        query = Enum.map_join(params, "&", fn {name, value} -> name <> "=" <> value end)
+        expected = Enum.map_join(params, "&", fn {name, _value} -> name <> "=REDACTED" end)
 
         assert Telemetry.source_url(base <> "?" <> query) == base <> "?" <> expected
       end

@@ -13,7 +13,7 @@ defmodule ImagePipe.Telemetry.SourceURLWireTest do
 
   @secret "zzsecretvalue"
   @presigned "https://origin.test/beach.jpg?X-Amz-Signature=#{@secret}&keep=1"
-  @redacted "https://origin.test/beach.jpg?X-Amz-Signature=REDACTED&keep=1"
+  @redacted "https://origin.test/beach.jpg?X-Amz-Signature=REDACTED&keep=REDACTED"
   @mark "https://origin.test/mark.png?x-goog-credential=#{@secret}"
 
   setup %{test: test} do

@@ -218,6 +218,7 @@ defmodule ImagePipeServer.ConfigTest do
                read_timeout: 10_000,
                max_connections: 2048,
                health_port: nil,
+               health_ip: {0, 0, 0, 0},
                auth_token_hash: nil
              ]
 
@@ -565,6 +566,18 @@ defmodule ImagePipeServer.ConfigTest do
                })
              ).server[:port] ==
                65_535
+    end
+
+    test "takes the health listener's address from health_bind, or else bind" do
+      server = fn options ->
+        Config.build!(url: [allow_unsigned: true], server: options).server
+      end
+
+      assert server.(bind: "127.0.0.1")[:health_ip] == {127, 0, 0, 1}
+      assert server.(bind: "127.0.0.1", health_bind: "10.0.0.5")[:health_ip] == {10, 0, 0, 5}
+
+      assert error(fn -> server.(health_bind: "host") end) ==
+               "invalid configuration: server.health_bind: expected an IP address"
     end
 
     test "rejects a health_port equal to port" do

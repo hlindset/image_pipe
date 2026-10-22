@@ -282,26 +282,25 @@ defmodule ImagePipe.Telemetry do
   def error_tag(tag) when is_atom(tag), do: tag
   def error_tag(_reason), do: :error
 
-  # Query parameters that carry an origin's credentials in a presigned source
-  # URL: OTel's list for `url.query`, plus the AWS and Google ones it leaves
-  # out.
-  @credential_params ~w(awsaccesskeyid signature sig x-goog-signature x-goog-credential
-                        x-amz-signature x-amz-credential x-amz-security-token)
-
   @doc false
   # A request's path and query for telemetry, cut at the source: the first
   # `src`, `src64`, or `enc` segment with anything after it is followed by
   # `REDACTED`, and nothing after it is kept. `wm-src64=` tokens become
-  # `REDACTED`. A query after a source is the source's own, so it's dropped.
-  # Without a source, credential values in the query become `REDACTED`.
-  # Nothing is decoded, so the work stays linear in the path's length.
+  # `REDACTED`, along with the segments after one that only base64 could
+  # make, which are the rest of a standard-base64 token split at its `/`. A
+  # query after a source is the source's own, so it's dropped. Without a
+  # source, the query's values become `REDACTED`. Nothing is decoded, so the
+  # work stays linear in the path's length. Invalid UTF-8 is replaced.
   @spec request_path(String.t(), String.t()) :: String.t()
   def request_path(path, query) do
-    case cut_path(String.split(path, "/"), []) do
-      {:cut, segments} -> Enum.join(segments, "/")
-      {:whole, segments} when query == "" -> Enum.join(segments, "/")
-      {:whole, segments} -> Enum.join(segments, "/") <> "?" <> redact_params(query)
-    end
+    path =
+      case cut_path(String.split(path, "/"), []) do
+        {:cut, segments} -> Enum.join(segments, "/")
+        {:whole, segments} when query == "" -> Enum.join(segments, "/")
+        {:whole, segments} -> Enum.join(segments, "/") <> "?" <> redact_params(query)
+      end
+
+    valid_utf8(path)
   end
 
   @source_markers ~w(src src64 enc)
@@ -310,31 +309,86 @@ defmodule ImagePipe.Telemetry do
     do: {:cut, Enum.reverse(["REDACTED", marker | acc])}
 
   defp cut_path(["wm-src64=" <> _token | rest], acc),
-    do: cut_path(rest, ["wm-src64=REDACTED" | acc])
+    do: rest |> drop_base64_pieces() |> cut_path(["wm-src64=REDACTED" | acc])
 
   defp cut_path([segment | rest], acc), do: cut_path(rest, [segment | acc])
   defp cut_path([], acc), do: {:whole, Enum.reverse(acc)}
 
+  defp drop_base64_pieces([segment | rest] = segments) do
+    if segment not in @source_markers and base64_piece?(segment),
+      do: drop_base64_pieces(rest),
+      else: segments
+  end
+
+  defp drop_base64_pieces([]), do: []
+
+  # Standard base64 characters, with `=` padding only at the end.
+  defp base64_piece?(<<char, rest::binary>>)
+       when char in ?A..?Z or char in ?a..?z or char in ?0..?9 or char == ?+,
+       do: base64_piece?(rest)
+
+  defp base64_piece?(padding), do: padding in ["", "=", "=="]
+
   @doc false
-  # A parsed source for telemetry: credential values in its query, and any
-  # userinfo, become `REDACTED`. The query runs from the first `?` to a `#`,
-  # as the origin reads it. A source is decoded from the request without a
-  # UTF-8 check, so invalid bytes are replaced and control characters
+  # A parsed source for telemetry: its query values, and any userinfo,
+  # become `REDACTED`. The query runs from the first `?` to a `#`, as the
+  # origin reads it. A source is decoded from the request without a UTF-8
+  # check, so invalid bytes are replaced and control characters
   # percent-encoded, keeping log lines whole and valid.
   @spec source_url(String.t()) :: String.t()
   def source_url(source) do
-    source =
-      source
-      |> String.replace_invalid()
-      |> then(&Regex.replace(~r/[\x00-\x1F\x7F]/, &1, fn char -> "%" <> Base.encode16(char) end))
-
+    source = source |> valid_utf8() |> encode_controls()
     {resource, fragment} = split_once(source, "#")
     {base, query} = split_once(resource, "?")
-    base = Regex.replace(~r{\A((?:[A-Za-z][A-Za-z0-9+.-]*:)?//)[^/]*@}, base, "\\1REDACTED@")
     query = if query, do: "?" <> redact_params(query), else: ""
     fragment = if fragment, do: "#" <> fragment, else: ""
-    base <> query <> fragment
+    redact_userinfo(base) <> query <> fragment
   end
+
+  defp valid_utf8(string) do
+    if String.valid?(string), do: string, else: String.replace_invalid(string)
+  end
+
+  defp encode_controls(string) do
+    if controls?(string),
+      do: for(<<char <- string>>, into: "", do: encode_control(char)),
+      else: string
+  end
+
+  defp controls?(<<char, _rest::binary>>) when char < 0x20 or char == 0x7F, do: true
+  defp controls?(<<_char, rest::binary>>), do: controls?(rest)
+  defp controls?(<<>>), do: false
+
+  defp encode_control(char) when char < 0x20 or char == 0x7F, do: "%" <> Base.encode16(<<char>>)
+  defp encode_control(char), do: <<char>>
+
+  # The userinfo is everything up to the authority's last `@`, in a URL that
+  # starts with `//` or a scheme and `//`.
+  defp redact_userinfo(base) do
+    with [prefix, rest] <- :binary.split(base, "//"),
+         true <- prefix == "" or scheme?(prefix),
+         {authority, path} = split_once(rest, "/"),
+         [_ | _] = ats <- :binary.matches(authority, "@") do
+      {at, 1} = List.last(ats)
+      after_at = binary_part(authority, at + 1, byte_size(authority) - at - 1)
+      prefix <> "//REDACTED@" <> after_at <> if(path, do: "/" <> path, else: "")
+    else
+      _no_userinfo -> base
+    end
+  end
+
+  defp scheme?(<<first, rest::binary>>) when first in ?A..?Z or first in ?a..?z,
+    do: scheme_rest?(rest)
+
+  defp scheme?(_prefix), do: false
+
+  defp scheme_rest?(":"), do: true
+
+  defp scheme_rest?(<<char, rest::binary>>)
+       when char in ?A..?Z or char in ?a..?z or char in ?0..?9 or char in [?+, ?., ?-],
+       do: scheme_rest?(rest)
+
+  defp scheme_rest?(_rest), do: false
 
   defp split_once(string, separator) do
     case :binary.split(string, separator) do
@@ -343,31 +397,28 @@ defmodule ImagePipe.Telemetry do
     end
   end
 
-  # Parameters are split on `&` and `;`. A name matches in any case and
-  # percent-encoding, as an origin reads it.
-  defp redact_params(query), do: query |> redact_params([]) |> IO.iodata_to_binary()
+  # Parameters are split on `&` and `;`, and each value becomes `REDACTED`.
+  defp redact_params(query) do
+    query
+    |> :binary.split(["&", ";"], [:global])
+    |> redact_pairs(query, 0, [])
+    |> IO.iodata_to_binary()
+  end
 
-  defp redact_params(query, acc) do
-    case :binary.match(query, ["&", ";"]) do
-      {position, 1} ->
-        pair = binary_part(query, 0, position)
-        separator = binary_part(query, position, 1)
-        rest = binary_part(query, position + 1, byte_size(query) - position - 1)
-        redact_params(rest, [acc, redact_param(pair), separator])
+  # The separator after each pair is read back from the query at its offset.
+  defp redact_pairs([pair], _query, _offset, acc), do: Enum.reverse([redact_param(pair) | acc])
 
-      :nomatch ->
-        [acc, redact_param(query)]
-    end
+  defp redact_pairs([pair | rest], query, offset, acc) do
+    separator = binary_part(query, offset + byte_size(pair), 1)
+    redact_pairs(rest, query, offset + byte_size(pair) + 1, [separator, redact_param(pair) | acc])
   end
 
   defp redact_param(pair) do
-    case String.split(pair, "=", parts: 2) do
-      [name, _value] -> if credential_param?(name), do: name <> "=REDACTED", else: pair
+    case :binary.split(pair, "=") do
+      [name, _value] -> [name, "=REDACTED"]
       [_name] -> pair
     end
   end
-
-  defp credential_param?(name), do: String.downcase(URI.decode(name)) in @credential_params
 
   @doc false
   @spec span(keyword(), [atom()], map() | keyword(), (-> term())) :: term()

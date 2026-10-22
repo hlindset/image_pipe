@@ -38,6 +38,18 @@ defmodule ImagePipeServer.RouterTest do
       end
     end
 
+    test "answer not ready while the instance isn't running", %{image_pipe: image_pipe} do
+      opts = [mount_path: "/", image_pipe: image_pipe, drain: serving()]
+
+      assert %{status: 503, resp_body: "unavailable"} =
+               call(:get, "/health/ready", [instance: __MODULE__.Stopped] ++ opts)
+
+      assert %{status: 200} = call(:get, "/health/live", [instance: __MODULE__.Stopped] ++ opts)
+
+      Process.register(self(), __MODULE__.Running)
+      assert %{status: 200} = call(:get, "/health/ready", [instance: __MODULE__.Running] ++ opts)
+    end
+
     test "answer not ready before the server is serving", %{image_pipe: image_pipe} do
       opts = [mount_path: "/", image_pipe: image_pipe, drain: Health.new()]
 

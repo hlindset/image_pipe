@@ -145,6 +145,7 @@ defmodule ImagePipeServer.Application do
   def router_options(%Config{} = config, drain) do
     [
       drain: drain,
+      instance: @instance,
       mount_path: Keyword.fetch!(config.server, :mount_path),
       image_pipe: ImagePipe.Plug.init([instance: @instance] ++ config.http),
       auth_token_hash: Keyword.fetch!(config.server, :auth_token_hash),
@@ -181,9 +182,10 @@ defmodule ImagePipeServer.Application do
   def health_child(%Config{server: server} = config, drain) do
     if port = Keyword.get(server, :health_port) do
       {Bandit,
-       plug: {Health, drain: drain, stats: stats_options(config)},
+       plug: {Health, drain: drain, instance: @instance, stats: stats_options(config)},
        port: port,
-       ip: Keyword.fetch!(server, :ip),
+       ip: Keyword.fetch!(server, :health_ip),
+       http_options: [log_protocol_errors: false],
        http_2_options: [enabled: false],
        thousand_island_options: [
          num_acceptors: 1,
@@ -195,7 +197,9 @@ defmodule ImagePipeServer.Application do
   end
 
   # Images are already compressed, and negotiating content encoding would add
-  # `Vary: Accept-Encoding` to every response. HTTP/2 cleartext is off: Bandit
+  # `Vary: Accept-Encoding` to every response. Bandit's log line for a
+  # malformed request quotes the request's raw bytes, credentials included, so
+  # both listeners turn it off. HTTP/2 cleartext is off: Bandit
   # closes an HTTP/2 connection that is quiet for read_timeout, even while a
   # slow image is still being made, losing every stream on it.
   @doc false
@@ -205,7 +209,7 @@ defmodule ImagePipeServer.Application do
      plug: plug,
      port: Keyword.fetch!(server, :port),
      ip: Keyword.fetch!(server, :ip),
-     http_options: [compress: false],
+     http_options: [compress: false, log_protocol_errors: false],
      http_2_options: [enabled: false],
      thousand_island_options: [
        # ThousandIsland caps connections per acceptor, and an acceptor at its

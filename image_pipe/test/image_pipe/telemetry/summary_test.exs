@@ -541,7 +541,10 @@ defmodule ImagePipe.Telemetry.SummaryTest do
 
     assert_received {:summary, _m, summary}
     assert summary.path == "/w=40/src/REDACTED"
-    assert summary.source_url == "https://origin.test/beach.jpg?X-Amz-Signature=REDACTED&keep=1"
+
+    assert summary.source_url ==
+             "https://origin.test/beach.jpg?X-Amz-Signature=REDACTED&keep=REDACTED"
+
     refute Map.has_key?(summary, :watermark_source_urls)
   end
 

@@ -39,6 +39,24 @@ defmodule ImagePipe.Telemetry.RequestPathTest do
                "/wm-src64=REDACTED/-/wm-src64=REDACTED"
     end
 
+    test "folds a standard base64 token's tail into the redacted wm-src64 token" do
+      assert Telemetry.request_path("/wm-src64=aHR0/cHM6+Ly9v/LnRl==/w=40/src/a.jpg", "") ==
+               "/wm-src64=REDACTED/w=40/src/REDACTED"
+
+      for next <- ["-", "wm-tile", "w=40", "rs=fill:10:10", "a.jpg"] do
+        assert Telemetry.request_path("/wm-src64=a/b/#{next}", "") ==
+                 "/wm-src64=REDACTED/#{next}"
+      end
+
+      assert Telemetry.request_path("/wm-src64=a/b/src/c", "") ==
+               "/wm-src64=REDACTED/src/REDACTED"
+    end
+
+    test "replaces bytes that aren't valid UTF-8" do
+      assert Telemetry.request_path(<<"/w=40/", 0xFF, ".jpg">>, "") == "/w=40/\uFFFD.jpg"
+      assert Telemetry.request_path("/w=40", <<"v=1&", 0xFF>>) == "/w=40?v=REDACTED&\uFFFD"
+    end
+
     test "keeps the URL signature, wm-enc tokens, and other options" do
       path = "/sig=abc/wm-enc=AQRTMotB/w=40/rs=fill:10:10/src/a.jpg"
 
@@ -51,14 +69,11 @@ defmodule ImagePipe.Telemetry.RequestPathTest do
                "/w=40/src/REDACTED"
     end
 
-    test "redacts credential values in the query string of a path without a marker" do
-      assert Telemetry.request_path(
-               "/w=40",
-               "X-Amz-Signature=abc&x-amz-credential=key;%73ig=s&keep=1"
-             ) ==
-               "/w=40?X-Amz-Signature=REDACTED&x-amz-credential=REDACTED;%73ig=REDACTED&keep=1"
+    test "redacts every value in the query string of a path without a marker" do
+      assert Telemetry.request_path("/w=40", "X-Amz-Signature=abc&token=key;keep=1&flag") ==
+               "/w=40?X-Amz-Signature=REDACTED&token=REDACTED;keep=REDACTED&flag"
 
-      assert Telemetry.request_path("/favicon.ico", "v=2") == "/favicon.ico?v=2"
+      assert Telemetry.request_path("/favicon.ico", "v=2") == "/favicon.ico?v=REDACTED"
       assert Telemetry.request_path("/w=40", "") == "/w=40"
     end
   end
@@ -146,12 +161,14 @@ defmodule ImagePipe.Telemetry.RequestPathTest do
   defp encoded_url(secret) do
     gen all(
           url <- presigned_url(secret),
-          spelling <- member_of([:escaped, :base64url, :base64url_padded, :base64_escaped])
+          spelling <-
+            member_of([:escaped, :base64url, :base64url_padded, :base64, :base64_escaped])
         ) do
       case spelling do
         :escaped -> URI.encode_www_form(url)
         :base64url -> Base.url_encode64(url, padding: false)
         :base64url_padded -> Base.url_encode64(url)
+        :base64 -> Base.encode64(url)
         :base64_escaped -> URI.encode_www_form(Base.encode64(url))
       end
     end

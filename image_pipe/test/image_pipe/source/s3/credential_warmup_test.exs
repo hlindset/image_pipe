@@ -73,6 +73,14 @@ defmodule ImagePipe.Source.S3.CredentialWarmupTest do
     refute_received {:warmed, :warm}
   end
 
+  # The worker stops right after it starts the fetch, so its status is read
+  # through the callback a crash report uses.
+  test "status diagnostics leave out the provider options" do
+    secret = "fake-base-secret"
+    state = %{provider: OnceProvider, opts: [secret_access_key: secret]}
+    refute inspect(CredentialWarmup.format_status(%{state: state})) =~ secret
+  end
+
   test "warmups for different provider options start side by side without explicit ids" do
     for id <- [:first, :second],
         do:

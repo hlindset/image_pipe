@@ -77,7 +77,9 @@ def warmup(_opts), do: MyApp.Model.load()
 
 While `ready?/1` returns `false`, a Plug configured with
 `detector_required: true` answers `503` to `detect` requests. `warmup/1`
-returns `:ok` or `{:error, reason}`.
+returns `:ok` or `{:error, reason}`. A warmup that fails or raises is logged
+as a warning and retried, waiting up to a minute between attempts. If
+`available?/1` raises, the warmup is skipped with a warning.
 
 If the detector can't run at all in some builds, return `false` from
 `available?/1` and `{:error, {:detector, :unavailable}}` from `detect/2`,

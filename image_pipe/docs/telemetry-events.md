@@ -73,9 +73,8 @@ would be `nil` is left out of the metadata.
 
 `:exception` events also carry `:kind`, `:reason`, and `:stacktrace`.
 
-Metadata never includes signing or encryption keys. Source URLs carry a
-presigned URL's credential parameters, and a user name and password, as
-`REDACTED`. [What events contain](telemetry.md#what-events-contain) lists
+Metadata never includes signing or encryption keys. In source URLs, each
+query value and any user name and password are replaced with `REDACTED`. [What events contain](telemetry.md#what-events-contain) lists
 the paths and source URLs metadata includes.
 
 ## Result values
@@ -114,12 +113,12 @@ stages. `ImagePipe.write/5` writes its destination after the span closes.
       is followed by `REDACTED`, and the rest of the path and the query string
       are left out, as in `/w=200/src/REDACTED`. Once the request parses,
       the source is in `:source_url` on the `[:request]` stop.
-    - Each `wm-src64=` value is replaced with `REDACTED`.
-    - Without a source segment, the query string is kept, with the values
-      of credential parameters (`AWSAccessKeyId`, `Signature`, `sig`,
-      `X-Goog-Signature`, `X-Goog-Credential`, `X-Amz-Signature`,
-      `X-Amz-Credential`, and `X-Amz-Security-Token`, matched in any case or
-      percent-encoding) replaced with `REDACTED`.
+    - Each `wm-src64=` value is replaced with `REDACTED`. A value in
+      standard base64 can hold `/`, so the segments after it made only of
+      base64 characters are dropped too.
+    - Without a source segment, the query string is kept with each value
+      replaced with `REDACTED`, as in `?v=REDACTED`.
+    - Bytes that aren't valid UTF-8 become `U+FFFD`.
     - Other segments are kept as sent, including the URL signature (`sig=`)
       and `wm-enc=` values.
 - Stop metadata:
@@ -219,12 +218,11 @@ preset lookup, and URL parsing. Why a request was rejected is on the
   - `:source_url` (string): the request's source as ImagePipe parsed it, on
     success: a `src` source percent-decoded, a `src64` source decoded from
     base64, or an `enc` source decrypted. It's a URL or a path, such as
-    `photos/cat.jpg`. The values of credential parameters in its query
-    string (listed under [`[:request]`](#request)) are replaced with
-    `REDACTED`, and so is a user name and password, as in
-    `https://REDACTED@origin.example/cat.jpg`. Bytes that aren't valid
-    UTF-8 become `U+FFFD`, and control characters, such as a line break,
-    are percent-encoded (`%0A`).
+    `photos/cat.jpg`. Each value in its query string is replaced with
+    `REDACTED`, as in `?X-Amz-Signature=REDACTED`, and so is a user name and
+    password, as in `https://REDACTED@origin.example/cat.jpg`. Bytes that
+    aren't valid UTF-8 become `U+FFFD`, and control characters, such as a
+    line break, are percent-encoded (`%0A`).
   - `:watermark_source_urls` (list of strings): the watermark source of each
     group that has one, set with `wm-src64=` or `wm-enc=` or by a preset, in
     group order, with credentials replaced the same way. Absent when no
