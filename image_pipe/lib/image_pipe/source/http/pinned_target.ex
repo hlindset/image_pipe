@@ -86,7 +86,7 @@ defmodule ImagePipe.Source.HTTP.PinnedTarget do
     [{:name, name} | request_options] =
       finch |> Keyword.put(:conn_opts, conn_opts) |> named_pool()
 
-    key = {name, scheme(url), address, url.port, hostname}
+    key = {scheme(url), address, url.port, hostname, name}
     tag = PinnedPools.tag(hostname, PinnedPools.generation(key))
 
     {Req.merge(%{req | url: url}, finch: [name: name, pool_tag: tag] ++ request_options), key}
