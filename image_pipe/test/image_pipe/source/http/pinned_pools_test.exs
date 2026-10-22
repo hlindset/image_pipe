@@ -49,6 +49,23 @@ defmodule ImagePipe.Source.HTTP.PinnedPoolsTest do
     sweep_until_closed(now + @idle + 2 * @interval + 3, slow)
   end
 
+  test "a sweep survives a Finch instance that stopped after a pool was retired" do
+    origin = start_origin()
+    assert fetch_body(origin.port) == "image bytes"
+
+    now = System.monotonic_time(:millisecond)
+    PinnedPools.sweep(now + @idle + 1)
+
+    for {_id, pid, _type, _modules} <- DynamicSupervisor.which_children(HTTP.Pools),
+        do: DynamicSupervisor.terminate_child(HTTP.Pools, pid)
+
+    pinned_pools = Process.whereis(PinnedPools)
+    assert PinnedPools.sweep(now + @idle + @interval + 2) == :ok
+    assert Process.whereis(PinnedPools) == pinned_pools
+
+    assert fetch_body(origin.port) == "image bytes"
+  end
+
   # A sweep stops a retired pool only once Finch reports it idle. Finch's
   # request process checks the connection in with a message of its own, which
   # nothing orders against the fetch's return, so the sweep runs again until
