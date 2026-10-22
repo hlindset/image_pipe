@@ -82,6 +82,38 @@ defmodule ImagePipe.Transform.Detector.WarmupTest do
     end
   end
 
+  # Raises until its second attempt.
+  defmodule RaisingDetector do
+    @behaviour ImagePipe.Transform.Detector
+    @impl true
+    def supported_classes(_o), do: ["face"]
+    @impl true
+    def detect(_i, _o), do: {:error, :boom}
+    @impl true
+    def available?(_o), do: true
+    @impl true
+    def identity(_o), do: {__MODULE__, :raising}
+    @impl true
+    def warmup(opts) do
+      counter = Keyword.fetch!(opts, :counter)
+      :counters.add(counter, 1, 1)
+      send(Keyword.fetch!(opts, :test_pid), {:warmup_attempt, self()})
+      if :counters.get(counter, 1) >= 2, do: :ok, else: raise("model download crashed")
+    end
+  end
+
+  defmodule RaisingAvailabilityDetector do
+    @behaviour ImagePipe.Transform.Detector
+    @impl true
+    def supported_classes(_o), do: ["face"]
+    @impl true
+    def detect(_i, _o), do: {:error, :boom}
+    @impl true
+    def available?(_o), do: raise("availability check crashed")
+    @impl true
+    def identity(_o), do: {__MODULE__, :raising}
+  end
+
   test "async warmup does not block start and terminates :normal" do
     pid =
       start_supervised!(
@@ -134,6 +166,37 @@ defmodule ImagePipe.Transform.Detector.WarmupTest do
 
     assert log =~
              "detector warmup succeeded for #{inspect(FlakyDetector)} after 4 failed attempts"
+  end
+
+  test "a raising warmup is logged and retried like a failure" do
+    opts = [test_pid: self(), counter: :counters.new(1, []), api_key: "fake-detector-secret"]
+
+    log =
+      capture_log(fn ->
+        pid =
+          start_supervised!({Warmup, detector: RaisingDetector, classes: ["face"], opts: opts})
+
+        ref = Process.monitor(pid)
+        assert_receive {:warmup_attempt, ^pid}
+        refute inspect(:sys.get_status(pid), limit: :infinity) =~ "fake-detector-secret"
+        send(pid, :retry)
+        assert_receive {:warmup_attempt, ^pid}
+        assert_receive {:DOWN, ^ref, :process, ^pid, :normal}
+      end)
+
+    assert log =~ "detector warmup failed"
+    assert log =~ "model download crashed"
+  end
+
+  test "a raising availability check skips the warmup" do
+    log =
+      capture_log(fn ->
+        pid = start_supervised!({Warmup, detector: RaisingAvailabilityDetector, classes: []})
+        ref = Process.monitor(pid)
+        assert_receive {:DOWN, ^ref, :process, ^pid, reason} when reason in [:normal, :noproc]
+      end)
+
+    assert log =~ "availability check crashed"
   end
 
   test "nil detector disables warmup as a clean no-op" do

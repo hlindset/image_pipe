@@ -378,6 +378,12 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - A `region` whose x or y is `0pct` gets the cache key and ETag of the same
   region written with `0`. Cached copies of such requests miss once after an
   upgrade.
+- A detector whose `warmup/1` raises no longer stops its `ImagePipe`
+  instance. The warmup logs a warning and retries, as it does for
+  `{:error, reason}`. A detector whose `available?/1` raises is skipped
+  with a warning. Before, these crashes used up the instance's restart
+  limit, and every later request raised. A crash report from the warmup no
+  longer prints the detector's options.
 - `detect=all:3`, one weight for every class, gets the cache key and ETag of
   `detect=all`, since a weight that every class shares doesn't move the
   crop. Cached copies of such requests miss once after an upgrade.

@@ -12,12 +12,13 @@ defmodule ImagePipe.Transform.Detector.Warmup do
   `:detector` accepts `:default` (the bundled adapter, used when omitted), `nil`
   (no work), or a custom detector module, matching the plug option.
 
-  A failed warmup is logged as a warning and retried, with exponential backoff
-  capped at a minute, until it succeeds. A success after failures is logged at
-  info level. After it succeeds, the worker exits normally, so
-  `restart: :transient` does not restart it. Unavailable detectors are
-  skipped. It does not trap exits; shutdown during a download needs no
-  cleanup.
+  A failed warmup, including one that raises or exits, is logged as a warning
+  and retried, with exponential backoff capped at a minute, until it
+  succeeds. A success after failures is logged at info level. After it
+  succeeds, the worker exits normally, so `restart: :transient` does not
+  restart it. Unavailable detectors are skipped, and so is a detector whose
+  `available?/1` raises, with a warning. It does not trap exits; shutdown
+  during a download needs no cleanup.
 
   Model loading runs in `handle_continue/2`, allowing `start_link/1` to return
   without waiting for the download.
@@ -64,16 +65,26 @@ defmodule ImagePipe.Transform.Detector.Warmup do
   defp start(state, module) do
     opts = Keyword.put(state.opts, :classes, state.classes)
 
-    if module.available?(opts) do
-      attempt(Map.merge(state, %{module: module, warmup_opts: opts, failures: 0}))
-    else
-      Logger.warning("ImagePipe detector warmup skipped: #{inspect(module)} is unavailable")
-      {:stop, :normal, state}
+    case guarded(fn -> module.available?(opts) end) do
+      true ->
+        attempt(Map.merge(state, %{module: module, warmup_opts: opts, failures: 0}))
+
+      false ->
+        Logger.warning("ImagePipe detector warmup skipped: #{inspect(module)} is unavailable")
+        {:stop, :normal, state}
+
+      {:error, reason} ->
+        Logger.warning(
+          "ImagePipe detector warmup skipped: #{inspect(module)}.available?/1 " <>
+            "failed (#{inspect(reason)})"
+        )
+
+        {:stop, :normal, state}
     end
   end
 
   defp attempt(state) do
-    case Detector.warmup(state.module, state.warmup_opts) do
+    case guarded(fn -> Detector.warmup(state.module, state.warmup_opts) end) do
       :ok ->
         if state.failures > 0 do
           Logger.info(
@@ -95,6 +106,21 @@ defmodule ImagePipe.Transform.Detector.Warmup do
         {:noreply, %{state | failures: state.failures + 1}}
     end
   end
+
+  # The detector is the host's code. A crash here would restart the worker
+  # until it took its instance down, so it counts as a failed attempt.
+  defp guarded(fun) do
+    fun.()
+  rescue
+    exception -> {:error, {:raised, Exception.message(exception)}}
+  catch
+    :exit, reason -> {:error, {:exit, reason}}
+  end
+
+  # The detector's options can hold credentials, such as an API key.
+  @impl true
+  def format_status(%{state: state} = status),
+    do: %{status | state: Map.drop(state, [:opts, :warmup_opts])}
 
   defp attempts(1), do: "attempt"
   defp attempts(_failures), do: "attempts"
