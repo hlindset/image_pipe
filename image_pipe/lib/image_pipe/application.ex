@@ -7,7 +7,8 @@ defmodule ImagePipe.Application do
       ImagePipe.Cache,
       ImagePipe.Execution,
       ImagePipe.Output,
-      ImagePipe.Source
+      ImagePipe.Source,
+      ImagePipe.SrgbProfile
     ]
 
   use Application
@@ -21,6 +22,7 @@ defmodule ImagePipe.Application do
     Capabilities.probe()
 
     children = [
+      ImagePipe.SrgbProfile,
       {Task.Supervisor, name: ImagePipe.ProcessingPool.Tasks},
       {DynamicSupervisor, name: ImagePipe.Source.Downloads, strategy: :one_for_one},
       {DynamicSupervisor, name: ImagePipe.Source.HTTP.Pools, strategy: :one_for_one},

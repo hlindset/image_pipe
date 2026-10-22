@@ -251,7 +251,8 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Cache,
       ImagePipe.Execution,
       ImagePipe.Output,
-      ImagePipe.Source
+      ImagePipe.Source,
+      ImagePipe.SrgbProfile
     ])
 
     assert_boundary_exports(application, [])
