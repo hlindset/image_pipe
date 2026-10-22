@@ -94,6 +94,11 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   can wait to be written. Lines past that are dropped, and a `notice` line
   says when dropping starts and stops. See
   [Logging](docs/server-deployment.md#logging).
+- A request that chains many operations, such as a watermark in each of a
+  dozen groups, no longer crashes the server. libvips ran out of stack
+  rendering the chain. The image is now copied to memory once six
+  operations have run since its last copy, and libvips gets 8 MB of stack,
+  up from 320 KB.
 
 ## [0.3.0] - 2026-10-18
 

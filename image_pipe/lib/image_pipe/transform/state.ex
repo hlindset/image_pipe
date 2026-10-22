@@ -20,6 +20,10 @@ defmodule ImagePipe.Transform.State do
   #   would repeat: an arbitrary rotation, or a blur or sharpen. Resize and
   #   random-access steps buffer it first; materialization and orientation
   #   flush clear the flag.
+  # - `lazy_steps`: the operations run since the image was last copied to
+  #   memory. libvips recurses through the whole lazy graph when it reads or
+  #   frees it, and a deep graph overflows a native thread's stack, so
+  #   `ImagePipe.Transform.Executor.Step` copies the image after a few.
   # - `blur_work`: the work of the blurs and sharpens run so far in this
   #   request, which together can't exceed `max_blur_work`.
   # - `source_dimensions`: exact full-resolution `{w, h}` before shrink-on-load,
@@ -68,6 +72,7 @@ defmodule ImagePipe.Transform.State do
             max_blur_work: 4_000_000_000_000,
             blur_work: 0,
             rebuffer?: false,
+            lazy_steps: 0,
             dpr: 1.0,
             detections: 0,
             detection_frame: nil,
@@ -90,6 +95,7 @@ defmodule ImagePipe.Transform.State do
           max_blur_work: pos_integer() | :infinity,
           blur_work: non_neg_integer(),
           rebuffer?: boolean(),
+          lazy_steps: non_neg_integer(),
           dpr: float(),
           detections: non_neg_integer(),
           detection_frame: Vix.Vips.Image.t() | nil,

@@ -13,6 +13,12 @@ defmodule ImagePipe.Transform.Executor.Step do
   # lazy frame below them, such as an enlarge or a color conversion, once per
   # window. Buffering first made sharpen=10 after an 8000x8000 enlarge 14x
   # faster, and blur=20 there 20x faster.
+  #
+  # Streaming operations also buffer after every `@max_lazy_steps` of them.
+  # libvips recurses through the whole lazy graph when it reads or frees it,
+  # one frame per operation, on a thread whose stack may be a few hundred
+  # kilobytes, such as a BEAM dirty scheduler. A dozen watermark groups
+  # overflowed it and crashed the VM.
   @moduledoc false
 
   alias ImagePipe.Telemetry
@@ -38,6 +44,8 @@ defmodule ImagePipe.Transform.Executor.Step do
   alias ImagePipe.Transform.Operation.Watermark
   alias ImagePipe.Transform.State
   alias ImagePipe.Transform.WorkLimits
+
+  @max_lazy_steps 6
 
   defp step(%Background{}), do: {:background, &Background.execute/2}
   defp step(%Bitonal{}), do: {:bitonal, &Bitonal.execute/2}
@@ -120,9 +128,10 @@ defmodule ImagePipe.Transform.Executor.Step do
   # reads it in overlapping regions, which would recompute it past what
   # `max_blur_work` allows, so that step buffers it first.
   defp settle(%State{} = state, %operation{}) when operation in [Blur, ProgressiveBlur, Sharpen],
-    do: %State{state | rebuffer?: true}
+    do: %State{state | rebuffer?: true, lazy_steps: state.lazy_steps + 1}
 
-  defp settle(state, _operation), do: state
+  defp settle(%State{} = state, _operation),
+    do: %State{state | lazy_steps: state.lazy_steps + 1}
 
   # Checked before materializing, so a rejected convolution buffers nothing.
   defp work_limit(%Blur{sigma: sigma}, state), do: convolution_limit(state, sigma)
@@ -141,6 +150,9 @@ defmodule ImagePipe.Transform.Executor.Step do
   # no detection or saliency and needs no materialization.
   defp moot?(%Crop{} = crop, state), do: random_access?(crop) and Crop.covers_image?(crop, state)
   defp moot?(_operation, _state), do: false
+
+  defp prepare(%State{lazy_steps: steps} = state, _operation) when steps >= @max_lazy_steps,
+    do: Materializer.materialize(state)
 
   defp prepare(state, operation) do
     if random_access?(operation), do: materialize(state), else: {:ok, state}

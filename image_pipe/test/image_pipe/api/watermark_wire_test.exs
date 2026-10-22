@@ -5,6 +5,7 @@ defmodule ImagePipe.API.WatermarkWireTest do
   import Plug.Test
 
   alias ImagePipe.SourceTest.RootHTTPAdapter
+  alias ImagePipe.Test.MultiFrameSources
   alias Vix.Vips.Image, as: VipsImage
   alias Vix.Vips.MutableImage
   alias Vix.Vips.Operation, as: VipsOperation
@@ -32,6 +33,8 @@ defmodule ImagePipe.API.WatermarkWireTest do
       "gray.png" => png(Image.new!(60, 40, color: [96, 96, 96])),
       "rotated.jpg" => rotated_jpeg(),
       "corrupt.png" => "not an image",
+      "noise.png" => png(noise()),
+      "frames.gif" => MultiFrameSources.repeated_frame_gif(3),
       "deep.png" => deep_png()
     }
 
@@ -118,6 +121,15 @@ defmodule ImagePipe.API.WatermarkWireTest do
       assert dimensions(later) == {30, 20}
       assert dimensions(inside) == {30, 20}
       refute pixels(later) == pixels(inside)
+    end
+
+    # libvips recurses through the whole lazy graph when it renders or frees
+    # it, and a deep enough graph overflowed the native stack and killed the VM.
+    test "watermarks in as many groups as a URL holds render", %{config: config} do
+      marked = image(Enum.map_join(1..31, "/-/", fn _group -> "wm=logo" end), config)
+      assert dimensions(marked) == {60, 40}
+      assert pixel(marked, 30, 20) == @red
+      assert pixel(marked, 0, 0) == @blue
     end
   end
 
@@ -440,6 +452,23 @@ defmodule ImagePipe.API.WatermarkWireTest do
     test "an undecodable asset fails as unsupported media", %{config: config} do
       assert response("wm=corrupt", config).status == 415
     end
+
+    test "assets meet the main source's input limits", %{origin: origin} do
+      for {limit, asset} <- [
+            {[max_body_bytes: 5_000], "noise.png"},
+            {[max_input_pixels: 5_000], "noise.png"},
+            {[max_input_frames: 2], "frames.gif"}
+          ] do
+        config = mount(origin, limit)
+        refused = response("", config, "src/" <> asset)
+        assert refused.status == 413, inspect(limit)
+        assert response("", config).status == 200, inspect(limit)
+
+        assert response("wm-src64=" <> Base.url_encode64(asset, padding: false), config).status ==
+                 refused.status,
+               inspect(limit)
+      end
+    end
   end
 
   describe "identity and conditional requests" do
@@ -526,6 +555,12 @@ defmodule ImagePipe.API.WatermarkWireTest do
   defp etag(response) do
     assert [etag] = get_resp_header(response, "etag")
     etag
+  end
+
+  defp noise do
+    {:ok, noise} = VipsOperation.gaussnoise(100, 100, sigma: 60.0)
+    {:ok, noise} = VipsOperation.cast(noise, :VIPS_FORMAT_UCHAR)
+    noise
   end
 
   defp gray_mark do
