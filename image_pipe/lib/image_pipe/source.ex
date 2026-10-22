@@ -162,9 +162,11 @@ defmodule ImagePipe.Source do
   exactly one of `stream` or `path`. A stream is subject to the
   `:max_body_bytes` limit.
 
-  The third argument holds runtime limits: `:max_body_bytes`, the transport
-  timeouts, and the telemetry prefix. `{:not_modified, origin}` answers a
-  revalidation of origin headers the adapter returned before.
+  The third argument holds `:max_body_bytes`, `:clock` (a function that
+  returns the current Unix time in seconds), and `:telemetry_prefix`. A
+  revalidation also passes `:source_validation`, the origin headers the
+  adapter returned before, as an `ImagePipe.Source.Origin`. Only then may
+  the adapter return `{:not_modified, origin}`.
   """
   @callback fetch(Resolved.t(), keyword(), keyword()) ::
               {:ok, Response.t()} | {:not_modified, Origin.t()} | {:error, error()}

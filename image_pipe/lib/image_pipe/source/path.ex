@@ -2,9 +2,9 @@ defmodule ImagePipe.Source.Path do
   @moduledoc """
   Root-relative path source.
 
-  `scheme` is set when the path was written with a custom scheme
-  (`asset://catalog/42`), which the server routes like a path prefix. It is
-  `nil` for bare paths.
+  An adapter receives `segments` with the source's matching prefix or custom
+  scheme removed, so `asset://catalog/42` reaches it as `["catalog", "42"]`.
+  `scheme` is always `nil` in a path an adapter receives.
   """
 
   @enforce_keys [:segments]

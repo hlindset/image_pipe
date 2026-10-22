@@ -58,7 +58,10 @@ defmodule ImagePipe.Source.File do
 
   It resolves path sources, so `photos/beach.jpg` and `/photos/beach.jpg` both
   read `/srv/images/photos/beach.jpg`. Paths can't leave the root. A path that
-  names no regular file is not found. Setting up a mount is covered in
+  names no regular file is not found. A symbolic link is followed only when
+  its target is a relative path that stays below the root. A path through a
+  link with an absolute target is not found, even when the target is below
+  the root. Setting up a mount is covered in
   [Serving images from local files](serving-local-files.md).
 
   A file that isn't `stable: :immutable` is identified by the SHA-256 of its

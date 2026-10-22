@@ -183,8 +183,8 @@ defmodule ImagePipe do
       request: a path, an HTTP(S) URL such as
       `"https://assets.example.com/cat.jpg"`, an S3 identifier, or a custom
       scheme. Pass the source without the `src/` marker or the URL escaping
-      of the request path. The source's network, redirect, timeout, and
-      content-type policies apply. These inputs use the configuration's
+      of the request path. The source's network, redirect, and timeout
+      policies apply. These inputs use the configuration's
       caches, so `run/4` and HTTP requests reuse each other's stored copies
       when the plan, `Accept` preferences, and request inputs match.
     * `{:file, path}` - a local file, by absolute path or relative to the
