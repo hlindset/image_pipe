@@ -104,14 +104,14 @@ defmodule ImagePipeServer.ConfigTest do
       end
     end
 
-    test "converts [cache] to file system caches and storage inputs" do
+    test "converts [cache] to file system caches and vary_on" do
       cache =
         Config.options!(%{
           "url" => %{"allow_unsigned" => true},
           "cache" => %{
             "output" => %{"root" => "/var/cache/out", "max_size_bytes" => 1_000_000},
             "input" => %{"root" => {:env, "/var/cache/in"}, "max_size_bytes" => 2_000_000},
-            "storage_inputs" => [%{"header" => "x-tenant"}],
+            "vary_on" => [%{"header" => "x-tenant"}],
             "max_remembered_originals" => 50_000
           }
         })[:cache]
@@ -119,7 +119,7 @@ defmodule ImagePipeServer.ConfigTest do
       output = cache[:cache]
       assert Enum.sort(output) == [max_size_bytes: 1_000_000, root: "/var/cache/out"]
       assert Enum.sort(cache[:input_cache]) == [max_size_bytes: 2_000_000, root: "/var/cache/in"]
-      assert cache[:storage_inputs] == [{:header, "x-tenant"}]
+      assert cache[:vary_on] == [{:header, "x-tenant"}]
       assert cache[:max_remembered_originals] == 50_000
     end
 

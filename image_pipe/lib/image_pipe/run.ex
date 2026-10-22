@@ -27,13 +27,13 @@ defmodule ImagePipe.Run do
                       `:auto_avif`, `:auto_webp`, and `:format_order` apply as configured.
                       """
                     ],
-                    request_inputs: [
+                    vary_values: [
                       type: :keyword_list,
                       keys: Inputs.schema(),
                       default: [],
                       doc: """
                       The header and cookie values named by the configuration's \
-                      `:storage_inputs`, for `{:source, source}` inputs. They select the \
+                      `:vary_on`, for `{:source, source}` inputs. They select the \
                       same stored copy as those values in an HTTP request. Header names \
                       are case-insensitive, and cookie names are case-sensitive. A \
                       missing value matches a request without it. They aren't sent to \
@@ -46,11 +46,11 @@ defmodule ImagePipe.Run do
   def options_docs, do: NimbleOptions.docs(@options_schema)
 
   def run(%Config{} = shared, %ImagePipe.URL{plan: plan}, input, options) do
-    {run_options, options} = Keyword.split(options, [:accept, :request_inputs])
+    {run_options, options} = Keyword.split(options, [:accept, :vary_values])
 
     {accept, inputs} =
       case NimbleOptions.validate(run_options, @options_schema) do
-        {:ok, valid} -> {valid[:accept], Inputs.new(valid[:request_inputs])}
+        {:ok, valid} -> {valid[:accept], Inputs.new(valid[:vary_values])}
         {:error, error} -> raise ArgumentError, "invalid run options: #{Exception.message(error)}"
       end
 

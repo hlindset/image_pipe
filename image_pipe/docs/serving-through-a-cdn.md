@@ -131,7 +131,7 @@ http_cache = "private"
 
 <!-- tabs-close -->
 
-The `storage_inputs` setting lists request headers and cookies that select a
+The `vary_on` setting lists request headers and cookies that select a
 different cached image (see the
 [Plug option](`ImagePipe.config/1`) or the
 [server key](../../image_pipe_server/docs/server-configuration.md#cache)).
@@ -151,7 +151,7 @@ Apply these settings to the CDN route that serves your images:
   `Vary: Accept`. Look for the CDN setting that adds request headers to the
   cache key. If you'd rather not, put a `format` in every URL. Those
   responses don't vary.
-- **Add your `storage_inputs` headers to the cache key.** Each header named
+- **Add your `vary_on` headers to the cache key.** Each header named
   there is listed in `Vary` too.
 - **Keep other headers out of the key.** ImagePipe doesn't read Client Hints
   such as `Width` or `DPR`, so they only split the cache.

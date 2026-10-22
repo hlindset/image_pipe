@@ -115,7 +115,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
   end
 
   test "cookie storage partitions default to private on generated and conditional responses" do
-    opts = mount(storage_inputs: [{:cookie, "session"}])
+    opts = mount(vary_on: [{:cookie, "session"}])
     first = get(@image_path, opts, [{"cookie", "session=a"}])
     assert first.status == 200
     assert get_resp_header(first, "cache-control") == ["private, max-age=31536000, immutable"]
@@ -133,7 +133,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
   end
 
   test "a configured cookie selects its own cache entry and other cookies don't" do
-    opts = mount(storage_inputs: [{:cookie, "session"}])
+    opts = mount(vary_on: [{:cookie, "session"}])
 
     key_for = fn cookie ->
       assert get(@image_path, opts, [{"cookie", cookie}]).status == 200
@@ -150,7 +150,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
   test "a host can explicitly permit public caching for cookie partitions" do
     opts =
       mount(
-        storage_inputs: [{:cookie, "session"}],
+        vary_on: [{:cookie, "session"}],
         http_cache: :public
       )
 
@@ -159,7 +159,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
   end
 
   test "a cookie partition remains private on an output cache hit" do
-    opts = mount(storage_inputs: [{:cookie, "session"}])
+    opts = mount(vary_on: [{:cookie, "session"}])
     first = warm(opts, @image_path, [{"cookie", "session=a"}])
 
     hit = get(@image_path, opts, [{"cookie", "session=a"}])
@@ -172,7 +172,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
   test "cookie visibility override preserves host policy and Set-Cookie precedence" do
     opts =
       mount(
-        storage_inputs: [{:cookie, "session"}],
+        vary_on: [{:cookie, "session"}],
         http_cache: :public
       )
 
@@ -298,9 +298,9 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
     refute_received :source_fetch_called
   end
 
-  test "configured storage_inputs header names enter vary, sorted, ahead of Accept" do
+  test "configured vary_on header names enter vary, sorted, ahead of Accept" do
     opts =
-      mount(storage_inputs: [{:header, "X-Tenant"}, {:cookie, "session"}, {:header, "x-region"}])
+      mount(vary_on: [{:header, "X-Tenant"}, {:cookie, "session"}, {:header, "x-region"}])
 
     conn = get(@automatic_path, opts, [{"x-tenant", "a"}, {"x-region", "eu"}])
 
@@ -313,8 +313,23 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
     refute "session" in vary_tokens(conn)
   end
 
-  test "a plain (non-negotiated) mount varies by its storage_inputs headers alone" do
-    opts = mount(storage_inputs: [{:header, "x-tenant"}])
+  test "a 304 and a HEAD response carry the same Vary as the 200" do
+    opts = mount(vary_on: [{:header, "x-tenant"}])
+    headers = [{"x-tenant", "a"}]
+    full = warm(opts, @automatic_path, headers)
+    [etag] = get_resp_header(full, "etag")
+
+    not_modified = get(@automatic_path, opts, [{"if-none-match", etag} | headers])
+    assert not_modified.status == 304
+    assert get_resp_header(not_modified, "vary") == get_resp_header(full, "vary")
+
+    head = :head |> conn(@automatic_path) |> put_req_headers(headers) |> call_pipe(opts)
+    assert head.status == 200
+    assert get_resp_header(head, "vary") == ["x-tenant, Accept"]
+  end
+
+  test "a plain (non-negotiated) mount varies by its vary_on headers alone" do
+    opts = mount(vary_on: [{:header, "x-tenant"}])
 
     conn = get(@image_path, opts, [{"x-tenant", "a"}])
 
@@ -322,8 +337,8 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
     assert get_resp_header(conn, "vary") == ["x-tenant"]
   end
 
-  test "a BlurHash terminal varies by configured storage_inputs headers" do
-    opts = mount(storage_inputs: [{:header, "x-tenant"}])
+  test "a BlurHash terminal varies by configured vary_on headers" do
+    opts = mount(vary_on: [{:header, "x-tenant"}])
 
     conn = get("/output=blurhash/src/beach.jpg", opts, [{"x-tenant", "a"}])
 

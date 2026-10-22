@@ -327,7 +327,7 @@ defmodule ImagePipe.Response.CachePolicy do
   defp visibility(:private, _config), do: "private"
 
   defp visibility(_auto_or_validators, config) do
-    if Enum.any?(Keyword.get(config, :storage_inputs, []), &match?({:cookie, _}, &1)),
+    if Enum.any?(Keyword.get(config, :vary_on, []), &match?({:cookie, _}, &1)),
       do: "private",
       else: "public"
   end

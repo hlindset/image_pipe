@@ -54,6 +54,11 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Breaking:** `storage_inputs` is now `vary_on`, and the
+  `ImagePipe.run/4` option `request_inputs` is now `vary_values`. Rename
+  them in your configuration and calls.
+- Images from an origin are cached under new keys, so after the upgrade
+  each original is downloaded and each processed copy is made once more.
 - **Breaking:** An `ImagePipe.Plug` mount without `:keys` raises
   `ArgumentError` on every request unless its configuration sets
   `allow_unsigned: true`. Serve public traffic with signed URLs, and set
@@ -251,6 +256,10 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Request headers and cookies named in `vary_on` no longer select a separate
+  stored original. Every value shares one stored original. Only the
+  processed images differ. A new cachebuster still downloads the original
+  again.
 - A preset or `:request_defaults` with a `wm-enc` token that the
   `:source_encryption_keys` can't decrypt raises `ArgumentError` when
   ImagePipe starts. Before, the configuration was accepted and every request

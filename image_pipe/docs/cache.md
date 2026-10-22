@@ -22,7 +22,7 @@ without reading the cache or fetching the source.
 `ImagePipe.run/4` uses the same caches when its input is
 `{:source, identifier}` and it gets the same `ImagePipe.config/1` as the Plug.
 It selects the same cached copy as a Plug request only when given the same
-`accept` and `request_inputs` (see
+`accept` and `vary_values` (see
 [sharing cache entries](combined-usage.md#processing-in-a-job)).
 `{:file, path}` and `{:binary, bytes}` inputs never use either cache.
 
@@ -80,7 +80,7 @@ Each stored response is selected by:
   chosen from `Accept`, not the `Accept` header itself.
 - The content detector and model, when the crop uses detection.
 - The URL's cachebuster.
-- The values of the request headers and cookies named in `storage_inputs`.
+- The values of the request headers and cookies named in `vary_on`.
 - The credentials and headers the source sends to its origin, as a hash.
   - `ImagePipe.Source.S3` uses the configured credentials: static keys, or
     the provider and its options. Temporary credentials from a provider don't
@@ -94,10 +94,10 @@ Each stored response is selected by:
 The URL's expiry, signature, filename, `attachment` option, and `debug`
 option don't select a different entry.
 
-The originals cache uses the original's identifier, the cachebuster, the
-`storage_inputs` values, and the origin credentials. Processing options and
-output format don't, so every size and format of one original shares one
-stored copy.
+The originals cache uses the original's identifier, the cachebuster, and the
+origin credentials. Processing options, output format, and `vary_on` values
+don't, so every size and format of one original, for any `vary_on` value,
+shares one stored copy.
 
 A source's name isn't part of the key, so renaming a source keeps its entries.
 For a custom source, every option apart from the cache settings `stable`,

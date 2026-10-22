@@ -443,14 +443,17 @@ defmodule ImagePipe.Config do
                   70–100 MB. Needs an instance (see `ImagePipe.child_spec/1`).
                   """
                 ],
-                storage_inputs: [
-                  type: {:list, {:custom, __MODULE__, :validate_storage_input, []}},
+                vary_on: [
+                  type: {:list, {:custom, __MODULE__, :validate_vary_on, []}},
                   type_doc: "list of `{:header, name}` or `{:cookie, name}`",
                   default: [],
                   doc: """
                   Request headers and cookies whose values select separate cached \
-                  copies, such as `[{:header, "x-tenant"}]`. They aren't sent to the \
-                  source and don't change the image.
+                  copies of processed images, such as `[{:header, "x-tenant"}]`. \
+                  The headers are added to the response's `Vary`, and a cookie makes \
+                  `:auto` and `:validators` responses private. They aren't sent to \
+                  the source, don't change the image, and don't select a different \
+                  cached original. See [Vary](cdn-http-cache.md#vary).
                   """
                 ],
                 watermarks: [
@@ -931,12 +934,12 @@ defmodule ImagePipe.Config do
     do: raise(ArgumentError, "invalid ImagePipe configuration: watermark #{name}: #{message}")
 
   @doc false
-  def validate_storage_input({:header, name}) when is_binary(name) and name != "",
+  def validate_vary_on({:header, name}) when is_binary(name) and name != "",
     do: {:ok, {:header, name}}
 
-  def validate_storage_input({:cookie, name}) when is_binary(name) and name != "",
+  def validate_vary_on({:cookie, name}) when is_binary(name) and name != "",
     do: {:ok, {:cookie, name}}
 
-  def validate_storage_input(_value),
+  def validate_vary_on(_value),
     do: {:error, "expected {:header, name} or {:cookie, name} with a non-empty string name"}
 end

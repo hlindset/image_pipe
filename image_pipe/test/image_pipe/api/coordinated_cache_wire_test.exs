@@ -160,10 +160,10 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
     refute_received {:origin, _, _}
   end
 
-  test "native storage inputs match HTTP headers and cookies", %{shared: shared} do
-    shared = restart(shared, storage_inputs: [{:header, "X-Tenant"}, {:cookie, "session"}])
+  test "native vary values match HTTP headers and cookies", %{shared: shared} do
+    shared = restart(shared, vary_on: [{:header, "X-Tenant"}, {:cookie, "session"}])
     config = http(shared)
-    opts = [request_inputs: [headers: [{"X-Tenant", "one"}], cookies: %{"session" => "abc"}]]
+    opts = [vary_values: [headers: [{"X-Tenant", "one"}], cookies: %{"session" => "abc"}]]
     assert {:ok, first} = native(shared, 12, opts)
     assert_receive {:origin, _, []}
     same = request(config, 12, [{"x-tenant", "one"}, {"cookie", "session=abc"}])
@@ -171,12 +171,27 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
     refute_received {:origin, _, _}
     other = request(config, 12, [{"x-tenant", "two"}, {"cookie", "session=abc"}])
     assert other.status == 200
-    assert_receive {:origin, _, []}
     assert get_resp_header(other, "etag") == get_resp_header(same, "etag")
     assert {:ok, _} = native(shared, 12)
-    assert_receive {:origin, _, []}
     assert request(config, 12).status == 200
     refute_received {:origin, _, _}
+  end
+
+  test "vary values share one stored original, and a cachebuster downloads it again",
+       %{shared: shared} do
+    shared = restart(shared, vary_on: [{:header, "X-Tenant"}])
+    config = http(shared)
+
+    assert request(config, 12, [{"x-tenant", "one"}]).status == 200
+    assert_receive {:origin, _, []}
+
+    assert request(config, 12, [{"x-tenant", "two"}]).status == 200
+    assert request(config, 14, [{"x-tenant", "three"}]).status == 200
+    refute_received {:origin, _, _}
+
+    busted = call(conn(:get, "/cb=1/w=12/format=png/src/https://origin.test/image.png"), config)
+    assert busted.status == 200
+    assert_receive {:origin, _, []}
   end
 
   test "native Accept negotiation shares the corresponding HTTP variant", %{shared: shared} do
@@ -248,7 +263,7 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
           [headers: [{"x-tenant", "bad\nvalue"}]],
           [cookies: [session: "abc"]]
         ] do
-      assert_raise ArgumentError, fn -> native(shared, 12, request_inputs: inputs) end
+      assert_raise ArgumentError, fn -> native(shared, 12, vary_values: inputs) end
     end
 
     refute_received {:origin, _, _}

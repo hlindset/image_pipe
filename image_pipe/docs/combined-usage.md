@@ -120,9 +120,8 @@ output:
 
 - Without `format` in the builder, the format depends on `Accept`. Pass the
   browser's `Accept` value as `accept:`, or set `format` in the builder.
-- If the instance's `storage_inputs` keeps separate copies per header or
-  cookie, pass the matching values as `request_inputs:` (see
-  `ImagePipe.run/4`).
+- If the instance's `vary_on` names headers or cookies, pass their values
+  as `vary_values:` (see `ImagePipe.run/4`).
 
 Originals given as `{:file, path}` or `{:binary, bytes}` don't go through a
 source, so their results aren't cached.

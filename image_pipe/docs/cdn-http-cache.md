@@ -136,7 +136,7 @@ lifetime that outlasts it:
 
 In `validators` mode, a response from an immutable source that carries a
 generated `ETag` gets `Cache-Control: public, max-age=<seconds left>, must-revalidate`,
-with `private` in place of `public` when `storage_inputs` names a cookie.
+with `private` in place of `public` when `vary_on` names a cookie.
 
 ## Vary
 
@@ -154,30 +154,30 @@ turn them off
 ([Plug](`ImagePipe.config/1`),
 [server](../../image_pipe_server/docs/server-configuration.md#processing)).
 
-Headers named in `storage_inputs` are added to `Vary` too, in lower case,
-sorted, without duplicates, and ahead of `Accept`. With these settings and no
-`format` in the URL, the response carries `Vary: x-tenant, Accept`:
+Headers named in `vary_on` are added to `Vary` too, in lower case, sorted,
+without duplicates, and ahead of `Accept`. With these settings and no `format`
+in the URL, the response carries `Vary: x-tenant, Accept`:
 
 <!-- tabs-open -->
 
 ### Plug
 
 ```elixir
-storage_inputs: [{:header, "x-tenant"}, {:cookie, "session"}]
+vary_on: [{:header, "x-tenant"}, {:cookie, "variant"}]
 ```
 
 ### image_pipe_server
 
 ```toml
 [cache]
-storage_inputs = [{ header = "x-tenant" }, { cookie = "session" }]
+vary_on = [{ header = "x-tenant" }, { cookie = "variant" }]
 ```
 
 <!-- tabs-close -->
 
-Cookies never appear in `Vary`, since it names headers only. So when
-`storage_inputs` names a cookie, `auto` and `validators` send `private` in
-place of `public`, on cache hits and `304` responses as well. `public` sends
+Cookies never appear in `Vary`, since it names headers only. So when `vary_on`
+names a cookie, `auto` and `validators` send `private` in place of `public`, on
+cache hits and `304` responses as well. `public` sends
 `public` anyway, for a host that guarantees the responses are the same for
 every user.
 
@@ -200,8 +200,8 @@ when any of these change:
 - The content detector or model, when the crop uses detection. A `304` is
   never sent for an image made by a different detector.
 
-The URL's cachebuster and the `storage_inputs` values select a different
-entry in ImagePipe's own cache, but don't change the `ETag`. A new cachebuster
+The URL's cachebuster and the `vary_on` values select a different entry in
+ImagePipe's own cache, but don't change the `ETag`. A new cachebuster
 on an unchanged image stores a new copy, and clients that already have the
 image still get a `304` (see [cache key inputs](cache.md#cache-key-inputs)).
 

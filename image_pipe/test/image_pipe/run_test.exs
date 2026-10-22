@@ -135,8 +135,8 @@ defmodule ImagePipe.RunTest do
       IP.run(IP.config(), IP.URL.new(), {:binary, bytes}, accept: :webp)
     end
 
-    assert_raise ArgumentError, ~r/request_inputs/, fn ->
-      IP.run(IP.config(), IP.URL.new(), {:binary, bytes}, request_inputs: [headers: :none])
+    assert_raise ArgumentError, ~r/vary_values/, fn ->
+      IP.run(IP.config(), IP.URL.new(), {:binary, bytes}, vary_values: [headers: :none])
     end
 
     assert {:error, {:source, :body_too_large}} =

@@ -24,7 +24,7 @@ defmodule ImagePipe.Execution.Inputs do
         type: {:map, {:custom, __MODULE__, :validate_cookie_name, []}, :string},
         type_doc: "map of `t:String.t/0` to `t:String.t/0`",
         default: %{},
-        doc: "Cookie values by name, such as `%{\"session\" => \"abc\"}`."
+        doc: "Cookie values by name, such as `%{\"variant\" => \"b\"}`."
       ]
     ]
   end
@@ -54,7 +54,7 @@ defmodule ImagePipe.Execution.Inputs do
   def validate_cookie_name(name) when is_binary(name) and name != "", do: {:ok, name}
   def validate_cookie_name(name), do: {:error, "expected a cookie name, got: #{inspect(name)}"}
 
-  def storage_material(%__MODULE__{} = inputs, configured) do
+  def vary_material(%__MODULE__{} = inputs, configured) do
     names =
       configured
       |> Enum.flat_map(fn

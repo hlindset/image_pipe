@@ -30,6 +30,8 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Breaking:** `[cache] storage_inputs` is now `[cache] vary_on`. Rename it
+  in `config.toml`.
 - **Breaking:** Without `[url] keys`, the server doesn't start unless
   `[url] allow_unsigned = true`, and with that setting it logs a warning at
   startup. Serve public traffic with signed URLs, and set `allow_unsigned`
