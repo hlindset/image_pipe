@@ -1,8 +1,8 @@
 defmodule ImagePipe.Plan.Output.JpegOptions do
   @moduledoc """
-  libvips `jpegsave` encoder options (product-neutral; the imgproxy parser
-  translates `jpgo` into this). Every field is optional (`nil` ⇒ emit no token,
-  leaving libvips' default).
+  JPEG encoder options, set with `jpeg_options:` in `ImagePipe.URL.output/2`
+  or [`jpeg-options`](https://hexdocs.pm/image_pipe/output.html#jpeg-options)
+  in a URL. A field left `nil` keeps the encoder's default.
   """
   defstruct [
     :interlace,

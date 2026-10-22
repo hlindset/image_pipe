@@ -1,5 +1,9 @@
 defmodule ImagePipe.Plan.Output.AvifOptions do
-  @moduledoc "libvips `heifsave` (AVIF) encoder options (neutral; imgproxy `avifo`/`AVIF_SPEED` translate here)."
+  @moduledoc """
+  AVIF encoder options, set with `avif_options:` in `ImagePipe.URL.output/2`
+  or [`avif-options`](https://hexdocs.pm/image_pipe/output.html#avif-options)
+  in a URL. A field left `nil` keeps the encoder's default.
+  """
   defstruct [:subsample_mode, :effort]
 
   @type t :: %__MODULE__{

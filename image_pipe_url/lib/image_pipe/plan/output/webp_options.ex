@@ -1,5 +1,9 @@
 defmodule ImagePipe.Plan.Output.WebpOptions do
-  @moduledoc "libvips `webpsave` encoder options (neutral; imgproxy `webpo` translates here)."
+  @moduledoc """
+  WebP encoder options, set with `webp_options:` in `ImagePipe.URL.output/2`
+  or [`webp-options`](https://hexdocs.pm/image_pipe/output.html#webp-options)
+  in a URL. A field left `nil` keeps the encoder's default.
+  """
   defstruct [:lossless, :near_lossless, :smart_subsample, :preset, :effort]
 
   @type t :: %__MODULE__{
