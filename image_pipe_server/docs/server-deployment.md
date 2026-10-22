@@ -114,7 +114,8 @@ The server has two health checks:
 - `GET /health/live` answers `200 ok` while the server runs. Use it where a
   failed check restarts the server, such as a Kubernetes liveness probe.
 - `GET /health/ready` answers `200 ok` while the server takes traffic, and
-  `503` while it starts up and while it shuts down. Use it where a failed check stops traffic, such
+  `503` while it starts up, while it shuts down, and while its image
+  processing restarts after a crash. Use it where a failed check stops traffic, such
   as a Kubernetes readiness probe, a proxy's active health check (Caddy,
   Traefik), or a platform that routes on Docker's health status, such as
   [uncloud](https://uncloud.run).
@@ -128,6 +129,12 @@ readiness that moves traffic to other replicas, as it should. Set
 `[server] health_port` to also serve the checks on a separate listener with
 its own small connection cap, and point liveness checks there, so load can't
 fail them.
+
+The health listener takes at most 16 connections, so clients that hold
+them open can fail the checks on it. Let only the health checker reach
+`health_port`: don't publish the port outside the host or cluster, or set
+`[server] health_bind` to an internal IP address. To bind a pod's own
+address, set `IPS_SERVER__HEALTH_BIND` from the pod's IP.
 
 On `SIGTERM` the server shuts down in two steps:
 
@@ -320,8 +327,8 @@ curl -H "Authorization: Bearer 3b9f6c1e8a2d4f7b0c5e9a1d6f2b8c4e" http://localhos
 `image_pipe_cache_disk_age_seconds` gives the age, so an alert on a value
 well above 15, such as 120, catches a `df` that stopped answering.
 
-Both endpoints answer `503` while the server starts up and while it shuts
-down.
+Both endpoints answer `503` while image processing isn't running: early in
+startup, late in shutdown, and while it restarts after a crash.
 
 To collect the numbers with Prometheus, put the token alone in a file, such
 as `/etc/prometheus/image-pipe-stats-token`, and name it in the scrape

@@ -145,6 +145,7 @@ defmodule ImagePipeServer.Application do
   def router_options(%Config{} = config, drain) do
     [
       drain: drain,
+      instance: @instance,
       mount_path: Keyword.fetch!(config.server, :mount_path),
       image_pipe: ImagePipe.Plug.init([instance: @instance] ++ config.http),
       auth_token_hash: Keyword.fetch!(config.server, :auth_token_hash),
@@ -181,9 +182,9 @@ defmodule ImagePipeServer.Application do
   def health_child(%Config{server: server} = config, drain) do
     if port = Keyword.get(server, :health_port) do
       {Bandit,
-       plug: {Health, drain: drain, stats: stats_options(config)},
+       plug: {Health, drain: drain, instance: @instance, stats: stats_options(config)},
        port: port,
-       ip: Keyword.fetch!(server, :ip),
+       ip: Keyword.fetch!(server, :health_ip),
        http_options: [log_protocol_errors: false],
        http_2_options: [enabled: false],
        thousand_island_options: [

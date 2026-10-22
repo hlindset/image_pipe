@@ -24,7 +24,8 @@ defmodule ImagePipeServer.Config.Reference do
         "On shutdown, `/health/ready` answers `503` " <>
         "while the server keeps serving for `shutdown_delay`. Then in-flight requests " <>
         "get `shutdown_timeout` to finish. `health_port` serves the health checks on a " <>
-        "separate listener, outside `max_connections`. See " <>
+        "separate listener, outside `max_connections`, at the address in `health_bind`, " <>
+        "or else `bind`. See " <>
         "[health and shutdown](server-deployment.md#health-and-shutdown).",
     url:
       "How the server checks request URLs: the signing keys and the keys that decrypt " <>

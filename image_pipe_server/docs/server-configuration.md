@@ -153,7 +153,7 @@ TOML types; defaults are the library's.
 
 ### `[server]`
 
-The HTTP listener. Times are in milliseconds. `read_timeout` closes connections that send nothing for that long, idle keep-alive connections included. With `auth_token`, requests other than the health checks, `/stats`, and `/metrics` must send `Authorization: Bearer <token>`. The token needs at least 32 characters. On shutdown, `/health/ready` answers `503` while the server keeps serving for `shutdown_delay`. Then in-flight requests get `shutdown_timeout` to finish. `health_port` serves the health checks on a separate listener, outside `max_connections`. See [health and shutdown](server-deployment.md#health-and-shutdown).
+The HTTP listener. Times are in milliseconds. `read_timeout` closes connections that send nothing for that long, idle keep-alive connections included. With `auth_token`, requests other than the health checks, `/stats`, and `/metrics` must send `Authorization: Bearer <token>`. The token needs at least 32 characters. On shutdown, `/health/ready` answers `503` while the server keeps serving for `shutdown_delay`. Then in-flight requests get `shutdown_timeout` to finish. `health_port` serves the health checks on a separate listener, outside `max_connections`, at the address in `health_bind`, or else `bind`. See [health and shutdown](server-deployment.md#health-and-shutdown).
 
 | Key | Type | Default |
 | --- | --- | --- |
@@ -166,6 +166,7 @@ The HTTP listener. Times are in milliseconds. `read_timeout` closes connections 
 | `max_connections` | integer > 0 | `2048` |
 | `auth_token` | string |  |
 | `health_port` | integer 0–65535 |  |
+| `health_bind` | string |  |
 
 ### `[url]`
 

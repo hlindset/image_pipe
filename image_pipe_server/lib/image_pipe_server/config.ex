@@ -65,7 +65,8 @@ defmodule ImagePipeServer.Config do
   The validated configuration.
 
     * `:server` - `:port`, `:ip`, `:mount_path`, `:shutdown_delay`,
-      `:shutdown_timeout`, `:read_timeout`, `:max_connections`, `:health_port`
+      `:shutdown_timeout`, `:read_timeout`, `:max_connections`, `:health_port`,
+      `:health_ip`
       (or `nil`), and `:auth_token_hash`, the SHA-256 of the auth token (or
       `nil`). The token itself isn't kept.
     * `:trust_request_id` - whether a request keeps an inbound
@@ -115,7 +116,8 @@ defmodule ImagePipeServer.Config do
     read_timeout: [type: :pos_integer, default: 10_000],
     max_connections: [type: :pos_integer, default: 2048],
     auth_token: [type: :string],
-    health_port: [type: {:in, 0..65_535}]
+    health_port: [type: {:in, 0..65_535}],
+    health_bind: [type: :string]
   ]
 
   @telemetry_schema [
@@ -370,13 +372,14 @@ defmodule ImagePipeServer.Config do
 
     [
       port: Keyword.fetch!(options, :port),
-      ip: ip!(Keyword.fetch!(options, :bind)),
+      ip: ip!(Keyword.fetch!(options, :bind), "bind"),
       mount_path: mount_path!(Keyword.fetch!(options, :mount_path)),
       shutdown_delay: Keyword.fetch!(options, :shutdown_delay),
       shutdown_timeout: Keyword.fetch!(options, :shutdown_timeout),
       read_timeout: Keyword.fetch!(options, :read_timeout),
       max_connections: Keyword.fetch!(options, :max_connections),
       health_port: health_port!(options),
+      health_ip: health_ip!(options),
       auth_token_hash: auth_token_hash!(auth_token)
     ]
   end
@@ -393,6 +396,13 @@ defmodule ImagePipeServer.Config do
         )
 
     health_port
+  end
+
+  defp health_ip!(options) do
+    case Keyword.fetch(options, :health_bind) do
+      {:ok, bind} -> ip!(bind, "health_bind")
+      :error -> ip!(Keyword.fetch!(options, :bind), "bind")
+    end
   end
 
   # The errors name the setting, never the token.
@@ -430,13 +440,13 @@ defmodule ImagePipeServer.Config do
     :crypto.hash(:sha256, token)
   end
 
-  defp ip!(bind) do
+  defp ip!(bind, setting) do
     case :inet.parse_address(String.to_charlist(bind)) do
       {:ok, ip} ->
         ip
 
       {:error, :einval} ->
-        raise ConfigError, "invalid configuration: server.bind: expected an IP address"
+        raise ConfigError, "invalid configuration: server.#{setting}: expected an IP address"
     end
   end
 

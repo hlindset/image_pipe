@@ -342,6 +342,22 @@ defmodule ImagePipeServer.ApplicationTest do
       port
     end
 
+    test "listens on health_bind" do
+      config =
+        Config.build!(
+          url: [allow_unsigned: true],
+          server: [port: 0, bind: "0.0.0.0", health_bind: "127.0.0.1", health_port: 0]
+        )
+
+      health = start_named(App.health_child(config, Health.new()), :bound_health_listener)
+
+      assert {:ok, %{status: 200}} =
+               Req.get("http://127.0.0.1:#{health}/health/live", retry: false)
+
+      {Bandit, opts} = App.health_child(config, Health.new())
+      assert opts[:ip] == {127, 0, 0, 1}
+    end
+
     test "starts only with health_port" do
       refute App.health_child(Config.build!(url: [allow_unsigned: true]), Health.new())
     end

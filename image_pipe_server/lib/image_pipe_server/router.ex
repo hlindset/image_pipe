@@ -42,6 +42,7 @@ defmodule ImagePipeServer.Router do
     %{
       trust_request_id: Keyword.get(opts, :trust_request_id, false),
       drain: Keyword.get_lazy(opts, :drain, &Health.new/0),
+      instance: Keyword.get(opts, :instance),
       mount: Plug.Router.Utils.split(Keyword.fetch!(opts, :mount_path)),
       image_pipe: Keyword.fetch!(opts, :image_pipe),
       auth_token_hash: Keyword.get(opts, :auth_token_hash),
@@ -78,7 +79,7 @@ defmodule ImagePipeServer.Router do
 
   defp dispatch(conn, opts) do
     cond do
-      Health.check?(conn) -> Health.respond(conn, opts.drain)
+      Health.check?(conn) -> Health.respond(conn, opts.drain, opts.instance)
       opts.stats != nil and Stats.check?(conn) -> Stats.respond(conn, opts.stats)
       is_binary(opts.auth_token_hash) -> authorize(conn, opts, System.monotonic_time())
       true -> route(conn, opts, System.monotonic_time())

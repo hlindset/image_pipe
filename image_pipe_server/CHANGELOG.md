@@ -28,6 +28,9 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   answer within a second has `"available": false`. Turn them on with
   `[stats] enabled = true` and a `[stats] token` of at least 32 characters
   that requests send as a bearer token. See [cache stats](docs/server-deployment.md#cache-stats).
+- `[server] health_bind` sets the address the `health_port` listener binds
+  to, such as an internal one. It defaults to `bind`. See
+  [health and shutdown](docs/server-deployment.md#health-and-shutdown).
 - With `[telemetry] log_requests`, a request without a valid
   `[server] auth_token` logs its `401` at `warning`, and a request outside
   `mount_path` logs its `404` at `info`, each with the method, path, status,
@@ -87,6 +90,9 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - A malformed request is no longer logged. Its `400` line quoted the raw
   request, so a request with a bad `Authorization` header put the token in
   the log.
+- `/health/ready` answers `503` while the server's image processing
+  restarts after a crash. Before, it answered `200` while every image
+  request failed.
 - The lines the libraries the server uses log while it starts, such as the
   CA certificates loading, follow `[telemetry] log_level` and `log_format`.
   Before, they were always text and ignored `log_level`.
