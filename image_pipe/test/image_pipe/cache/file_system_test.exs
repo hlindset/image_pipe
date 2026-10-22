@@ -1,6 +1,8 @@
 defmodule ImagePipe.Cache.FileSystemTest do
   use ExUnit.Case, async: true
 
+  import ExUnit.CaptureLog
+
   alias ImagePipe.Cache.Entry
   alias ImagePipe.Cache.FileSystem
   alias ImagePipe.Cache.FileSystem.Admission
@@ -709,6 +711,58 @@ defmodule ImagePipe.Cache.FileSystemTest do
       _ = :sys.get_state(pid)
       refute File.exists?(path)
     end
+
+    test "the periodic sweep comes back after Admission restarts", %{root: root} do
+      {:ok, opts} = FileSystem.validate_options(root: root, max_size_bytes: 10_000_000)
+      root_sup = opts |> FileSystem.child_spec() |> start_supervised!()
+
+      {:cache, cache, :supervisor, _} =
+        List.keyfind(Supervisor.which_children(root_sup), :cache, 0)
+
+      old_sweep = periodic_sweep(cache)
+      sweep_ref = Process.monitor(old_sweep)
+
+      [admission] = for {{Admission, _}, pid, _, _} <- Supervisor.which_children(cache), do: pid
+      Process.exit(admission, :kill)
+      assert_receive {:DOWN, ^sweep_ref, :process, ^old_sweep, _reason}
+
+      for {{Admission, _}, pid, _, _} <- Supervisor.which_children(cache),
+          do: Admission.await_scan(pid)
+
+      pid = periodic_sweep(cache)
+      path = leftover(root, "b")
+      send(pid, :sweep)
+      _ = :sys.get_state(pid)
+      refute File.exists?(path)
+    end
+  end
+
+  describe "PeriodicSweep" do
+    @describetag cache: false
+
+    test "keeps sweeping after a sweep raises" do
+      pid =
+        start_supervised!(
+          {PeriodicSweep, id: :raising, sweep: {__MODULE__, :raising_sweep, [self()]}}
+        )
+
+      capture_log(fn ->
+        assert_receive :swept
+        send(pid, :sweep)
+        assert_receive :swept
+        _ = :sys.get_state(pid)
+      end)
+    end
+  end
+
+  def raising_sweep(test) do
+    send(test, :swept)
+    raise "sweep failed"
+  end
+
+  defp periodic_sweep(cache) do
+    [pid] = for {_id, pid, _type, [PeriodicSweep]} <- Supervisor.which_children(cache), do: pid
+    pid
   end
 
   # Starts the cache's processes and returns its periodic sweep once its
