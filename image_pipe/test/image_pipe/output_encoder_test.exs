@@ -5,14 +5,14 @@ defmodule ImagePipe.Output.EncoderTest do
   alias ImagePipe.Output.Resolved
 
   defmodule CaptureImage do
-    def stream!(_image, opts) do
-      send(Process.get(:test_pid), {:stream_opts, opts})
+    def write_to_stream(_image, suffix) do
+      send(Process.get(:test_pid), {:suffix, suffix})
       ["encoded"]
     end
   end
 
   defmodule RaisingStreamImage do
-    def stream!(_image, _opts) do
+    def write_to_stream(_image, _suffix) do
       raise "forced stream failure"
     end
   end
@@ -36,7 +36,7 @@ defmodule ImagePipe.Output.EncoderTest do
              )
 
     assert Enum.to_list(stream) == ["encoded"]
-    assert_received {:stream_opts, [suffix: ".webp", quality: 80]}
+    assert_received {:suffix, ".webp[Q=80]"}
   end
 
   test "stream_output normalizes stream construction exceptions as encode errors" do

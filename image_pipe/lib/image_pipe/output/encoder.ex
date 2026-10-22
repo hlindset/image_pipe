@@ -70,17 +70,9 @@ defmodule ImagePipe.Output.Encoder do
   end
 
   defp lazy_output(finalized, resolved_output, mime_type, suffix, opts) do
-    case encoder_tokens(resolved_output.encoder_options) do
-      [] ->
-        image_module = Keyword.get(opts, :image_module, Image)
-        stream = image_module.stream!(finalized, output_options(suffix, resolved_output))
-        {:ok, stream, mime_type, nil}
-
-      tokens ->
-        vsuffix = vix_suffix(suffix, resolved_output.quality, tokens)
-        stream = VixImage.write_to_stream(finalized, vsuffix)
-        {:ok, stream, mime_type, nil}
-    end
+    image_module = Keyword.get(opts, :image_module, VixImage)
+    vsuffix = vix_suffix(suffix, resolved_output.quality, save_tokens(resolved_output))
+    {:ok, image_module.write_to_stream(finalized, vsuffix), mime_type, nil}
   end
 
   # A quality search runs when a search objective or a hard byte budget is set.
@@ -123,25 +115,14 @@ defmodule ImagePipe.Output.Encoder do
           {:ok, binary()} | {:error, {:encode, Exception.t(), list()}}
   def encode_to_buffer(%VixImage{} = image, %Resolved{} = resolved_output, quality) do
     {_mime_type, suffix} = output_format(resolved_output)
-    buffer_for(image, suffix, quality, encoder_tokens(resolved_output.encoder_options))
+    vsuffix = vix_suffix(suffix, {:quality, quality}, save_tokens(resolved_output))
+
+    case VixImage.write_to_buffer(image, vsuffix) do
+      {:ok, binary} -> {:ok, binary}
+      {:error, reason} -> {:error, {:encode, encode_error(reason), []}}
+    end
   rescue
     exception -> {:error, {:encode, exception, __STACKTRACE__}}
-  end
-
-  # Use the Image wrapper when there are no encoder options.
-  defp buffer_for(image, suffix, quality, []) do
-    case Image.write(image, :memory, suffix: suffix, quality: quality) do
-      {:ok, binary} -> {:ok, binary}
-      {:error, reason} -> {:error, {:encode, encode_error(reason), []}}
-    end
-  end
-
-  # Encoder options present: encode via Vix with a bracketed libvips suffix.
-  defp buffer_for(image, suffix, quality, tokens) do
-    case VixImage.write_to_buffer(image, vix_suffix(suffix, {:quality, quality}, tokens)) do
-      {:ok, binary} -> {:ok, binary}
-      {:error, reason} -> {:error, {:encode, encode_error(reason), []}}
-    end
   end
 
   defp quality_token(:default), do: nil
@@ -155,6 +136,25 @@ defmodule ImagePipe.Output.Encoder do
       parts -> "#{suffix}[#{Enum.join(parts, ",")}]"
     end
   end
+
+  defp save_tokens(%Resolved{} = resolved),
+    do: Enum.reject([keep_token(resolved) | encoder_tokens(resolved.encoder_options)], &is_nil/1)
+
+  # Stripping happens when libvips saves: its `keep` option leaves out EXIF,
+  # XMP, IPTC, and other metadata, so nothing is parsed or removed first. The
+  # ICC profile left by color finalization stays. EXIF stays for kept
+  # copyright and artist, and for a density other than 72 dpi: libvips writes
+  # density into EXIF for every format but PNG, which has pHYs. Viewers
+  # assume 72 dpi without it.
+  defp keep_token(%Resolved{strip_metadata: false}), do: nil
+
+  defp keep_token(%Resolved{} = resolved),
+    do: if(exif_kept?(resolved), do: "keep=icc:exif", else: "keep=icc")
+
+  defp exif_kept?(%Resolved{keep_copyright: true}), do: true
+
+  defp exif_kept?(%Resolved{format: format, dpi: dpi}),
+    do: format != :png and dpi not in [nil, 72]
 
   # libvips suffix tokens (k=v, dash-named) from the negotiated encoder-option struct.
   defp encoder_tokens(nil), do: []
@@ -506,36 +506,28 @@ defmodule ImagePipe.Output.Encoder do
     {:ok, image}
   end
 
-  # Strip EXIF/XMP/IPTC (keeping copyright/artist iff kcr).
-  # `minimize_metadata` enumerates and removes all metadata
-  # header fields — crucially the individual `exif-ifd0-*`/`exif-gps-*` entries,
-  # which survive removing just the serialized "exif-data" blob and would otherwise
-  # be re-serialized into EXIF on encode (leaking GPS/copyright). It also removes
-  # the ICC profile, so the color switch above must
-  # already have run. If minimize_metadata fails (malformed/absent EXIF), fall back
-  # to blob removal.
-  defp strip_metadata(image, %Resolved{strip_metadata: false}), do: image
-
+  # Removes the metadata fields a save that keeps EXIF would write, leaving
+  # copyright and artist when they're kept. The libvips EXIF writer rebuilds
+  # the block from the individual `exif-*` fields, such as GPS, so removing
+  # only the serialized `exif-data` blob isn't enough. Without kept EXIF,
+  # the save's `keep` option drops the metadata instead (see `keep_token/1`).
   defp strip_metadata(image, %Resolved{} = resolved) do
-    keep = if resolved.keep_copyright, do: [:copyright, :artist], else: []
+    cond do
+      not resolved.strip_metadata ->
+        image
 
-    icc =
-      if resolved.color_profile == :strip, do: nil, else: header_value(image, "icc-profile-data")
+      resolved.keep_copyright ->
+        icc = header_value(image, "icc-profile-data")
+        {:ok, minimized} = minimize_metadata(image, [:copyright, :artist])
+        restore_icc(minimized, icc)
 
-    minimized =
-      case minimize_metadata(image, keep) do
-        {:ok, stripped} ->
-          stripped
+      exif_kept?(resolved) ->
+        {:ok, names} = VixImage.header_field_names(image)
+        Image.remove_metadata!(image, Enum.filter(names, &String.starts_with?(&1, "exif-")))
 
-        {:error, _} ->
-          remove_fields(
-            image,
-            ["exif-data", "xmp-data", "iptc-data"] ++
-              icc_fields(resolved)
-          )
-      end
-
-    restore_icc(minimized, icc)
+      true ->
+        image
+    end
   end
 
   # Workaround for `image` 0.72.0: `Image.minimize_metadata/2` parses the whole
@@ -561,14 +553,6 @@ defmodule ImagePipe.Output.Encoder do
     image
   end
 
-  defp icc_fields(%Resolved{color_profile: :strip}), do: ["icc-profile-data"]
-  defp icc_fields(%Resolved{}), do: []
-
-  # Explicit field names. We deliberately avoid the libvips `strip` write flag
-  # and the default `remove_metadata` field enumeration: both also remove the
-  # ICC profile.
-  defp remove_fields(image, fields), do: Image.remove_metadata!(image, fields)
-
   defp header_value(image, field) do
     case VixImage.header_value(image, field) do
       {:ok, value} -> value
@@ -593,9 +577,4 @@ defmodule ImagePipe.Output.Encoder do
     mime_type = Format.mime_type!(format)
     {mime_type, Format.suffix!(mime_type)}
   end
-
-  defp output_options(suffix, %Resolved{quality: {:quality, value}}),
-    do: [suffix: suffix, quality: value]
-
-  defp output_options(suffix, %Resolved{quality: :default}), do: [suffix: suffix]
 end

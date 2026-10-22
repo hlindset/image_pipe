@@ -6,56 +6,72 @@ defmodule ImagePipe.SrgbProfile do
   #
   # A profile is checked once: a lattice of 8-bit sRGB colors goes through it
   # in both directions, and it is equivalent when no value moves by more than
-  # 1 level. The answer is cached in `:persistent_term` by the profile's digest.
-  # Profiles come from untrusted sources, so after `@cap` distinct profiles a
-  # new one is checked on every use instead of cached. That keeps the answer,
-  # and so the output, independent of which profiles the node saw first.
+  # 1 level. The answer depends only on the profile, so it's kept in an ETS
+  # table by the profile's digest. Profiles come from untrusted sources, so
+  # the table holds at most `@limit` answers and forgets an arbitrary one to
+  # make room. While the process that owns the table isn't running, such as
+  # during a restart, each use checks the profile again. The lattice and its
+  # import from sRGB don't depend on the profile, so they're made once.
   @moduledoc false
 
   use Boundary, top_level?: true, deps: [], exports: []
+  use GenServer
 
   alias Vix.Vips.Image, as: VipsImage
   alias Vix.Vips.MutableImage
   alias Vix.Vips.Operation
 
-  @cap 256
-  @count_key {__MODULE__, :count}
+  @table __MODULE__
+  @limit 4096
+  @lattice_key {__MODULE__, :lattice}
+
+  def start_link(_opts), do: GenServer.start_link(__MODULE__, nil, name: __MODULE__)
+
+  @impl true
+  def init(nil) do
+    :ets.new(@table, [
+      :named_table,
+      :public,
+      :set,
+      read_concurrency: true,
+      write_concurrency: true
+    ])
+
+    {:ok, nil}
+  end
 
   @doc "Whether `profile` is an RGB profile equivalent to sRGB."
   @spec equivalent?(binary()) :: boolean()
   def equivalent?(<<_::binary-size(16), "RGB ", _::binary-size(108), _::binary>> = profile) do
-    key = {__MODULE__, :crypto.hash(:sha256, profile)}
+    key = :crypto.hash(:sha256, profile)
 
-    case :persistent_term.get(key, nil) do
-      nil -> check_and_store(key, profile)
-      answer -> answer
+    case lookup(key) do
+      nil ->
+        answer = check(profile)
+        store(key, answer)
+        answer
+
+      answer ->
+        answer
     end
   end
 
   def equivalent?(_profile), do: false
 
-  defp check_and_store(key, profile) do
-    count = counter()
-    answer = check(profile)
-
-    if :counters.get(count, 1) < @cap do
-      :counters.add(count, 1, 1)
-      :persistent_term.put(key, answer)
+  defp lookup(key) do
+    case :ets.lookup(@table, key) do
+      [{^key, answer}] -> answer
+      [] -> nil
     end
-
-    answer
+  rescue
+    ArgumentError -> nil
   end
 
-  defp counter do
-    case :persistent_term.get(@count_key, nil) do
-      nil ->
-        count = :counters.new(1, [:write_concurrency])
-        :persistent_term.put(@count_key, count)
-        count
-
-      count ->
-        count
-    end
+  defp store(key, answer) do
+    if :ets.info(@table, :size) >= @limit, do: :ets.delete(@table, :ets.first(@table))
+    :ets.insert(@table, {key, answer})
+  rescue
+    ArgumentError -> true
   end
 
   # Every color on a 16-level lattice, including 255.
@@ -69,20 +85,36 @@ defmodule ImagePipe.SrgbProfile do
   # Dialyzer can't see through Vix's generated Operation typings, so it reports
   # the icc calls as failing, and the comparison after them as unreachable.
   # They succeed at runtime.
-  @dialyzer {:nowarn_function, check: 1, close?: 1, within_one?: 2}
+  @dialyzer {:nowarn_function, check: 1, lattice: 0, close?: 1, within_one?: 2}
 
   defp check(profile) do
-    with {:ok, lattice} <-
-           VipsImage.new_from_binary(@lattice, @lattice_width, 1, 3, :VIPS_FORMAT_UCHAR),
-         {:ok, lattice} <- Operation.copy(lattice, interpretation: :VIPS_INTERPRETATION_sRGB),
-         {:ok, tagged} <- with_profile(lattice, profile),
+    {lattice, imported} = lattice()
+
+    with {:ok, tagged} <- with_profile(lattice, profile),
          {:ok, to_srgb} <- Operation.icc_transform(tagged, "sRGB", embedded: true, depth: 8),
-         {:ok, imported} <- Operation.icc_import(lattice, input_profile: "sRGB"),
          {:ok, imported} <- with_profile(imported, profile),
          {:ok, from_srgb} <- Operation.icc_export(imported, depth: 8) do
       close?(to_srgb) and close?(from_srgb)
     else
       {:error, _reason} -> false
+    end
+  end
+
+  # The lattice as sRGB pixels, and imported from sRGB into the PCS.
+  defp lattice do
+    case :persistent_term.get(@lattice_key, nil) do
+      nil ->
+        {:ok, lattice} =
+          VipsImage.new_from_binary(@lattice, @lattice_width, 1, 3, :VIPS_FORMAT_UCHAR)
+
+        {:ok, lattice} = Operation.copy(lattice, interpretation: :VIPS_INTERPRETATION_sRGB)
+        {:ok, imported} = Operation.icc_import(lattice, input_profile: "sRGB")
+        {:ok, imported} = VipsImage.copy_memory(imported)
+        :persistent_term.put(@lattice_key, {lattice, imported})
+        {lattice, imported}
+
+      lattice ->
+        lattice
     end
   end
 

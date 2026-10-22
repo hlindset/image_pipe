@@ -120,7 +120,7 @@ defmodule ImagePipe.TelemetryTest do
   end
 
   defmodule RaisingAfterFirstChunkImage do
-    def stream!(_image, [{:suffix, ".jpg"} | _]) do
+    def write_to_stream(_image, ".jpg" <> _options) do
       Stream.resource(
         fn -> :first end,
         fn
@@ -133,7 +133,7 @@ defmodule ImagePipe.TelemetryTest do
   end
 
   defmodule RaisingBeforeFirstChunkImage do
-    def stream!(_image, [{:suffix, ".jpg"} | _]) do
+    def write_to_stream(_image, ".jpg" <> _options) do
       Stream.resource(
         fn -> :raise end,
         fn :raise -> raise "boom before first chunk" end,

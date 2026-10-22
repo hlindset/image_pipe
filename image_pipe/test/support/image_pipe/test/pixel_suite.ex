@@ -176,7 +176,9 @@ defmodule ImagePipe.Test.PixelSuite do
   def check_structure(c, suite, actual, expected, keys) do
     keys = keys -- Map.keys(Map.get(c, :structure_differs, %{}))
 
-    case Enum.reject(keys, &(Map.fetch!(actual, &1) == Map.fetch!(expected, &1))) do
+    same? = &(compared(&1, Map.fetch!(actual, &1)) == compared(&1, Map.fetch!(expected, &1)))
+
+    case Enum.reject(keys, same?) do
       [] ->
         :ok
 
@@ -190,6 +192,10 @@ defmodule ImagePipe.Test.PixelSuite do
         )
     end
   end
+
+  # An image without EXIF has no orientation tag, which means 1.
+  defp compared(:orientation, nil), do: 1
+  defp compared(_key, value), do: value
 
   defp icc(image) do
     case VipsImage.header_value(image, "icc-profile-data") do

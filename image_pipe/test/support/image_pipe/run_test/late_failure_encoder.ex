@@ -1,7 +1,7 @@
 defmodule ImagePipe.RunTest.LateFailureEncoder do
   @moduledoc false
 
-  def stream!(_image, _options) do
+  def write_to_stream(_image, _suffix) do
     Stream.resource(
       fn -> :first end,
       fn

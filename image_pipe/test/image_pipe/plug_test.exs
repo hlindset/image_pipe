@@ -50,7 +50,7 @@ defmodule ImagePipe.PlugTest do
   end
 
   defmodule StreamingOnlyImage do
-    def stream!(_image, [{:suffix, ".jpg"} | _]) do
+    def write_to_stream(_image, ".jpg" <> _options) do
       send(message_target(), :stream_encoder_called)
       ["streamed jpeg"]
     end
@@ -69,7 +69,7 @@ defmodule ImagePipe.PlugTest do
   end
 
   defmodule BoundedCacheStreamingImage do
-    def stream!(_image, [{:suffix, ".jpg"} | _]) do
+    def write_to_stream(_image, ".jpg" <> _options) do
       send(message_target(), :stream_encoder_called)
       ["streamed jpeg over cache limit"]
     end
@@ -88,7 +88,7 @@ defmodule ImagePipe.PlugTest do
   end
 
   defmodule MultiChunkStreamingImage do
-    def stream!(_image, [{:suffix, ".jpg"} | _]) do
+    def write_to_stream(_image, ".jpg" <> _options) do
       send(message_target(), :stream_encoder_called)
       ["first chunk", "second chunk"]
     end
@@ -102,7 +102,7 @@ defmodule ImagePipe.PlugTest do
   end
 
   defmodule EmptyStreamingImage do
-    def stream!(_image, [{:suffix, ".jpg"} | _]) do
+    def write_to_stream(_image, ".jpg" <> _options) do
       send(message_target(), :stream_encoder_called)
       []
     end
@@ -116,7 +116,7 @@ defmodule ImagePipe.PlugTest do
   end
 
   defmodule FailingStreamBeforeHeaderImage do
-    def stream!(_image, [{:suffix, ".jpg"} | _]) do
+    def write_to_stream(_image, ".jpg" <> _options) do
       send(message_target(), :stream_encoder_called)
       raise "forced stream encode failure"
     end
@@ -268,7 +268,7 @@ defmodule ImagePipe.PlugTest do
   end
 
   defmodule RaisingAfterFirstChunkImage do
-    def stream!(_image, [{:suffix, ".jpg"} | _]) do
+    def write_to_stream(_image, ".jpg" <> _options) do
       Stream.resource(
         fn -> :first end,
         fn
@@ -1181,7 +1181,7 @@ defmodule ImagePipe.PlugTest do
     assert log =~ "encode_error: ** (RuntimeError) forced stream encode failure"
 
     assert log =~
-             ~r{plug_test\.exs:\d+: ImagePipe\.PlugTest\.FailingStreamBeforeHeaderImage\.stream!/2}
+             ~r{plug_test\.exs:\d+: ImagePipe\.PlugTest\.FailingStreamBeforeHeaderImage\.write_to_stream/2}
   end
 
   test "returns text 500 when encoder produces an empty stream" do

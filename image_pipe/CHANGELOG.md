@@ -243,6 +243,11 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The processing pool's `max_queue` defaults to 1,024 instead of 64, so a
   burst of quick requests waits for a turn instead of answering `503`. See
   [choosing values](docs/processing-controls.md#choosing-values).
+- With `meta=strip`, a JPEG, WebP, or AVIF image at 72 dpi no longer
+  carries an EXIF block, so it's about 190 bytes smaller. An image at
+  another density, set by the `dpi` URL option or the `stripped_dpi`
+  setting, keeps an EXIF block with only the density. PNG still stores its
+  density in `pHYs`.
 
 ### Removed
 

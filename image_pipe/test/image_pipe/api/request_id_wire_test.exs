@@ -12,7 +12,7 @@ defmodule ImagePipe.API.RequestIdWireTest do
   @image File.read!("priv/static/images/beach.jpg")
 
   defmodule RaisingEncoderImage do
-    def stream!(_image, _options) do
+    def write_to_stream(_image, _suffix) do
       Stream.resource(fn -> :raise end, fn :raise -> raise "boom" end, fn _state -> :ok end)
     end
   end
