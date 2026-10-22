@@ -14,27 +14,28 @@ defmodule ImagePipe.Source.Parser do
   #   * `s3://` (when a configured source matches the scheme) — an
   #     `%Source.Object{}` with the query carried as its immutable
   #     revision.
-  #   * a custom scheme a configured source matches — a `%Source.Path{}`
-  #     tagged with that scheme, holding the part after `scheme://` split on
-  #     `/`.
+  #   * a custom scheme a configured source matches — a
+  #     `%Source.SchemePath{}` holding the scheme and the part after
+  #     `scheme://` split on `/`.
   #   * anything else (a scheme no configured source matches, built-in or
   #     custom, an empty source, a NUL byte, or a malformed authority) —
   #     `{:error, {:invalid_source, reason}}`.
   #
-  # `ImagePipe.Source.resolve/3` consumes the returned `ImagePipe.Source.parsed()`
-  # unchanged.
+  # `ImagePipe.Source.resolve/3` consumes the returned
+  # `ImagePipe.Source.plan_source()` unchanged.
   @moduledoc false
 
   alias ImagePipe.Plan.Source, as: PlanSource
   alias ImagePipe.Source.Object
   alias ImagePipe.Source.Path
   alias ImagePipe.Source.Routes
+  alias ImagePipe.Source.SchemePath
   alias ImagePipe.Source.URL
 
   @http_schemes %{"http" => :http, "https" => :https}
 
   @spec translate(String.t(), keyword()) ::
-          {:ok, ImagePipe.Source.parsed()} | {:error, {:invalid_source, term()}}
+          {:ok, ImagePipe.Source.plan_source()} | {:error, {:invalid_source, term()}}
   def translate(source, config) when is_binary(source),
     do: source |> PlanSource.normalize() |> do_translate(config)
 
@@ -74,7 +75,7 @@ defmodule ImagePipe.Source.Parser do
 
   defp scheme_translate(scheme, source) do
     rest = binary_part(source, byte_size(scheme) + 3, byte_size(source) - byte_size(scheme) - 3)
-    {:ok, %Path{scheme: scheme, segments: String.split(rest, "/")}}
+    {:ok, %SchemePath{scheme: scheme, segments: String.split(rest, "/")}}
   end
 
   defp build_url(scheme, source, %URI{} = uri) do

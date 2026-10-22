@@ -6,6 +6,7 @@ defmodule ImagePipe.Source.Routes do
 
   alias ImagePipe.Source.Object
   alias ImagePipe.Source.Path
+  alias ImagePipe.Source.SchemePath
   alias ImagePipe.Source.URL
 
   defstruct sources: %{}, prefixes: %{}, schemes: %{}, path: nil
@@ -60,7 +61,7 @@ defmodule ImagePipe.Source.Routes do
   removed).
   """
   @spec route(struct(), t()) :: {:ok, atom(), struct()} | {:error, {:source, atom()}}
-  def route(%Path{scheme: nil, segments: [first | rest]} = source, %__MODULE__{} = routes) do
+  def route(%Path{segments: [first | rest]} = source, %__MODULE__{} = routes) do
     case routes.prefixes do
       %{^first => name} -> path_route(name, %{source | segments: rest})
       _prefixes when is_nil(routes.path) -> {:error, {:source, :not_found}}
@@ -68,9 +69,9 @@ defmodule ImagePipe.Source.Routes do
     end
   end
 
-  def route(%Path{scheme: scheme} = source, %__MODULE__{} = routes) when is_binary(scheme) do
+  def route(%SchemePath{scheme: scheme, segments: segments}, %__MODULE__{} = routes) do
     case routes.schemes do
-      %{^scheme => name} -> path_route(name, %{source | scheme: nil})
+      %{^scheme => name} -> path_route(name, %Path{segments: segments})
       _schemes -> {:error, {:source, :not_found}}
     end
   end
