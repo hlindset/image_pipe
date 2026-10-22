@@ -5,6 +5,7 @@ defmodule ImagePipe.Application do
     top_level?: true,
     deps: [
       ImagePipe.Cache,
+      ImagePipe.Execution,
       ImagePipe.Output,
       ImagePipe.Source
     ]
@@ -12,6 +13,7 @@ defmodule ImagePipe.Application do
   use Application
 
   alias ImagePipe.Cache.OutputWork
+  alias ImagePipe.Execution.Staging
   alias ImagePipe.Output.Capabilities
 
   @impl true
@@ -24,7 +26,7 @@ defmodule ImagePipe.Application do
       {DynamicSupervisor, name: ImagePipe.Source.HTTP.Pools, strategy: :one_for_one},
       ImagePipe.Source.HTTP.PinnedPools,
       ImagePipe.Source.HTTP.DnsCache,
-      ImagePipe.Cache.Resources,
+      Staging.Resources,
       ImagePipe.Cache.FileSystem.CheckedDirs,
       ImagePipe.Cache.FileSystem.RefusedRoots,
       {Task.Supervisor, name: ImagePipe.Cache.RefreshTasks},
@@ -32,7 +34,7 @@ defmodule ImagePipe.Application do
       OutputWork,
       OutputWork.downloads_child_spec(),
       ImagePipe.Source.S3.RefreshCache,
-      ImagePipe.Cache.staged_sweep_spec()
+      Staging.sweep_spec()
     ]
 
     opts = [strategy: :one_for_one, name: ImagePipe.Supervisor]

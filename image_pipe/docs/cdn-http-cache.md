@@ -224,13 +224,12 @@ If-None-Match: W/"ipr1-token"
 
 Whether ImagePipe contacts the source first depends on the source:
 
-- A local immutable source answers `304` without reading the file, unless
-  the source keeps copies of its files in the originals cache.
+- A local immutable source answers `304` without reading the file.
 - A remote immutable source whose storage is allowed in its cache policy
   answers `304` without contacting the origin.
 - Any other source answers `304` without contacting the origin while its
-  original is within its lifetime. This needs one of ImagePipe's caches,
-  which store the original's lifetime. Without them, the original is
+  original is within its lifetime. This needs an ImagePipe instance, which
+  keeps the original's lifetime in memory. Without one, the original is
   downloaded or read on every request, and the `304` is sent once its
   content matches.
 - An original past its lifetime is checked with its origin before the `304`

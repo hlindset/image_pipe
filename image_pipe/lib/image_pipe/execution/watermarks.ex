@@ -1,16 +1,16 @@
 defmodule ImagePipe.Execution.Watermarks do
   @moduledoc false
   # Watermark assets are additional request inputs. Each distinct asset
-  # resolves through the configured sources and, for remote sources, the
-  # input cache, exactly like the main source. Assets are acquired in tasks
-  # that run while the caller acquires the main source.
+  # resolves through the configured sources, and its record is kept like the
+  # main source's. Assets are acquired in tasks that run while the caller
+  # acquires the main source.
   #
   # `prepare_async/3` establishes byte identity before the conditional gate:
-  # it reuses a fresh input-cache record, or fetches (revalidating a stale
-  # record). `open_async/2` reads the bytes of assets that prepare did not
-  # fetch, after an output-cache miss. Both read whole bodies into memory and
-  # release their input leases before returning. Without an originals cache,
-  # an asset's bytes are kept in the instance's memory (`Cache.watermark_bytes/3`).
+  # it reuses a fresh record, or fetches (revalidating a stale record).
+  # `open_async/2` reads the bytes of assets that prepare did not fetch,
+  # after an output-cache miss. Both read whole bodies into memory and release
+  # their staged files before returning. An asset's bytes are kept in the
+  # instance's memory (`Cache.watermark_bytes/3`).
 
   alias ImagePipe.Cache
   alias ImagePipe.Execution.SourceCache
@@ -217,7 +217,7 @@ defmodule ImagePipe.Execution.Watermarks do
   # which can be newer than the one the request prepared with.
   defp leased_bytes(watermark, %{record: record} = acquisition, config) do
     with {:ok, bytes} <- read(acquisition.response, config) do
-      if remembers?(watermark, record, config),
+      if remembers?(watermark, record),
         do:
           Cache.remember_watermark_bytes(watermark.input_key, record.byte_identity, bytes, config)
 
@@ -228,15 +228,11 @@ defmodule ImagePipe.Execution.Watermarks do
   end
 
   defp remembered(watermark, record, config) do
-    if remembers?(watermark, record, config),
+    if remembers?(watermark, record),
       do: Cache.watermark_bytes(watermark.input_key, record.byte_identity, config)
   end
 
-  # With an originals cache, assets are read from it instead.
-  defp remembers?(watermark, record, config),
-    do:
-      not Keyword.has_key?(config, :input_cache) and
-        SourceCache.storable?(record, watermark.source)
+  defp remembers?(watermark, record), do: SourceCache.storable?(record, watermark.source)
 
   defp read(%Response{path: path}, config) when is_binary(path) do
     limit = Keyword.fetch!(config, :max_body_bytes)

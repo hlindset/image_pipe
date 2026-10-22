@@ -7,10 +7,7 @@ defmodule ImagePipe.Cache.FileSystem.MemoTest do
   alias ImagePipe.Cache.FileSystem.Memo
   alias ImagePipe.Cache.FileSystem.Root
   alias ImagePipe.Cache.FileSystem.Store
-  alias ImagePipe.Cache.Input
   alias ImagePipe.Cache.Key
-  alias ImagePipe.Source
-  alias ImagePipe.Source.Record
 
   setup context do
     root = Path.join(System.tmp_dir!(), "image_pipe_memo_#{System.unique_integer([:positive])}")
@@ -44,33 +41,6 @@ defmodule ImagePipe.Cache.FileSystem.MemoTest do
 
     assert :ok = put_entry(key, "body", [{"x-new", "1"}], opts)
     assert {:hit, %{headers: [{"x-new", "1"}]}} = get(key, opts)
-  end
-
-  test "a refreshed source record is read back", %{opts: opts, root: root} do
-    key = key("c")
-    config = [input_cache: opts]
-    path = Path.join(root, "source")
-    File.write!(path, "image")
-    original = record("image", 1000)
-    assert :ok = Input.put(key, path, sha256("image"), original, 25, config)
-    assert {:hit, file, %{source_record: ^original}} = Store.get(key, opts)
-    ImagePipe.Cache.File.close(file)
-
-    refreshed = record("image", 2000)
-    assert :ok = Input.refresh(key, refreshed, config)
-    assert {:hit, file, %{source_record: ^refreshed}} = Store.get(key, opts)
-    ImagePipe.Cache.File.close(file)
-  end
-
-  test "a delete forgets the entry's metadata", %{opts: opts, root: root} do
-    key = key("d")
-    assert :ok = put_entry(key, "body", [], opts)
-    assert {:hit, _entry} = get(key, opts)
-    assert Memo.get(root, key.hash) != nil
-
-    assert :ok = Store.delete(key, opts)
-    assert Memo.get(root, key.hash) == nil
-    assert get(key, opts) == :miss
   end
 
   test "an eviction forgets the victim's metadata", ctx do
@@ -191,12 +161,5 @@ defmodule ImagePipe.Cache.FileSystem.MemoTest do
          {:ok, state} <- FileSystem.write_chunk(state, body, opts) do
       FileSystem.commit_sink(state, opts)
     end
-  end
-
-  defp sha256(bytes), do: :crypto.hash(:sha256, bytes)
-
-  defp record(bytes, now) do
-    {:ok, source, _config} = Source.from_input({:binary, bytes}, sources: %{})
-    Record.new(source, :crypto.hash(:sha256, bytes), nil, now)
   end
 end

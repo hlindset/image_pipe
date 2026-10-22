@@ -40,7 +40,6 @@ defmodule ImagePipe.API.SourceIntegrityFaultWireTest do
               ]
             ],
             cache: [root: Path.join(context.root, "output")],
-            input_cache: [root: Path.join(context.root, "input")],
             max_body_bytes: 20_000_000,
             max_input_pixels: 60_000_000
           )

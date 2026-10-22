@@ -19,7 +19,6 @@ defmodule ImagePipe.Telemetry.Logger do
     :sig_key,
     :cache,
     :download,
-    :input_cache,
     :staging,
     :staging_reason,
     :source,
@@ -212,7 +211,6 @@ defmodule ImagePipe.Telemetry.Logger do
     (is_nil(metadata[:status]) and metadata[:result] not in [nil, :ok, :not_modified, :options]) or
       metadata[:degraded] == true or
       metadata[:cache] == :read_error or
-      metadata[:input_cache] == :read_error or
       metadata[:detect] in [:unavailable, :error, :no_detector, :not_ready] or
       metadata[:quality_search] == :best_effort or
       Map.has_key?(metadata, :clamped)
@@ -220,7 +218,7 @@ defmodule ImagePipe.Telemetry.Logger do
 
   defp quiet_pass?(metadata) do
     Enum.all?(
-      [:pins, :temps, :bodies, :unreadable, :staged],
+      [:temps, :bodies, :unreadable, :staged],
       &(Map.get(metadata, &1, 0) == 0)
     )
   end

@@ -119,26 +119,22 @@ defmodule ImagePipe.API.SourceCoordinationWireTest do
     assert Task.await(second).status == 200
   end
 
-  for {name, caches} <- [
-        {"with only a processed-image cache", [:cache]},
-        {"with both caches", [:cache, :input_cache]}
-      ] do
-    test "#{name}, identical cold requests share one download and one image", context do
-      mount = start(context, cache_options(context, unquote(caches)))
-      first = async(context, fn -> request(mount, 12) end)
-      assert_receive {:fetch, ["original"], _}
-      assert_receive {:streaming, leader}
-      second = async(context, fn -> request(mount, 12) end)
-      assert_receive {:coordination, %{operation: :download, result: :waiting}}
-      send(leader, :continue)
+  test "with only a processed-image cache, identical cold requests share one download and one image",
+       context do
+    mount = start(context, cache: [root: Path.join(context.root, "output")])
+    first = async(context, fn -> request(mount, 12) end)
+    assert_receive {:fetch, ["original"], _}
+    assert_receive {:streaming, leader}
+    second = async(context, fn -> request(mount, 12) end)
+    assert_receive {:coordination, %{operation: :download, result: :waiting}}
+    send(leader, :continue)
 
-      original = Task.await(first)
-      assert original.status == 200
-      assert Task.await(second).resp_body == original.resp_body
-      assert_received {:generated, _}
-      refute_received {:generated, _}
-      refute_received {:fetch, ["original"], _}
-    end
+    original = Task.await(first)
+    assert original.status == 200
+    assert Task.await(second).resp_body == original.resp_body
+    assert_received {:generated, _}
+    refute_received {:generated, _}
+    refute_received {:fetch, ["original"], _}
   end
 
   test "identical cold requests share one download of an original the origin marks no-cache",
@@ -222,7 +218,6 @@ defmodule ImagePipe.API.SourceCoordinationWireTest do
     mount =
       start(context,
         cache: [root: Path.join(context.root, "output")],
-        input_cache: [root: Path.join(context.root, "input")],
         origin: origin("no-store")
       )
 

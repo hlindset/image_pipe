@@ -1,15 +1,14 @@
 # Cache storage
 
-ImagePipe has two caches: `cache` stores complete processed responses, and
-`input_cache` stores originals fetched from remote sources. Both store files
-on disk and take a keyword list, such as
+The `cache` option stores complete processed responses as files on disk. It
+takes a keyword list, such as
 `[root: "/var/cache/image_pipe/processed", max_size_bytes: 5_000_000_000]`.
-In Elixir, each cache needs an ImagePipe instance (see
+In Elixir, the cache needs an ImagePipe instance (see
 `ImagePipe.child_spec/1`). `image_pipe_server` runs one itself. The
 options are listed in `ImagePipe.Cache.FileSystem`, and the server's
 `[cache]` keys in the
 [server configuration reference](../../image_pipe_server/docs/server-configuration.md#cache).
-Setting up the caches is covered in
+Setting up the cache is covered in
 [Caching processed images](caching-processed-images.md), and how long cached
 images stay valid in [Caching and freshness](caching-and-freshness.md).
 
@@ -24,7 +23,7 @@ without reading the cache or fetching the source.
 It selects the same cached copy as a Plug request only when given the same
 `accept` and `vary_values` (see
 [sharing cache entries](combined-usage.md#processing-in-a-job)).
-`{:file, path}` and `{:binary, bytes}` inputs never use either cache.
+`{:file, path}` and `{:binary, bytes}` inputs never use the cache.
 
 ## Source cache settings
 
@@ -46,8 +45,10 @@ settings, `stable`, `internal_cache`, and `http_cache`, are listed in
 
 - `stable: :immutable` marks a source whose identifiers always name the same
   bytes.
-- `internal_cache: :disabled` turns off both caches for the source. The
-  default, `:enabled`, caches whatever the source's storage policy allows.
+- `internal_cache: :disabled` turns off caching for the source: its
+  processed images aren't stored, and its originals aren't remembered or
+  shared between requests. The default, `:enabled`, caches whatever the
+  source's storage policy allows.
 - `http_cache` is described in [HTTP cache headers](cdn-http-cache.md#per-source-modes).
 
 ## What is stored
@@ -61,10 +62,10 @@ stored.
 A watermarked response is stored or reused only when the original and every
 watermark source permit storage and have internal caching enabled.
 
-Without an [originals cache](#originals-cache), an instance keeps the bytes
-of up to 64 recently used watermark images, each up to 1 MiB, in memory, so
-a watermark from an origin isn't downloaded for every processed image. A
-stale watermark is checked with its origin, as an original is.
+An instance keeps the bytes of up to 64 recently used watermark images, each
+up to 1 MiB, in memory, so a watermark from an origin isn't downloaded for
+every processed image. A stale watermark is checked with its origin, as an
+original is.
 
 A stored response keeps its body, content type, and two response headers:
 `vary` and `cache-control`. Header names are stored in lower case.
@@ -99,11 +100,6 @@ Each stored response is selected by:
 The URL's expiry, signature, filename, `attachment` option, and `debug`
 option don't select a different entry.
 
-The originals cache uses the original's identifier, the cachebuster, and the
-origin credentials. Processing options, output format, and `vary_on` values
-don't, so every size and format of one original, for any `vary_on` value,
-shares one stored copy.
-
 A source's name isn't part of the key, so renaming a source keeps its entries.
 For a custom source, every option apart from the cache settings `stable`,
 `cache_policy`, `internal_cache`, and `http_cache` is part of the key. Within
@@ -119,33 +115,15 @@ capture different values select different entries. An option that holds a pid
 or a reference, or a function that captures one, can change the key after a
 restart or redeploy.
 
-## Originals cache
+## Downloaded originals
 
-`input_cache` needs a `root` separate from the processed-image cache's. Neither root may be inside the
-other. Each cache has its own size limit and eviction. Serving a processed
-image from the cache doesn't count as a request for its original.
-
-- Originals are stored byte for byte, including their EXIF and ICC data.
-- Local files are copied in only when their source sets `copy: :keep` (see
-  [copy files from network storage](serving-local-files.md#copy-files-from-network-storage)).
-- A download is stored only once it completes.
-- When a request fails to decode a stored original, the cache hashes it
-  again and removes it only if it no longer matches the SHA-256 hash
-  recorded when it was stored. An intact original stays cached for the other
-  sizes and formats made from it.
-- Making a new processed image from a stored original applies the current
-  `max_body_bytes` and pixel limits. Processed images already in the cache
-  are still served after you lower those limits.
-- Downloads in progress, and originals being read by a request, can take the
-  cache over its `max_size_bytes` for as long as those requests run.
-
-Some originals, such as those the originals cache keeps, are written to a
-temporary file while they download, in the `image_pipe` directory under the
-system temporary directory (see `System.tmp_dir/0`). Only the user running
-ImagePipe can open that directory. When that path is a symlink, a file, or
-another user's directory, those originals are held in memory instead, up to
-`max_body_bytes` each. The first request that can't use the directory logs a
-warning naming it. With the
+Originals from HTTP and S3 sources are written to a temporary file while
+they download and while requests use them, in the `image_pipe` directory
+under the system temporary directory (see `System.tmp_dir/0`). Local files
+are read where they are. Only the user running ImagePipe can open that
+directory. When that path is a symlink, a file, or another user's directory,
+those originals are held in memory instead, up to `max_body_bytes` each. The
+first request that can't use the directory logs a warning naming it. With the
 [default Logger](telemetry.md#logging-with-the-default-logger) attached, each
 request whose original is held in memory has `staging=memory` on its line. On
 a host shared with other users, set `TMPDIR` to a directory of your own.
@@ -185,7 +163,7 @@ dropped write.
 A write counts toward the unfinished writes as it goes, so an entry larger
 than that limit is never stored. A cache of 100 MB, for example, never
 stores an image over 5 MB. The cache's files can take up to
-`max_size_bytes` plus the limit on unfinished writes, plus evicted originals
+`max_size_bytes` plus the limit on unfinished writes, plus evicted entries
 that requests are still reading.
 
 Cache errors never fail a request. A failed write is logged and reported in
@@ -205,9 +183,8 @@ background checks (see
   another size or format downloads an HTTP or S3 original, or while another
   request checks an original with its origin, gives up after that source's
   `fetch_timeout` (see `ImagePipe.Source.HTTP` and `ImagePipe.Source.S3`)
-  plus one second, and answers `504`. When the original isn't stored
-  2 seconds after it was downloaded, the next waiting request takes over,
-  and downloads it again if it still isn't stored.
+  plus one second, and answers `504`. When a download finishes, every request
+  waiting for it uses the downloaded original.
 - Requests for the same processed image that wait for one new original's
   download have separate limits: up to 4,096 downloads at once, with up to
   1,024 requests waiting. A waiting request stops waiting after the source's
@@ -289,14 +266,14 @@ writable, it logs a warning and uses the cache anyway.
 ### Leftover files
 
 A node that stops abruptly, for example after a crash or `kill -9`, can leave
-temporary entry files behind, links that requests used to hold originals
-open, and bodies that no metadata file names. A running node can leave them
-too, for example when a request is killed while its image is being written.
+temporary entry files behind, and bodies that no metadata file names. A
+running node can leave them too, for example when a request is killed while
+its image is being written.
 Metadata files the cache can't read, such as ones another ImagePipe version
 wrote, count as left behind too, and so do their bodies. ImagePipe deletes
 them in the background once they are more than an hour old:
 
-- In each cache's `root`, after its startup scan and every 24 hours while the
+- In the cache's `root`, after its startup scan and every 24 hours while the
   instance runs.
 - In the `image_pipe` directory under the system temporary directory
   (`TMPDIR`, or `/tmp`), where originals are staged while they download,
@@ -347,8 +324,7 @@ The work to make a processed image is estimated from what its request did:
 - object detection
 
 The estimate isn't timed, so a busy server doesn't make entries look more
-expensive. Originals in the originals cache are scored by how long their
-download took.
+expensive.
 
 ### Eviction and startup scan
 
@@ -401,17 +377,12 @@ The admission and eviction telemetry events are listed in
 
 ## Usage and hit rate
 
-`ImagePipe.cache_stats/1` returns an `:output` and an `:input` entry, for
-`cache` and `input_cache`, with each cache's `:bytes`, `:entries`, and
-`:max_bytes`, and its `:hits`, `:misses`, and `:read_errors` since the VM
-started:
+`ImagePipe.cache_stats/1` returns an `:output` entry for `cache`, with the
+cache's `:bytes`, `:entries`, and `:max_bytes`, and its `:hits`, `:misses`,
+and `:read_errors` since the VM started:
 
-- `:output` counts each request once: a hit when the processed image is
-  served from the cache, a miss when it's made.
-- `:input` counts each original a request needs, including watermark images:
-  a hit when the original is read from the cache, a miss when it's
-  downloaded to be stored. A source that doesn't store its originals isn't
-  counted.
+- Each request counts once: a hit when the processed image is served from
+  the cache, a miss when it's made.
 - A read error is a stored entry the cache couldn't read. The request
   treats it as a miss, so it counts as a read error and as a miss.
 - `:counting?` is `true` until the

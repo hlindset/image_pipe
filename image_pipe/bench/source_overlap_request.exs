@@ -1,4 +1,4 @@
-# Fresh-VM HTTP + input/output cache benchmark. Missing Content-Length forces spooling.
+# Fresh-VM HTTP + output cache benchmark. Missing Content-Length forces spooling.
 # mix run --no-compile --preload-modules bench/source_overlap_request.exs auto|spool IMAGE MIBPS
 defmodule SourceOverlapRequestBench do
   def run([mode, path, rate]) do
@@ -46,8 +46,7 @@ defmodule SourceOverlapRequestBench do
           url:
             [adapter: ImagePipe.Source.HTTP, match: [scheme: ["http", "https"]], options: [allowed_hosts: ["127.0.0.1"], address_policy: [allow_loopback: true]]]
         ],
-        cache: [root: Path.join(root, "output")],
-        input_cache: [root: Path.join(root, "input")]
+        cache: [root: Path.join(root, "output")]
       )
 
     sampler = Task.async(fn -> sample_rss(0) end)

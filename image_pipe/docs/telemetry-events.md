@@ -147,10 +147,6 @@ one line, and the tracer doesn't use it.
     download of a new original, `:coalesced` when it waited until the other
     request had the original, or `:bypass` when it stopped waiting for any
     other reason (see [`[:cache, :coordination]`](#cache-coordination)).
-  - `:input_cache` (atom): the input cache's answer for a stored original,
-    as on [`[:cache, :input]`](#cache-input). Absent when there was no
-    stored original to check, such as on an output cache hit or the first
-    fetch of an original.
   - `:staging` (`:memory`) and `:staging_reason` (atom): the original was
     held in memory instead of a temporary file, as on
     [`[:source, :stage]`](#source-stage).
@@ -327,9 +323,9 @@ in `[:source, :stage]`, and for file sources in `[:source, :fetch_decode]`.
 
 ### `[:source, :stage]`
 
-Span. Wraps downloading or revalidating an HTTP or S3 original, including
-storing it in the input cache. It runs whether or not a cache is configured,
-and is skipped when a cached original is still fresh.
+Span. Wraps downloading or revalidating an HTTP or S3 original. It runs
+whether or not a cache is configured. A request whose original is still
+fresh runs it only when it needs the original's bytes.
 
 - Start metadata: none.
 - Stop metadata:
@@ -450,7 +446,7 @@ during [`[:transform, :execute]`](#transform-execute).
 ### `[:source, :watermark]`
 
 Span. Wraps getting one watermark image, in its own process while the main
-original is fetched. That image's source and input-cache spans nest in it.
+original is fetched. That image's source spans nest in it.
 
 - Start metadata: `:phase` (atom), `:prepare` when its identity is checked
   before the conditional check, or `:open` when its bytes are read after an
@@ -480,18 +476,6 @@ Span. Wraps a lookup in the output cache or in the instance's memory.
   - `:cache_key` and `:entry`: as on start.
   - `:error` (atom): the error category, on a read error.
 
-### `[:cache, :input]`
-
-Span. Wraps opening and checking an original in the input cache. Not emitted
-when the output cache hits.
-
-- Start metadata: `:pool` (`:input`).
-- Stop metadata:
-  - `:result` (atom): `:ok`, or `:cache_error` when the read failed.
-  - `:cache` (atom): `:hit`, `:miss`, or `:read_error`. A read error falls
-    back to the origin.
-  - `:bytes` (integer): the size of the reused original, on a hit.
-
 ### `[:cache, :refresh]`
 
 Span. Wraps the background check of a stale original that
@@ -503,10 +487,8 @@ starts. It runs outside any request.
 
 ### `[:cache, :write]`
 
-Span. Wraps committing an entry to either pool. Writes of processed images
-and placeholders run after the response is sent. Writes of originals and the
-details kept to recheck them run while the request processes the original. A
-write nests under the request's span and can end after it.
+Span. Wraps committing an entry to the cache. Writes run after the response
+is sent. A write nests under the request's span and can end after it.
 
 - Start metadata: `:pool` (atom), and `:cache_key` (string, the hash of the
   entry's cache key).
@@ -514,14 +496,13 @@ write nests under the request's span and can end after it.
   - `:result` (atom): `:ok` or `:cache_error`.
   - `:cache` (atom): `:write` when stored, or `:write_error`. A cache that
     declines the entry to stay under its [size limit](cache.md#size-limit)
-    reports `:admission_rejected` (output pool) or `:stage_skipped` (input
-    pool).
+    reports `:admission_rejected`.
   - `:error` (atom): the error category, on a write error.
-  - `:output_format` (atom): the stored format. Output pool only.
+  - `:output_format` (atom): the stored format.
   - `:estimated_cost_us` (integer): the estimated
     [work to make the entry](cache.md#work-to-make-an-entry), in
     microseconds, comparable only with other entries' estimates. The cache
-    scores entries by it. Output pool only.
+    scores entries by it.
   - `:bytes` (integer): the size of the entry's body. On `:write`, the span's
     duration includes syncing the body to disk, so `:bytes` divided by the
     duration gives a rough write speed. The duration also includes waiting for
@@ -539,15 +520,12 @@ The default Logger logs `:stage_dropped` and `:stage_error` at `:warning`,
 with or without `stages: true`.
 
 - Metadata:
-  - `:pool` (atom): `:output` for a processed image or placeholder, `:input`
-    for an original or the details kept to recheck it.
+  - `:pool` (atom): `:output`.
   - `:cache` (atom): `:stage_skipped` when the body crossed `max_body_bytes`,
     `:stage_abandoned` when delivery stopped early or the stream failed,
     `:stage_dropped` when the cache dropped the write to keep up with its
     storage (see [writing entries](cache.md#writing-entries)), or
-    `:stage_error` when opening or writing the staged entry failed. Writes
-    of originals report only `:stage_dropped`, with `:writer_limit`,
-    `:pending_limit` or `:deadline`.
+    `:stage_error` when opening or writing the staged entry failed.
   - `:result` (atom): `:ok` for skipped, abandoned and dropped entries,
     `:cache_error` otherwise.
   - `:reason` (atom): why the entry was skipped, abandoned or dropped, such
@@ -555,13 +533,11 @@ with or without `stages: true`.
     runs its maximum number of writes), `:pending_limit` (its unfinished
     writes hold too many bytes), `:lagging` (the client got too far ahead of
     the write), or `:deadline` (a response's write was unfinished 30 seconds
-    after it started, or an original's writes waited past the
-    2-second limit and another request may have stored it since).
+    after it started).
   - `:error` (atom): the error category, for `:stage_error`.
-  - `:output_format` (atom), or `nil` for an original or a body that isn't
-    an image, such as a BlurHash.
-  - `:cache_key` (string): the hash of the entry's cache key, or of the
-    original's source for an original.
+  - `:output_format` (atom), or `nil` for a body that isn't an image, such
+    as a BlurHash.
+  - `:cache_key` (string): the hash of the entry's cache key.
 
 ### `[:cache, :coordination]`
 
@@ -570,12 +546,13 @@ are coordinated (see [request coalescing](caching-and-freshness.md#request-coale
 Which requests emit it:
 
 - `:source`: none for a source with `internal_cache: :disabled`. For a
-  local file without an originals cache, only a request that checks a file
-  read earlier, when a processed-image cache is configured.
+  local file, only a request that checks a file read earlier, when a
+  processed-image cache is configured.
 - `:download`: only a request for an original that no cache has fetched yet,
-  or whose details were evicted, when a processed-image cache is configured, caching is on for the
-  source, and [storage](caching-and-freshness.md#storage-permission) isn't
-  denied for it in its configuration. An immutable source with
+  or whose details were evicted, when a processed-image cache is configured
+  and caching is on for the source, and
+  [storage](caching-and-freshness.md#storage-permission) isn't denied for it
+  in its configuration. An immutable source with
   `storage: :allow` doesn't emit it, nor does a low-priority request when no
   other request is downloading the original.
 - `:refresh`: a request that serves a stale processed image and starts or
@@ -632,21 +609,20 @@ level. It shows the reason, when there is one, after the result, as in
 Span. Emitted each time ImagePipe checks for
 [leftover files](cache.md#leftover-files), whether or not it finds any:
 
-- For a cache, after its startup scan and then every 24 hours.
+- For the cache, after its startup scan and then every 24 hours.
 - For staged originals, when the `:image_pipe` application starts and every
   24 hours after.
 
 The default Logger logs a check that deleted nothing at `:debug`.
 
-- Start metadata: `:pool` (atom): `:output` or `:input` for a cache, `:staging`
-  for staged originals.
+- Start metadata: `:pool` (atom): `:output` for the cache, `:staging` for
+  staged originals.
 - Stop metadata:
   - `:result` (atom): `:ok`.
   - `:bytes` (integer): total size of the deleted files.
-  - For a cache, `:pins`, `:temps` and `:bodies` (integer): how many
-    originals held open by requests, temporary writes, and bodies no
-    metadata named were deleted.
-  - For a cache, `:unreadable` (integer): how many metadata files the cache
+  - For the cache, `:temps` and `:bodies` (integer): how many temporary
+    writes and bodies no metadata named were deleted.
+  - For the cache, `:unreadable` (integer): how many metadata files the cache
     can't read were deleted. Their bodies are counted in `:bodies`.
   - For `:staging`, `:staged` (integer): how many staged originals were
     deleted.

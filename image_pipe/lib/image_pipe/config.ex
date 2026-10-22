@@ -418,15 +418,6 @@ defmodule ImagePipe.Config do
                   default.
                   """
                 ],
-                input_cache: [
-                  type: :keyword_list,
-                  type_doc: "keyword list",
-                  doc: """
-                  Cache for originals fetched from sources. Takes the same options as \
-                  `:cache` except `:max_body_bytes`. \
-                  See [originals cache](cache.md#originals-cache). Off by default.
-                  """
-                ],
                 max_remembered_originals: [
                   type: :pos_integer,
                   doc: """
@@ -663,10 +654,10 @@ defmodule ImagePipe.Config do
   # configuration with one must come from an instance.
   @spec reject_caches_without_instance!(t()) :: t()
   def reject_caches_without_instance!(%__MODULE__{instance: nil} = config) do
-    if Enum.any?([:cache, :input_cache], &Keyword.get(config.options, &1)) or
+    if Keyword.get(config.options, :cache) != nil or
          Keyword.has_key?(config.raw, :max_remembered_originals) do
       raise ArgumentError,
-            "a configuration with cache, input_cache or max_remembered_originals must " <>
+            "a configuration with cache or max_remembered_originals must " <>
               "be used through an ImagePipe instance: start {ImagePipe, name: ..., ...}, " <>
               "then mount it with ImagePipe.Plug's :instance option or pass its name to run/4"
     end
@@ -717,7 +708,7 @@ defmodule ImagePipe.Config do
   end
 
   # Options that set up the instance's processes and tables.
-  @instance_keys [:cache, :input_cache, :max_remembered_originals]
+  @instance_keys [:cache, :max_remembered_originals]
 
   @doc false
   @spec override(t(), keyword()) :: t()
@@ -731,7 +722,7 @@ defmodule ImagePipe.Config do
   def override(config, options) do
     if Enum.any?(@instance_keys, &Keyword.has_key?(options, &1)) do
       raise ArgumentError,
-            "cache, input_cache and max_remembered_originals belong to the instance " <>
+            "cache and max_remembered_originals belong to the instance " <>
               "#{inspect(config.instance)} and can't be overridden per call"
     end
 

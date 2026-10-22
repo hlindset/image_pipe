@@ -10,9 +10,9 @@ defmodule ImagePipe.Source.CacheSemantics do
   bytes can change uses `byte_identity: :content` and `stable?: false`: its
   identity is the SHA-256 of the original bytes, taken when they're fetched.
 
-  `copy?` asks ImagePipe to keep a local copy of the original, in the input
-  pool when `internal_cache` allows, so other variants of it don't read it from
-  its origin again. Remote adapters set it. A source that returns a local path
+  `copy?` asks ImagePipe to copy the original to a staged local file while
+  requests use it, so concurrent requests for other variants of it share one
+  download. Remote adapters set it. A source that returns a local path
   without it is read where it is, and hashed in place when it has a content
   identity.
   """

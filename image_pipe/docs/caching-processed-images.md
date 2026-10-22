@@ -57,49 +57,15 @@ root = "/var/cache/image_pipe/processed"
 max_size_bytes = 5_000_000_000
 ```
 
-In the Docker image, put cache directories under `/var/cache/image_pipe` and
+In the Docker image, put the cache directory under `/var/cache/image_pipe` and
 mount a volume there, as shown in
 [Running](../../image_pipe_server/docs/server-deployment.md#running).
 
 <!-- tabs-close -->
 
-## Add an originals cache
-
-Add an originals cache when you serve several sizes or formats of the same
-image from a remote source: new sizes are then made from the stored original
-instead of downloading it again, even when they're requested while it's
-still being downloaded. It needs its own directory and its own
-`max_size_bytes`.
-
-<!-- tabs-open -->
-
-### Plug
-
-Add `input_cache` to the instance's options:
-
-```elixir
-cache: [root: "/var/cache/image_pipe/processed", max_size_bytes: 5_000_000_000],
-input_cache: [root: "/var/cache/image_pipe/originals", max_size_bytes: 20_000_000_000]
-```
-
-### image_pipe_server
-
-```toml
-[cache.input]
-root = "/var/cache/image_pipe/originals"
-max_size_bytes = 20_000_000_000
-```
-
-<!-- tabs-close -->
-
-Local files are read where they are. To keep copies of them in the originals
-cache, for example on a network filesystem, set the file source's `copy`
-option to `keep` (see
-[copy files from network storage](serving-local-files.md#copy-files-from-network-storage)).
-
 ## Run several replicas
 
-Give each replica its own cache directories, such as its own volume. A
+Give each replica its own cache directory, such as its own volume. A
 replica that finds another replica using its `root` logs an error and runs
 without that cache until the other replica stops (see
 [cache root owner file](cache.md#cache-root-owner-file)).

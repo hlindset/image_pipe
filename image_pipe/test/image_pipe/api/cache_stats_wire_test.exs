@@ -47,21 +47,20 @@ defmodule ImagePipe.API.CacheStatsWireTest do
             ]
           ]
         ],
-        cache: [root: Path.join(root, "output"), max_size_bytes: 50_000_000],
-        input_cache: [root: Path.join(root, "input"), max_size_bytes: 20_000_000]
+        cache: [root: Path.join(root, "output"), max_size_bytes: 50_000_000]
       )
 
-    for key <- [:cache, :input_cache], do: await_scan(opts[key])
+    await_scan(opts[:cache])
 
-    %{opts: opts, body: body}
+    %{opts: opts}
   end
 
-  test "reports each cache's usage and its lookups since start", %{opts: opts, body: body} do
+  test "reports the cache's usage and its lookups since start", %{opts: opts} do
     assert get("/w=12/format=png/src/https://origin.test/a.png", opts) == 200
     assert get("/w=12/format=png/src/https://origin.test/a.png", opts) == 200
     assert get("/w=16/format=png/src/https://origin.test/a.png", opts) == 200
 
-    assert %{output: output, input: input} = ImagePipe.cache_stats(Caches.instance(opts))
+    assert %{output: output} = ImagePipe.cache_stats(Caches.instance(opts))
 
     assert %{
              hits: 1,
@@ -74,12 +73,6 @@ defmodule ImagePipe.API.CacheStatsWireTest do
 
     assert output.entries >= 2
     assert output.bytes > 0
-
-    assert %{hits: 1, misses: 1, read_errors: 0, max_bytes: 20_000_000, counting?: false} =
-             input
-
-    assert input.entries == 1
-    assert input.bytes == byte_size(body)
   end
 
   @tag cache_control: "public, max-age=0, stale-while-revalidate=60"
@@ -119,31 +112,31 @@ defmodule ImagePipe.API.CacheStatsWireTest do
   end
 
   test "reports a cache whose process exits while it's asked as unavailable", %{opts: opts} do
-    admission = admission(opts[:input_cache])
+    admission = admission(opts[:cache])
     :sys.suspend(admission)
     stats = Task.async(fn -> ImagePipe.cache_stats(Caches.instance(opts)) end)
     await_queued(admission)
     Process.exit(admission, :kill)
 
-    assert %{output: %{available: true}, input: input} = Task.await(stats)
-    assert_unavailable(input)
+    assert %{output: output} = Task.await(stats)
+    assert_unavailable(output)
   end
 
   test "reports a busy cache as unavailable before the default call timeout", %{opts: opts} do
-    admission = admission(opts[:input_cache])
+    admission = admission(opts[:cache])
     :sys.suspend(admission)
 
     {elapsed, stats} =
       :timer.tc(fn -> ImagePipe.cache_stats(Caches.instance(opts)) end, :millisecond)
 
     :sys.resume(admission)
-    assert %{output: %{available: true}, input: input} = stats
-    assert_unavailable(input)
+    assert %{output: output} = stats
+    assert_unavailable(output)
     assert elapsed < 5_000
   end
 
   test "reports a cache whose process is restarting as unavailable", %{opts: opts} do
-    admission = admission(opts[:input_cache])
+    admission = admission(opts[:cache])
     {:dictionary, dictionary} = Process.info(admission, :dictionary)
     [supervisor | _ancestors] = Keyword.fetch!(dictionary, :"$ancestors")
 
@@ -152,10 +145,8 @@ defmodule ImagePipe.API.CacheStatsWireTest do
 
     :ok = Supervisor.terminate_child(supervisor, id)
 
-    assert %{output: %{available: true}, input: input} =
-             ImagePipe.cache_stats(Caches.instance(opts))
-
-    assert_unavailable(input)
+    assert %{output: output} = ImagePipe.cache_stats(Caches.instance(opts))
+    assert_unavailable(output)
     {:ok, _pid} = Supervisor.restart_child(supervisor, id)
   end
 
@@ -164,7 +155,7 @@ defmodule ImagePipe.API.CacheStatsWireTest do
     assert stats == %{
              available: false,
              refused: false,
-             max_bytes: 20_000_000,
+             max_bytes: 50_000_000,
              hits: 0,
              misses: 0,
              read_errors: 0
@@ -189,17 +180,14 @@ defmodule ImagePipe.API.CacheStatsWireTest do
   end
 
   test "reports a cache whose root another node owns as refused", %{opts: opts} do
-    root = Store.root_dir(opts[:input_cache])
+    root = Store.root_dir(opts[:cache])
     Owner.refuse(root)
     on_exit(fn -> Owner.accept(root) end)
 
-    assert %{
-             output: %{refused: false, hits: 0},
-             input: %{refused: true, max_bytes: 20_000_000} = input
-           } =
+    assert %{output: %{refused: true, max_bytes: 50_000_000} = output} =
              ImagePipe.cache_stats(Caches.instance(opts))
 
-    assert map_size(input) == 2
+    assert map_size(output) == 2
   end
 
   test "leaves out a cache that isn't configured" do

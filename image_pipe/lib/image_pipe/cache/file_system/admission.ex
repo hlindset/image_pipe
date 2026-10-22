@@ -114,7 +114,7 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
         ),
       doorkeeper: Doorkeeper.new(doorkeeper_cardinality, doorkeeper_fpr),
       telemetry_prefix: Keyword.get(opts, :telemetry_prefix, Telemetry.default_prefix()),
-      pool: Keyword.get(opts, :pool, :output),
+      pool: :output,
       # Only the GenServer writes; :protected permits cross-process inspection.
       entries: :ets.new(:entries, [:ordered_set, :protected]),
       scan_changes: :ets.new(:scan_changes, [:set, :private])
@@ -333,17 +333,6 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
     :exit, _reason -> {:error, :admission_unavailable}
   end
 
-  def delete(server, paths), do: call(server, {:delete, paths})
-
-  def refresh_source_record(server, paths, previous, record),
-    do: call(server, {:refresh_source_record, paths, previous, record})
-
-  defp call(server, message) do
-    GenServer.call(server, message)
-  catch
-    :exit, _reason -> {:error, :admission_unavailable}
-  end
-
   @impl true
   # A decision reached after the writer stopped waiting is skipped: the
   # writer dropped the write, so it's neither a sighting nor an admission.
@@ -362,23 +351,6 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
     result = room(state, descriptor, pending, Map.fetch!(prepared, :victims))
     {reply, state} = finish_commit(result, prepared, descriptor, state)
     {:reply, reply, state}
-  end
-
-  def handle_call({:refresh_source_record, paths, previous, record}, _from, state) do
-    result = FileSystem.refresh_entry(paths, previous, record)
-    Memo.forget(state.root, [paths.hash])
-    {:reply, result, state}
-  end
-
-  def handle_call({:delete, paths}, _from, state) do
-    result = FileSystem.delete_entry(paths)
-    Memo.forget(state.root, [paths.hash])
-
-    case result do
-      {:ok, result} -> {:reply, result, forget(state, paths.hash)}
-      :miss -> {:reply, :miss, forget(state, paths.hash)}
-      {:error, _reason} = error -> {:reply, error, state}
-    end
   end
 
   def handle_call(:await_scan, from, state) do

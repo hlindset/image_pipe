@@ -249,6 +249,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
 
     assert_boundary_deps(application, [
       ImagePipe.Cache,
+      ImagePipe.Execution,
       ImagePipe.Output,
       ImagePipe.Source
     ])
@@ -471,13 +472,12 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Cache.Cost,
       ImagePipe.Cache.Entry,
       ImagePipe.Cache.File,
-      ImagePipe.Cache.Input,
-      ImagePipe.Cache.Resources,
       ImagePipe.Cache.Work,
       ImagePipe.Cache.OutputWork,
       ImagePipe.Cache.Key,
       ImagePipe.Cache.FileSystem,
       ImagePipe.Cache.FileSystem.CheckedDirs,
+      ImagePipe.Cache.FileSystem.PeriodicSweep,
       ImagePipe.Cache.FileSystem.RefusedRoots
     ])
   end

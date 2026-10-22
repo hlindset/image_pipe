@@ -213,7 +213,7 @@ defmodule ImagePipe.Source do
         {module,
          Keyword.drop(
            opts,
-           [:cache_policy, :stable, :internal_cache, :http_cache, :path_pattern, :verify, :copy] ++
+           [:cache_policy, :stable, :internal_cache, :http_cache, :path_pattern, :verify] ++
              location_options(module)
          ), identity_fetch(module, source, prepared)}
 

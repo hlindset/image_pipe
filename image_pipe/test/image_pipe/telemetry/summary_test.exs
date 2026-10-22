@@ -340,28 +340,6 @@ defmodule ImagePipe.Telemetry.SummaryTest do
     assert log =~ "[error] GET /w=40/format=png/src/REDACTED 200"
   end
 
-  test "the input cache's answer is recorded", ctx do
-    options =
-      start(ctx,
-        input_cache: [root: Path.join(ctx.root, "input")],
-        extra_sources: [http: http_source()]
-      )
-
-    config = Caches.plug(options)
-
-    # The first request finds no stored original, so it doesn't look one up.
-    assert request("/w=40/format=png/src/https://origin.test/beach.jpg", config, options).status ==
-             200
-
-    assert_received {:summary, _m, first}
-    refute Map.has_key?(first, :input_cache)
-
-    assert request("/w=30/format=png/src/https://origin.test/beach.jpg", config, options).status ==
-             200
-
-    assert_received {:summary, _m, %{input_cache: :hit}}
-  end
-
   # The test module isn't async, so no other test reads TMPDIR meanwhile.
   test "an original buffered in memory is recorded, and the unusable staging directory warned about once",
        ctx do

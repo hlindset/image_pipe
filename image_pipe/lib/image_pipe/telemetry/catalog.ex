@@ -56,7 +56,6 @@ defmodule ImagePipe.Telemetry.Catalog do
     {[:transform, :detect, :skipped], :oneshot, :transform},
     {[:transform, :detect, :blend], :oneshot, :transform},
     {[:cache, :lookup], :span, :cache},
-    {[:cache, :input], :span, :cache},
     {[:cache, :refresh], :span, :cache},
     {[:cache, :write], :span, :cache},
     {[:cache, :admission], :span, :cache},

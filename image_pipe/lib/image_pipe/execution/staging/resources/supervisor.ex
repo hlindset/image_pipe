@@ -1,8 +1,8 @@
-defmodule ImagePipe.Cache.Resources.Supervisor do
+defmodule ImagePipe.Execution.Staging.Resources.Supervisor do
   @moduledoc false
   use Supervisor
 
-  alias ImagePipe.Cache.Resources
+  alias ImagePipe.Execution.Staging.Resources
 
   def start_link(opts), do: Supervisor.start_link(__MODULE__, opts)
 

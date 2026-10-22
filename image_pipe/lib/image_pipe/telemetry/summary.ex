@@ -247,7 +247,6 @@ defmodule ImagePipe.Telemetry.Summary do
   defp fields([:transform, :detect], _duration, meta), do: take(meta, detect: :result)
 
   defp fields([:http_cache, :fallback, :no_store], _duration, _meta), do: %{degraded: true}
-  defp fields([:cache, :input], _duration, meta), do: take(meta, input_cache: :cache)
 
   defp fields([:source, :stage], _duration, meta),
     do: take(meta, staging: :staging, staging_reason: :staging_reason)

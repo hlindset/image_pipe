@@ -1,6 +1,6 @@
 defmodule ImagePipe.Cache.FileSystem.Sweep do
-  # Removes files a VM that died left behind: temp files and pins whose owner
-  # is gone, and bodies no metadata names. It also removes metadata files the
+  # Removes files a VM that died left behind: temp files whose owner is gone,
+  # and bodies no metadata names. It also removes metadata files the
   # cache can't decode, such as ones another ImagePipe version wrote, and
   # their bodies then go as unnamed. A metadata file it can't read, as on a
   # permission or I/O error, stays. A sweep returns the entries it removed,
@@ -16,18 +16,11 @@ defmodule ImagePipe.Cache.FileSystem.Sweep do
 
   @grace_ms 3_600_000
 
-  # Pins are hard links that carry their target's timestamps, so their
-  # creation time is in their name.
-  @pin ~r/\A\.image-pipe-pin-(\d+)-[A-Za-z0-9_-]+\.tmp\z/
   @temp ~r/\A\.[0-9a-f]{64}\.[A-Za-z0-9_-]+\.tmp\z/
   # Bodies stored before their names carried size and cost end at the digest.
   @body ~r/\A([0-9a-f]{64})\.[0-9a-f]{64}(?:\.\d+\.\d+)?\.body\z/
   @meta ~r/\A[0-9a-f]{64}\.meta\z/
-  @staged ~r/\A\.image-pipe-[A-Za-z0-9_-]+\.tmp\z/
   @partition ~r/\A[0-9a-f]{2}\z/
-
-  @doc false
-  def pin_name(random), do: ".image-pipe-pin-#{System.os_time(:millisecond)}-#{random}.tmp"
 
   @doc false
   # Sweeps the cache at `root` and tells its Admission, found in `registry`,
@@ -56,14 +49,6 @@ defmodule ImagePipe.Cache.FileSystem.Sweep do
   end
 
   @doc false
-  def run_staged(dir, telemetry_opts) do
-    Telemetry.span(telemetry_opts, [:cache, :sweep], %{pool: :staging}, fn ->
-      counts = sweep_staged(dir)
-      {counts, Map.put(counts, :result, :ok)}
-    end)
-  end
-
-  @doc false
   def sweep_root(root) do
     sweep_listings(
       for(dir <- partitions(root), partition <- partitions(dir), do: listing(partition))
@@ -72,7 +57,7 @@ defmodule ImagePipe.Cache.FileSystem.Sweep do
 
   defp sweep_listings(listings) do
     cutoff = cutoff()
-    counts = %{pins: 0, temps: 0, bodies: 0, unreadable: 0, bytes: 0, removed: []}
+    counts = %{temps: 0, bodies: 0, unreadable: 0, bytes: 0, removed: []}
 
     Enum.reduce(listings, counts, fn {dir, names}, counts ->
       {names, counts} = remove_unreadable(dir, names, cutoff, counts)
@@ -113,19 +98,6 @@ defmodule ImagePipe.Cache.FileSystem.Sweep do
   @doc false
   def listing(dir), do: {dir, list(dir)}
 
-  @doc false
-  def sweep_staged(dir) do
-    cutoff = cutoff()
-
-    dir
-    |> list()
-    |> Enum.filter(&Regex.match?(@staged, &1))
-    |> Enum.reduce(%{staged: 0, bytes: 0}, fn name, counts ->
-      path = Path.join(dir, name)
-      if older?(path, cutoff), do: remove(path, :staged, counts), else: counts
-    end)
-  end
-
   defp cutoff, do: System.os_time(:millisecond) - @grace_ms
 
   defp list(dir) do
@@ -143,7 +115,6 @@ defmodule ImagePipe.Cache.FileSystem.Sweep do
     path = Path.join(dir, name)
 
     case classify(name) do
-      {:pins, created} when created < cutoff -> remove(path, :pins, counts)
       :temps -> if older?(path, cutoff), do: remove(path, :temps, counts), else: counts
       {:bodies, meta} -> sweep_body(path, Path.join(dir, meta), cutoff, counts)
       _live_or_unrelated -> counts
@@ -152,9 +123,6 @@ defmodule ImagePipe.Cache.FileSystem.Sweep do
 
   defp classify(name) do
     cond do
-      match = Regex.run(@pin, name, capture: :all_but_first) ->
-        {:pins, match |> hd() |> String.to_integer()}
-
       Regex.match?(@temp, name) ->
         :temps
 

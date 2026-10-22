@@ -18,7 +18,7 @@ defmodule ImagePipe.Execution do
       ImagePipe.Telemetry,
       ImagePipe.Transform
     ],
-    exports: [Context, Inputs, Output]
+    exports: [Context, Inputs, Output, Staging, Staging.Resources]
 
   alias ImagePipe.Cache
   alias ImagePipe.Debug.Timing
@@ -566,15 +566,11 @@ defmodule ImagePipe.Execution do
   end
 
   defp generate_uncoalesced(context, lease, store?) do
-    result =
-      with {:ok, watermark_inputs} <- watermark_inputs(context) do
-        session = [output_lease: lease]
-        key = if store? and storable?(context), do: context.representation.cache_key
-        generate(context, watermark_inputs, session, key)
-      end
-
-    finish(context, result)
-    result
+    with {:ok, watermark_inputs} <- watermark_inputs(context) do
+      session = [output_lease: lease]
+      key = if store? and storable?(context), do: context.representation.cache_key
+      generate(context, watermark_inputs, session, key)
+    end
   end
 
   # The encode of an overlapped decode continues that turn's deadline, at the
@@ -611,7 +607,6 @@ defmodule ImagePipe.Execution do
 
     with {:ok, stream} <-
            Delivery.stream(build, key, continuation(config, context.acquisition), session) do
-      stream = %{stream | next: fn -> next(stream, context) end}
       output = output(context, {:stream, stream}, :miss, nil)
       {:ok, %Output{output | degraded?: degraded?(stream.resolved_output)}}
     end
@@ -657,12 +652,6 @@ defmodule ImagePipe.Execution do
   defp degraded?(%Resolved{degraded?: degraded?}), do: degraded?
   defp degraded?(_skipped), do: false
 
-  defp next(stream, context) do
-    result = stream.next.()
-    finish(context, result)
-    result
-  end
-
   defp decode_input(context), do: context.acquisition.response || context.source
 
   defp store_body(nil, _type, _body, _facts, _lease, _config), do: :ok
@@ -690,21 +679,6 @@ defmodule ImagePipe.Execution do
   after
     SourceCache.release(output.extra_lease)
   end
-
-  # A decode failure may come from the main source or a watermark asset, so
-  # each stored original is checked.
-  def finish(context, {:error, {:decode, _reason}}) do
-    [context.input_key | Enum.map(context.watermarks, & &1.input_key)]
-    |> Enum.reject(&is_nil/1)
-    |> Enum.each(&SourceCache.check(&1, context.config))
-  end
-
-  def finish(%Context{input_key: nil}, _result), do: :ok
-
-  def finish(context, {:error, :source_format_required}),
-    do: SourceCache.check(context.input_key, context.config)
-
-  def finish(_context, _result), do: :ok
 
   @doc """
   The cached input state that bounds response freshness: the main source's,

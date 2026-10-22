@@ -19,9 +19,8 @@ defmodule ImagePipe.Test.Perf.Cases do
   `:nightly` for the slower or rarer cases only the scheduled runs time.
 
   A case's `config` is `:plain` for the bench's usual server, with no cache
-  and a file source, or `:cached` for a server with an output cache and an
-  originals cache that reads through the `origin` HTTP source from an origin
-  container. A case's `random` puts a new token in every request's URL, so
+  and a file source, or `:cached` for a server with an output cache that
+  reads through the `origin` HTTP source from an origin container. A case's `random` puts a new token in every request's URL, so
   every request misses: `:output` in a cachebuster, `:source` in the source
   path, which also makes each request a new original.
 
@@ -49,7 +48,7 @@ defmodule ImagePipe.Test.Perf.Cases do
           kind: :burst,
           family: String.t(),
           tier: :pr | :nightly,
-          config: {:burst, :none | :output | :input | :both},
+          config: {:burst, :none | :output},
           originals: :one | :each,
           source: String.t(),
           natives: [String.t()]
@@ -141,8 +140,8 @@ defmodule ImagePipe.Test.Perf.Cases do
       c("info_12mp", "placeholder", :pr, "photo12.jpg", "output=info"),
       c("blurhash_12mp", "placeholder", :nightly, "photo12.jpg", "output=blurhash"),
       c("lqip_css_12mp", "placeholder", :pr, "photo12.jpg", "output=lqip-css"),
-      # Caches: a hit, a miss whose original is in the originals cache, and a
-      # miss that downloads a new original.
+      # Caches: a hit, a miss for a new variant of an original fetched before,
+      # and a miss that downloads a new original.
       cached("cache_hit", nil),
       cached("cache_miss_warm_source", :output),
       cached("cache_miss_cold", :source)
@@ -169,9 +168,9 @@ defmodule ImagePipe.Test.Perf.Cases do
     grid = List.duplicate("w=80/h=120/fit=cover/format=avif", 100)
 
     for {name, natives, originals, tier, caches} <- [
-          {"burst_same", same, :one, :nightly, [:none, :output, :both]},
-          {"burst_sizes", sizes, :one, :nightly, [:none, :input, :both]},
-          {"burst_grid", grid, :each, :pr, [:output, :both]}
+          {"burst_same", same, :one, :nightly, [:none, :output]},
+          {"burst_sizes", sizes, :one, :nightly, [:none, :output]},
+          {"burst_grid", grid, :each, :pr, [:output]}
         ],
         cache <- caches do
       %{

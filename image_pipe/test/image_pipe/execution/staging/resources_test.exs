@@ -1,11 +1,11 @@
-defmodule ImagePipe.Cache.ResourcesTest do
+defmodule ImagePipe.Execution.Staging.ResourcesTest do
   use ExUnit.Case, async: false
 
-  alias ImagePipe.Cache.Input
-  alias ImagePipe.Cache.Resources
+  alias ImagePipe.Execution.Staging
+  alias ImagePipe.Execution.Staging.Resources
 
   setup do
-    path = Input.temporary_path(System.tmp_dir!())
+    path = Staging.temporary_path(System.tmp_dir!())
     on_exit(fn -> File.rm(path) end)
     %{path: path}
   end
@@ -37,6 +37,23 @@ defmodule ImagePipe.Cache.ResourcesTest do
     assert_receive :tracked
     restart_tracker()
     assert File.read!(path) == "source bytes"
+    Task.shutdown(owner, :brutal_kill)
+    _ = :sys.get_state(Resources)
+    refute File.exists?(path)
+  end
+
+  test "a file tracked for another process is cleaned when that process dies", %{path: path} do
+    tasks = start_supervised!(Task.Supervisor)
+
+    owner =
+      Task.Supervisor.async_nolink(tasks, fn ->
+        receive do
+          :finish -> :ok
+        end
+      end)
+
+    File.write!(path, "source bytes")
+    Resources.track(path, owner.pid)
     Task.shutdown(owner, :brutal_kill)
     _ = :sys.get_state(Resources)
     refute File.exists?(path)

@@ -201,7 +201,7 @@ defmodule ImagePipe.Telemetry.Trace.HandlerTest do
     prefix = [__MODULE__, :coordinated]
     :ok = TestExporter.attach(self(), prefix: prefix)
 
-    for stage <- [:input, :refresh] do
+    for stage <- [:refresh] do
       Telemetry.span([telemetry_prefix: prefix], [:cache, stage], %{pool: :input}, fn ->
         Telemetry.execute([telemetry_prefix: prefix], [:cache, :coordination], %{}, %{
           result: :coalesced,
@@ -342,8 +342,8 @@ defmodule ImagePipe.Telemetry.Trace.HandlerTest do
   end
 
   test "captures the cache sweep span with its removal counts" do
-    Telemetry.span([], [:cache, :sweep], %{pool: :input}, fn ->
-      {:ok, %{result: :ok, pins: 1, temps: 2, bodies: 0, unreadable: 3, bytes: 10}}
+    Telemetry.span([], [:cache, :sweep], %{pool: :output}, fn ->
+      {:ok, %{result: :ok, temps: 2, bodies: 0, unreadable: 3, bytes: 10}}
     end)
 
     assert_receive {:span,
@@ -351,8 +351,7 @@ defmodule ImagePipe.Telemetry.Trace.HandlerTest do
                       name: "image_pipe.cache.sweep",
                       status: :unset,
                       attributes: %{
-                        pool: "input",
-                        pins: 1,
+                        pool: "output",
                         temps: 2,
                         bodies: 0,
                         unreadable: 3,

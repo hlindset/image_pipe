@@ -9,7 +9,7 @@ defmodule ImagePipe.API.WatermarkCacheWireTest do
 
   @path "/wm=logo/format=png/src/https://origin.test/image.png"
 
-  setup context do
+  setup do
     root =
       Path.join(System.tmp_dir!(), "image-pipe-watermark-#{System.unique_integer([:positive])}")
 
@@ -101,26 +101,12 @@ defmodule ImagePipe.API.WatermarkCacheWireTest do
         },
         http_cache: :auto
       ]
-      |> Keyword.merge(input_cache(context, root))
       |> Caches.start!()
 
-    %{config: {Caches.plug(config), config}, state: state, root: root}
+    %{config: {Caches.plug(config), config}, state: state}
   end
 
-  test "input-cached assets serve later requests without refetching", %{config: config} do
-    first = get(@path, config)
-    assert first.status == 200
-    assert center(first) == [255, 0, 0]
-    assert_received {:origin, "image.png", []}
-    assert_received {:origin, "mark.png", []}
-
-    variant = get("/w=30/wm=logo/format=png/src/https://origin.test/image.png", config)
-    assert variant.status == 200
-    refute_received {:origin, _path, _validator}
-  end
-
-  @tag input_cache: false
-  test "without an originals cache, later requests reuse an asset's bytes", %{config: config} do
+  test "later requests reuse an asset's bytes", %{config: config} do
     assert get(@path, config).status == 200
     flush()
 
@@ -129,33 +115,6 @@ defmodule ImagePipe.API.WatermarkCacheWireTest do
     assert center(variant) == [255, 0, 0]
     assert_received {:origin, "image.png", []}
     refute_received {:origin, "mark.png", _validator}
-  end
-
-  test "a stored asset whose bytes are corrupt is discarded after a decode failure", %{
-    config: config,
-    root: root
-  } do
-    assert get(@path, config).status == 200
-    flush()
-    mark = png(:red)
-
-    [body] =
-      root
-      |> Path.join("input/**/*.body")
-      |> Path.wildcard()
-      |> Enum.filter(&(File.read!(&1) == mark))
-
-    File.write!(body, :binary.copy(<<0>>, byte_size(mark)))
-
-    assert get("/w=30/wm=logo/format=png/src/https://origin.test/image.png", config).status ==
-             415
-
-    refute_received {:origin, "mark.png", _validator}
-
-    assert get("/w=20/wm=logo/format=png/src/https://origin.test/image.png", config).status ==
-             200
-
-    assert_received {:origin, "mark.png", []}
   end
 
   test "assets are fetched while the main source downloads", %{config: config, state: state} do
@@ -179,37 +138,34 @@ defmodule ImagePipe.API.WatermarkCacheWireTest do
     refute_received {:origin, _path, _validator}
   end
 
-  for input_cache <- [true, false] do
-    @tag input_cache: input_cache
-    test "an asset revision changes the cache key and ETag (originals cache: #{input_cache})",
-         %{config: config, state: state} do
-      first = get(@path, config)
-      [first_etag] = get_resp_header(first, "etag")
+  test "an asset revision changes the cache key and ETag", %{config: config, state: state} do
+    first = get(@path, config)
+    [first_etag] = get_resp_header(first, "etag")
 
-      Agent.update(state, fn current ->
-        %{current | now: current.now + 120, versions: %{current.versions | "mark.png" => 2}}
-      end)
+    Agent.update(state, fn current ->
+      %{current | now: current.now + 120, versions: %{current.versions | "mark.png" => 2}}
+    end)
 
-      flush()
-      second = get(@path, config)
-      assert second.status == 200
-      assert_received {:origin, "mark.png", [~s("mark.png-v1")]}
-      assert center(second) == [0, 128, 0]
-      refute get_resp_header(second, "etag") == [first_etag]
-    end
+    flush()
+    second = get(@path, config)
+    assert second.status == 200
+    assert_received {:origin, "mark.png", [~s("mark.png-v1")]}
+    assert center(second) == [0, 128, 0]
+    refute get_resp_header(second, "etag") == [first_etag]
+  end
 
-    @tag input_cache: input_cache
-    test "a stale asset revalidates and keeps identity when unchanged (originals cache: #{input_cache})",
-         %{config: config, state: state} do
-      [etag] = get_resp_header(get(@path, config), "etag")
-      Agent.update(state, &%{&1 | now: &1.now + 120})
-      flush()
+  test "a stale asset revalidates and keeps identity when unchanged", %{
+    config: config,
+    state: state
+  } do
+    [etag] = get_resp_header(get(@path, config), "etag")
+    Agent.update(state, &%{&1 | now: &1.now + 120})
+    flush()
 
-      again = get(@path, config)
-      assert again.status == 200
-      assert_received {:origin, "mark.png", [~s("mark.png-v1")]}
-      assert get_resp_header(again, "etag") == [etag]
-    end
+    again = get(@path, config)
+    assert again.status == 200
+    assert_received {:origin, "mark.png", [~s("mark.png-v1")]}
+    assert get_resp_header(again, "etag") == [etag]
   end
 
   test "a failed watermark releases the staged main source", %{config: config} do
@@ -232,13 +188,6 @@ defmodule ImagePipe.API.WatermarkCacheWireTest do
 
   defp get(path, config), do: conn(:get, path) |> call(config)
 
-  defp input_cache(context, root) do
-    case Map.get(context, :input_cache, true) do
-      true -> [input_cache: [root: Path.join(root, "input")]]
-      false -> []
-    end
-  end
-
   # Cache writes finish after the response, so wait for them before the next
   # request or a look at what was stored.
   defp call(conn, {plug, options}) do
@@ -250,7 +199,7 @@ defmodule ImagePipe.API.WatermarkCacheWireTest do
   # Files leased by this process, which is the request's owner: a staged
   # source stays leased until the request releases it.
   defp leased_paths do
-    %{table: table} = :sys.get_state(ImagePipe.Cache.Resources)
+    %{table: table} = :sys.get_state(ImagePipe.Execution.Staging.Resources)
     :ets.match(table, {:_, self(), :"$1", :_})
   end
 

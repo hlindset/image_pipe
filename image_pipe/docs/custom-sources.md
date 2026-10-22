@@ -76,9 +76,10 @@ it when no cached copy can be used. Three things matter most, and the
   reused.
 - `CacheSettings.fields/2` fills in the cache fields from the standard
   `stable`, `cache_policy`, `internal_cache`, and `http_cache` options, which
-  `CacheSettings.schema/0` adds to your schema. `copy?: true` keeps a copy of
-  each original in the [originals cache](cache.md#originals-cache). Pass
-  `false` when reading the store again is cheap.
+  `CacheSettings.schema/0` adds to your schema. `copy?: true` copies each
+  original to a local file while requests use it, so concurrent requests for
+  it share one download. Pass `false` when `fetch/3` returns a local path
+  that can be read where it is.
 - Errors are `{:error, {:source, reason}}`. `:not_found` answers `404`.
   The [`ImagePipe.Source` errors](ImagePipe.Source.html#module-errors) list
   the other reasons and how to choose a status.

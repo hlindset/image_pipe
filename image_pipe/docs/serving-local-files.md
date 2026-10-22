@@ -70,47 +70,6 @@ can't be trusted, set `verify` to `hash` to hash the file on every check
 instead. How each choice affects caching is explained in
 [local file sources](caching-and-freshness.md#local-file-sources).
 
-## Copy files from network storage
-
-On a network filesystem such as EFS or NFS, set `copy` to `keep`. Each
-original is then copied into the
-[originals cache](caching-processed-images.md#add-an-originals-cache) once,
-so other sizes and formats don't read it over the network again:
-
-<!-- tabs-open -->
-
-### Plug
-
-In your ImagePipe instance's options (see `ImagePipe.child_spec/1`):
-
-```elixir
-input_cache: [root: "/var/cache/image_pipe/originals", max_size_bytes: 20_000_000_000],
-sources: [
-  media: [
-    adapter: ImagePipe.Source.File,
-    match: :path,
-    options: [root: "/mnt/efs/images", root_id: "media", copy: :keep]
-  ]
-]
-```
-
-### image_pipe_server
-
-```toml
-[cache.input]
-root = "/var/cache/image_pipe/originals"
-max_size_bytes = 20_000_000_000
-
-[sources.media]
-adapter = "file"
-match = "path"
-root = "/mnt/efs/images"
-root_id = "media"
-copy = "keep"
-```
-
-<!-- tabs-close -->
-
 ## Confirm it works
 
 Request an image in the directory, such as `/srv/images/photos/beach.jpg`.

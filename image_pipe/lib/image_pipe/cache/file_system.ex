@@ -1,9 +1,8 @@
 defmodule ImagePipe.Cache.FileSystem do
   @moduledoc """
-  Stores processed images, or originals, as files on local disk. The `cache`
-  and `input_cache` options take its options, and need an instance, which
-  starts the processes that track the cache's size (see
-  `ImagePipe.child_spec/1`):
+  Stores processed images as files on local disk. The `cache` option takes
+  its options, and needs an instance, which starts the processes that track
+  the cache's size (see `ImagePipe.child_spec/1`):
 
       children = [
         {ImagePipe,
@@ -17,7 +16,7 @@ defmodule ImagePipe.Cache.FileSystem do
   room before it's stored, or is rejected. The cache keeps the entries that
   are requested often and took the most work to make for their size.
 
-  To set up processed-image and originals caches, see
+  To set up the cache, see
   [Caching processed images](caching-processed-images.md).
 
   ## Options
@@ -55,8 +54,6 @@ defmodule ImagePipe.Cache.FileSystem do
   defdelegate commit_sink(state, opts), to: Store
   @doc false
   defdelegate abort_sink(state, opts), to: Store
-  @doc false
-  defdelegate delete(key, opts), to: Store
   @doc false
   defdelegate usage(opts), to: Store
 

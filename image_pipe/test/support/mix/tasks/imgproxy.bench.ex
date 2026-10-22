@@ -31,8 +31,8 @@ defmodule Mix.Tasks.Imgproxy.Bench do
       with `--compare`, `decode`, `colour`, `autoquality`, `placeholder`,
       `cache`, `concurrency`), or `perf` for 34 reference cases that cover
       every family and kind of source. With `--compare`, `perf` adds the 13
-      `ImagePipe.Test.Perf.Cases` every `perf` pull request times and the 2
-      `burst_grid` cases, and `nightly` all 29 of them and the 8
+      `ImagePipe.Test.Perf.Cases` every `perf` pull request times and the
+      `burst_grid` case, and `nightly` all 29 of them and the 5
       `concurrency` cases.
     * `--cpus` - CPUs pinned to each server, default 4. Must leave at least
       one CPU for `oha`.
@@ -69,7 +69,7 @@ defmodule Mix.Tasks.Imgproxy.Bench do
   photo variants they read.
 
   The `cache` family runs on a second container per image, whose
-  configuration adds an output cache, an originals cache, and an `origin` HTTP
+  configuration adds an output cache and an `origin` HTTP
   source that reads the bench's sources from an `nginx` container on the
   same network. Every other case runs without a cache, as above.
 
@@ -174,7 +174,7 @@ defmodule Mix.Tasks.Imgproxy.Bench do
   }
   """
   @configs [:plain, :cached] ++
-             for(caches <- [:none, :output, :input, :both], do: {:burst, caches})
+             for(caches <- [:none, :output], do: {:burst, caches})
   # Bursts per image and round for each `concurrency` case.
   @bursts 3
   # The stage log line each generation writes.
@@ -566,7 +566,7 @@ defmodule Mix.Tasks.Imgproxy.Bench do
   end
 
   defp extra_config(:plain, _settings), do: ""
-  defp extra_config(:cached, settings), do: origin_config(settings) <> caches_config(:both)
+  defp extra_config(:cached, settings), do: origin_config(settings) <> caches_config(:output)
 
   # A burst's generations are counted from the stage log.
   defp extra_config({:burst, caches}, settings) do
@@ -602,17 +602,6 @@ defmodule Mix.Tasks.Imgproxy.Bench do
     max_size_bytes = 50_000_000_000
     """
   end
-
-  defp caches_config(:input) do
-    """
-
-    [cache.input]
-    root = "/var/cache/image_pipe/input"
-    max_size_bytes = 50_000_000_000
-    """
-  end
-
-  defp caches_config(:both), do: caches_config(:output) <> caches_config(:input)
 
   defp plain_config(settings) do
     """

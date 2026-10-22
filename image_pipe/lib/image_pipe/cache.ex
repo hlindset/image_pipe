@@ -17,13 +17,12 @@ defmodule ImagePipe.Cache do
       Cost,
       Entry,
       File,
-      Input,
-      Resources,
       Work,
       OutputWork,
       Key,
       FileSystem,
       FileSystem.CheckedDirs,
+      FileSystem.PeriodicSweep,
       FileSystem.RefusedRoots
     ]
 
@@ -32,10 +31,7 @@ defmodule ImagePipe.Cache do
   alias ImagePipe.Cache.Entry
   alias ImagePipe.Cache.FileSystem
   alias ImagePipe.Cache.FileSystem.Owner
-  alias ImagePipe.Cache.FileSystem.PeriodicSweep
   alias ImagePipe.Cache.FileSystem.Store
-  alias ImagePipe.Cache.FileSystem.Sweep
-  alias ImagePipe.Cache.Input
   alias ImagePipe.Cache.Key
   alias ImagePipe.Cache.Lookups
   alias ImagePipe.Cache.OutputWork
@@ -43,6 +39,7 @@ defmodule ImagePipe.Cache do
   alias ImagePipe.Cache.Sink
   alias ImagePipe.Cache.SourceRecords
   alias ImagePipe.Cache.WatermarkBytes
+  alias ImagePipe.Cache.Work
   alias ImagePipe.Output.Resolved
   alias ImagePipe.Output.Skipped
   alias ImagePipe.Telemetry
@@ -67,9 +64,7 @@ defmodule ImagePipe.Cache do
 
   @doc false
   @spec validate_config(keyword()) :: {:ok, keyword()} | {:error, term()} | no_return()
-  def validate_config(opts) when is_list(opts) do
-    with {:ok, opts} <- normalize_config(opts), do: Input.validate_config(opts)
-  end
+  def validate_config(opts) when is_list(opts), do: normalize_config(opts)
 
   @doc false
   @spec validate_config!(keyword()) :: keyword()
@@ -81,18 +76,9 @@ defmodule ImagePipe.Cache do
   end
 
   @doc false
-  # Removes staged originals a VM that died left behind.
-  def sweep_staged, do: Sweep.run_staged(Input.staging_dir(), [])
-
-  @doc false
-  # Sweeps the staging directory at start and periodically after.
-  def staged_sweep_spec,
-    do: {PeriodicSweep, id: {Sweep, :staged}, sweep: {__MODULE__, :sweep_staged, []}}
-
-  @doc false
-  # The processes an instance runs for its caches: the claim on each root,
-  # Admission, and periodic cleanup, and the instance's in-memory source
-  # records. Takes resolved configuration options.
+  # The processes an instance runs for its cache: the claim on its root,
+  # Admission, and periodic cleanup, and the instance's in-memory tables.
+  # Takes resolved configuration options.
   @spec child_specs(keyword()) :: [Supervisor.child_spec()]
   def child_specs(options) do
     # The cache's own events, such as admission and eviction, use the
@@ -100,10 +86,10 @@ defmodule ImagePipe.Cache do
     telemetry = Keyword.take(options, [:telemetry_prefix])
 
     caches =
-      for key <- [:cache, :input_cache],
-          cache_opts = Keyword.get(options, key),
-          cache_opts != nil,
-          do: FileSystem.child_spec(Keyword.merge(cache_opts, telemetry))
+      case Keyword.get(options, :cache) do
+        nil -> []
+        cache_opts -> [FileSystem.child_spec(Keyword.merge(cache_opts, telemetry))]
+      end
 
     tables =
       for key <- [:source_records, :watermark_bytes],
@@ -133,12 +119,12 @@ defmodule ImagePipe.Cache do
   end
 
   @doc false
-  # Removes the caches whose root another node holds, so requests run
-  # without them (see `Owner`).
+  # Removes the cache when another node holds its root, so requests run
+  # without it (see `Owner`).
   @spec drop_refused(keyword()) :: keyword()
   def drop_refused(options) do
     Enum.reject(options, fn
-      {key, cache_opts} when key in [:cache, :input_cache] and is_list(cache_opts) ->
+      {:cache, cache_opts} when is_list(cache_opts) ->
         Owner.refused?(Store.root_dir(cache_opts))
 
       _other ->
@@ -206,20 +192,6 @@ defmodule ImagePipe.Cache do
     end
   end
 
-  @doc false
-  # Puts back a record read from the originals cache, unless a publication
-  # stored a newer one since the lookup missed.
-  def recall_source(input_key, record, opts) do
-    case record_store(opts) do
-      nil ->
-        :ok
-
-      {:memory, table} ->
-        limit = Keyword.fetch!(opts, :max_remembered_originals)
-        SourceRecords.put_new(table, input_key.hash, record, limit)
-    end
-  end
-
   @doc """
   Looks up `key` in the configured cache, treating read errors as misses.
   The request runner builds the key with `ImagePipe.Representation.build/3`.
@@ -263,16 +235,15 @@ defmodule ImagePipe.Cache do
   end
 
   @doc false
-  # Usage and lookups since start of each cache in `options`. A cache another
+  # Usage and lookups since start of the cache in `options`. A cache another
   # node holds has only `refused` and `max_bytes`. A cache whose Admission
   # doesn't answer has no usage.
-  @spec stats(keyword()) :: %{optional(:output | :input) => map()}
+  @spec stats(keyword()) :: %{optional(:output) => map()}
   def stats(options) do
-    for {key, name} <- [cache: :output, input_cache: :input],
-        cache_opts = Keyword.get(options, key),
-        cache_opts != nil,
-        into: %{},
-        do: {name, cache_stats(cache_opts)}
+    case Keyword.get(options, :cache) do
+      nil -> %{}
+      cache_opts -> %{output: cache_stats(cache_opts)}
+    end
   end
 
   # A cache another node holds isn't used here, so it has no counts.
@@ -346,7 +317,17 @@ defmodule ImagePipe.Cache do
     do: Sink.write_chunk(sink, chunk, opts)
 
   @doc false
-  defdelegate publish(hash, lease, write, opts), to: ImagePipe.Cache.Publication
+  # Runs a source fetch's writes to memory under the source's publication
+  # lock, so they never interleave with another fetch's for the same source.
+  # A lease that is no longer current skips them, except an invalidation,
+  # since dropping a record is always safe.
+  def publish(hash, _lease, {:invalidate, fun}), do: publish_locked(hash, nil, fun)
+  def publish(hash, lease, fun) when is_function(fun, 0), do: publish_locked(hash, lease, fun)
+
+  defp publish_locked(hash, lease, fun) do
+    _result = Work.publish(hash, lease, fun)
+    :ok
+  end
 
   @doc false
   # Hands the write, and the output lease when given, to the cache's writer.

@@ -91,8 +91,9 @@ defmodule ImagePipe.Source.CacheSettings do
       the options trust it or because the source itself pins them.
     * `:seed` - the byte-identity seed used when the source is stable. It must
       not contain secrets.
-    * `:copy?` - whether to keep a local copy of the original in the input
-      pool. Remote adapters pass `true`.
+    * `:copy?` - whether to copy the original to a staged local file while
+      requests use it, so concurrent requests for it share one download.
+      Remote adapters pass `true`.
 
   A source that isn't stable is identified by its content.
   """
