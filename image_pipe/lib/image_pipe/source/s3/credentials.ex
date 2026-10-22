@@ -23,48 +23,38 @@ defmodule ImagePipe.Source.S3.Credentials do
 
   def validate(_credentials), do: {:error, {:invalid_source_config, :invalid_credentials}}
 
-  @spec fetch(String.t(), term()) :: {:ok, keyword()} | source_error()
-  def fetch(_scope, {:static, credentials}), do: {:ok, credentials}
+  @spec fetch(term()) :: {:ok, keyword()} | source_error()
+  def fetch({:static, credentials}), do: {:ok, credentials}
 
-  def fetch(scope, {:provider, provider, opts}) do
-    case RefreshCache.fetch(
-           cache_key(provider, opts, scope),
-           label(provider, scope),
-           fetch_fun(provider, opts, scope)
-         ) do
+  def fetch({:provider, provider, opts}) do
+    case RefreshCache.fetch(cache_key(provider, opts), label(provider), fetch_fun(provider, opts)) do
       {:ok, credentials} -> {:ok, credentials}
       {:error, _reason} -> {:error, {:source, :credentials_unavailable}}
     end
   end
 
-  def fetch(_scope, _credentials), do: {:error, {:source, :credentials_unavailable}}
+  def fetch(_credentials), do: {:error, {:source, :credentials_unavailable}}
 
   # Starts fetching provider credentials before any request needs them.
-  @spec warm(String.t(), {:provider, module(), keyword()}) :: :ok | {:error, term()}
-  def warm(scope, {:provider, provider, opts}),
-    do:
-      RefreshCache.warm(
-        cache_key(provider, opts, scope),
-        label(provider, scope),
-        fetch_fun(provider, opts, scope)
-      )
+  @spec warm({:provider, module(), keyword()}) :: :ok | {:error, term()}
+  def warm({:provider, provider, opts}),
+    do: RefreshCache.warm(cache_key(provider, opts), label(provider), fetch_fun(provider, opts))
 
   # The provider's options can hold secrets, so the label names only the
-  # provider and the bucket.
-  defp label(provider, scope),
-    do: "S3 credentials for bucket #{inspect(scope)} from #{inspect(provider)}"
+  # provider.
+  defp label(provider), do: "S3 credentials from #{inspect(provider)}"
 
-  defp cache_key(provider, opts, scope) do
+  defp cache_key(provider, opts) do
     :crypto.hash(
       :sha256,
-      :erlang.term_to_binary({:s3_credentials, provider, opts, scope}, [:deterministic])
+      :erlang.term_to_binary({:s3_credentials, provider, opts}, [:deterministic])
     )
   end
 
-  defp fetch_fun(provider, opts, scope), do: fn -> resolve_provider(provider, scope, opts) end
+  defp fetch_fun(provider, opts), do: fn -> resolve_provider(provider, opts) end
 
-  defp resolve_provider(provider, scope, opts) do
-    case provider.fetch_credentials(scope, opts) do
+  defp resolve_provider(provider, opts) do
+    case provider.fetch_credentials(opts) do
       {:ok, credentials, expiry} -> normalize_with_expiry(credentials, expiry)
       {:error, reason} -> {:error, reason}
       _other -> {:error, :invalid_credential_provider_result}

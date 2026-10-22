@@ -9,11 +9,6 @@ defmodule ImagePipe.Source.S3.CredentialWarmup do
                       required: true,
                       doc: "The provider module, as in the source's `:credentials`."
                     ],
-                    scope: [
-                      type: :string,
-                      required: true,
-                      doc: "The bucket whose credentials to fetch."
-                    ],
                     opts: [
                       type: :keyword_list,
                       default: [],
@@ -28,18 +23,18 @@ defmodule ImagePipe.Source.S3.CredentialWarmup do
 
   @moduledoc """
   Fetches S3 credentials from a provider at startup, so the first request
-  for a bucket doesn't wait for them.
+  that needs them doesn't wait.
 
       children = [
         {ImagePipe.Source.S3.CredentialWarmup,
-         provider: ImagePipe.Source.S3.InstanceRole, opts: [], scope: "my-bucket"},
+         provider: ImagePipe.Source.S3.InstanceRole, opts: []},
         MyAppWeb.Endpoint
       ]
 
-  ImagePipe doesn't start it. Add one per bucket. The children need no
-  explicit ids. Each warmup starts the fetch without blocking startup, then
-  stops. The credentials aren't dropped before the first request for the
-  bucket uses them. If the fetch fails, the first request fetches the
+  ImagePipe doesn't start it. Add one per provider and options. The children
+  need no explicit ids. Each warmup starts the fetch without blocking
+  startup, then stops. The credentials aren't dropped before the first
+  request uses them. If the fetch fails, the first request fetches the
   credentials instead.
 
   Invalid options raise `ArgumentError` from `start_link/1`. A `:provider`
@@ -53,7 +48,7 @@ defmodule ImagePipe.Source.S3.CredentialWarmup do
   # The options can hold secrets, so the id carries only their hash.
   @doc false
   def child_spec(opts) do
-    id = {__MODULE__, opts[:provider], opts[:scope], :erlang.phash2(opts[:opts])}
+    id = {__MODULE__, opts[:provider], :erlang.phash2(opts[:opts])}
     %{id: id, start: {__MODULE__, :start_link, [opts]}, restart: :transient}
   end
 
@@ -81,7 +76,7 @@ defmodule ImagePipe.Source.S3.CredentialWarmup do
 
   @impl true
   def handle_continue(:warm_then_stop, state) do
-    _ = Credentials.warm(state.scope, {:provider, state.provider, state.opts})
+    _ = Credentials.warm({:provider, state.provider, state.opts})
     {:stop, :normal, state}
   end
 end

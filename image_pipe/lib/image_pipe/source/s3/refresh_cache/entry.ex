@@ -7,6 +7,9 @@ defmodule ImagePipe.Source.S3.RefreshCache.Entry do
   # `{:error, reason}`. Properties:
   #   * single-flight: concurrent `get/2` callers during an in-flight fetch all
   #     wait on the one fetch (they queue as waiters),
+  #   * fetch deadline: a fetch still running after `fetch_timeout_ms` is
+  #     killed and fails with `:fetch_timeout`, so a hung provider doesn't
+  #     block the entry and its next `get/2` fetches again,
   #   * warm-on-init: a fetch is kicked in `init/1`, so the process warms as soon
   #     as it is created,
   #   * idle retirement: an entry no `get/2` used for a whole idle interval
@@ -35,6 +38,7 @@ defmodule ImagePipe.Source.S3.RefreshCache.Entry do
   @refresh_retry_ms 5_000
   @default_call_timeout 10_000
   @default_idle_interval_ms 300_000
+  @default_fetch_timeout_ms 30_000
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts) do
@@ -71,6 +75,7 @@ defmodule ImagePipe.Source.S3.RefreshCache.Entry do
       fetch_fun: Keyword.fetch!(opts, :fetch_fun),
       refresh_margin_ms: Keyword.get(opts, :refresh_margin_ms, @default_refresh_margin_ms),
       idle_interval_ms: Keyword.get(opts, :idle_interval_ms, @default_idle_interval_ms),
+      fetch_timeout_ms: Keyword.get(opts, :fetch_timeout_ms, @default_fetch_timeout_ms),
       accessed?: false,
       warm?: Keyword.get(opts, :warm, false),
       now_fun: Keyword.get(opts, :now_fun, &DateTime.utc_now/0),
@@ -121,6 +126,16 @@ defmodule ImagePipe.Source.S3.RefreshCache.Entry do
     {:noreply, handle_result({:error, {:crash, reason}}, %{state | task: nil})}
   end
 
+  def handle_info({:fetch_timeout, ref}, %{task: %Task{ref: ref} = task} = state) do
+    result =
+      case Task.shutdown(task, :brutal_kill) do
+        {:ok, result} -> result
+        _killed -> {:error, :fetch_timeout}
+      end
+
+    {:noreply, handle_result(result, %{state | task: nil})}
+  end
+
   def handle_info(_msg, state), do: {:noreply, state}
 
   # Fetch results, provider options, and failure reasons can all hold credentials.
@@ -153,6 +168,7 @@ defmodule ImagePipe.Source.S3.RefreshCache.Entry do
   defp start_fetch(state) do
     fun = state.fetch_fun
     task = Task.async(fn -> safe_call(fun) end)
+    Process.send_after(self(), {:fetch_timeout, task.ref}, state.fetch_timeout_ms)
     %{state | task: task}
   end
 

@@ -145,7 +145,7 @@ defmodule ImagePipeServer.ApplicationTest do
       assert %{id: :serving} = serving
     end
 
-    test "gives each warmed S3 bucket its own child id" do
+    test "gives each warmed S3 credential provider its own child id" do
       config =
         Config.build!(
           Config.options!(%{
@@ -157,7 +157,12 @@ defmodule ImagePipeServer.ApplicationTest do
                 "region" => "us-east-1",
                 "endpoint" => "https://s3.example.com",
                 "credentials" => %{"provider" => "instance_role"},
-                "buckets" => %{"photos" => %{}, "avatars" => %{}}
+                "buckets" => %{
+                  "photos" => %{},
+                  "avatars" => %{
+                    "credentials" => %{"provider" => "instance_role", "ttl_seconds" => 300}
+                  }
+                }
               }
             }
           })

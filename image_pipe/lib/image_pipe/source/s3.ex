@@ -192,7 +192,8 @@ defmodule ImagePipe.Source.S3 do
       `ImagePipe.Source.S3.WebIdentity`, and
       `ImagePipe.Source.S3.AssumeRole`.
 
-  Credentials from a provider are cached per provider, options, and bucket.
+  Credentials from a provider are cached per provider and options, and
+  shared by every bucket that uses them.
   Expired credentials are never sent. When they can't be refreshed, requests
   fail with `{:source, :credentials_unavailable}`, which answers `500`.
 
@@ -264,7 +265,7 @@ defmodule ImagePipe.Source.S3 do
   @impl Source
   def fetch(%Resolved{fetch: fetch}, _opts, runtime_opts) do
     with {:ok, credentials} <-
-           Credentials.fetch(fetch[:bucket], fetch[:credentials]) do
+           Credentials.fetch(fetch[:credentials]) do
       req_options =
         fetch
         |> Keyword.fetch!(:req_options)
@@ -314,7 +315,7 @@ defmodule ImagePipe.Source.S3 do
   @doc false
   def prepare_cache(%Resolved{} = source, _opts, _runtime) do
     with {:ok, credentials} <-
-           Credentials.fetch(source.fetch[:bucket], source.fetch[:credentials]) do
+           Credentials.fetch(source.fetch[:credentials]) do
       {:ok, %{source | fetch: Keyword.put(source.fetch, :credentials, {:static, credentials})}}
     end
   end

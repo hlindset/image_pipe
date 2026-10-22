@@ -2,13 +2,14 @@ defmodule ImagePipe.Source.S3.CredentialProvider do
   @moduledoc """
   Behaviour for S3 credential providers.
 
-  A provider fetches AWS credentials for a bucket. Select it in the
-  `:credentials` setting of `ImagePipe.Source.S3`:
+  A provider fetches AWS credentials. Select it in the `:credentials` setting
+  of `ImagePipe.Source.S3`, for every bucket or for one bucket in `:buckets`:
 
       credentials: {:provider, MyApp.VaultCredentials, path: "aws/creds/image-read"}
 
-  ImagePipe caches each result per provider, options, and bucket, and shares
-  it across requests. Temporary credentials are refreshed five minutes before
+  ImagePipe caches each result per provider and options, and shares it
+  across requests and buckets. Buckets that need different credentials set
+  different options. Temporary credentials are refreshed five minutes before
   they expire. A cache entry is dropped after at least five minutes without a
   request, and the next request fetches again. Credentials fetched by
   `ImagePipe.Source.S3.CredentialWarmup` aren't dropped before their first
@@ -16,12 +17,11 @@ defmodule ImagePipe.Source.S3.CredentialProvider do
   [Credentials](`m:ImagePipe.Source.S3#module-credentials`).
   """
 
-  @type scope :: String.t()
   @type credentials :: keyword()
   @type expiry :: DateTime.t() | :never
 
   @doc """
-  Fetches credentials for `scope`, the bucket name.
+  Fetches credentials.
 
   Returns a keyword list with `:access_key_id`, `:secret_access_key`, and an
   optional `:token`, and an expiry: a `DateTime` for temporary credentials,
@@ -29,10 +29,10 @@ defmodule ImagePipe.Source.S3.CredentialProvider do
   rejected. When a refresh fails, the previous credentials are used until
   they expire.
 
-  The result is shared by every request for the bucket, so it must depend
-  only on `scope` and the options.
+  The result is shared by every request that uses the same options, so it
+  must depend only on the options.
   """
-  @callback fetch_credentials(scope(), keyword()) ::
+  @callback fetch_credentials(keyword()) ::
               {:ok, credentials(), expiry()} | {:error, term()}
 
   @doc """

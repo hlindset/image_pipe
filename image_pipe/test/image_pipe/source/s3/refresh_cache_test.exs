@@ -265,6 +265,29 @@ defmodule ImagePipe.Source.S3.RefreshCacheTest do
     assert {:error, :timeout} = Entry.get(pid, 20)
   end
 
+  test "a fetch past its deadline fails its waiters and the next get fetches again" do
+    calls = start_supervised!({Agent, fn -> 0 end})
+
+    fetch_fun = fn ->
+      case Agent.get_and_update(calls, &{&1, &1 + 1}) do
+        0 -> Process.sleep(:infinity)
+        _later -> {:ok, :creds, :never}
+      end
+    end
+
+    pid = start_entry(fetch_fun: fetch_fun)
+    %{task: %Task{ref: ref}} = :sys.get_state(pid)
+    waiter = Task.async(fn -> Entry.get(pid) end)
+    wait_for_waiter(pid)
+
+    capture_log(fn ->
+      send(pid, {:fetch_timeout, ref})
+      assert Task.await(waiter) == {:error, :fetch_timeout}
+    end)
+
+    assert {:ok, :creds} = Entry.get(pid)
+  end
+
   describe "facade" do
     alias ImagePipe.Source.S3.RefreshCache
 
@@ -385,6 +408,13 @@ defmodule ImagePipe.Source.S3.RefreshCacheTest do
     case Enum.any?(messages, &match?({:"$gen_call", _, :get}, &1)) do
       true -> :ok
       false -> wait_for_queued_get(pid)
+    end
+  end
+
+  defp wait_for_waiter(pid) do
+    case :sys.get_state(pid) do
+      %{waiters: []} -> wait_for_waiter(pid)
+      _waiting -> :ok
     end
   end
 
