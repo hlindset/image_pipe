@@ -315,6 +315,44 @@ defmodule ImagePipe.PresetLookupTest do
                      %{result: :error, reason: :lookup_unavailable}}
   end
 
+  test "a bad signature answers 403 before the parser, the preset lookup, or the source", %{
+    body: body
+  } do
+    key = String.duplicate("c3", 32)
+    url_config = IP.URL.config(keys: [key])
+
+    options =
+      body
+      |> options(
+        preset_lookup: lookup(presets: %{"card" => "w=30/format=png"}),
+        clock: fn -> 100 end
+      )
+      |> Keyword.merge(allow_unsigned: false, keys: [key])
+
+    config = IP.config(options)
+    malformed = "/preset=card/bogus=1/src/photo.png"
+
+    expired = fn url_config ->
+      IP.URL.new(url_config, expires: 99) |> IP.URL.group(presets: ["card"])
+    end
+
+    # Signed, the malformed path reaches the parser and the expired plan its expiry check.
+    assert get(config, IP.URL.sign_path(malformed, url_config)).status == 400
+    assert get(config, IP.URL.url!(expired.(url_config), "photo.png")).status == 410
+    drain_fetches()
+
+    for path <- [
+          malformed,
+          "/sig=" <> String.duplicate("A", 43) <> malformed,
+          IP.URL.url!(expired.(IP.URL.config()), "photo.png")
+        ] do
+      response = get(config, path)
+      assert {response.status, response.resp_body} == {403, "invalid signature"}
+      refute_received {:preset_fetch, _names}
+      refute_received :source_fetch
+    end
+  end
+
   defp drain_fetches do
     receive do
       {:preset_fetch, _names} -> drain_fetches()
