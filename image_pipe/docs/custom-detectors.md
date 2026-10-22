@@ -128,16 +128,16 @@ iex> MyApp.Detector.detect(image, classes: ["car"])
 
 Then request a crop through `ImagePipe.Plug` with the default Logger attached
 (`ImagePipe.Telemetry.attach_default_logger/0`), for example
-`/images/w=400/h=400/fit=cover/detect=car/src/street.jpg`. The log shows
-whether the detector found regions:
+`/images/w=400/h=400/fit=cover/detect=car/src/street.jpg`. The request's log
+line has a `detect=` field that says whether the detector found regions:
 
 ```text
-[info] image_pipe transform detect: detected
+[info] GET /images/w=400/h=400/fit=cover/detect=car/src/REDACTED 200 112ms 9.8kB source_url=street.jpg ... ops=resize,crop output=jpeg output_size=400x400 encode_ms=17 admission=admitted queue_ms=0 detect=detected
 ```
 
-`no_regions` means the detector found nothing, and the crop used attention
-cropping instead. A warning with `error` means `detect/2` returned an error
-or a malformed result.
+`detect=no_regions` means the detector found nothing, and the crop used
+attention cropping instead. A `warning` line with `detect=error` means
+`detect/2` returned an error or a malformed result.
 
 ## Next steps
 
