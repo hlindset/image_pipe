@@ -279,6 +279,11 @@ defmodule ImagePipe.Delivery.Coordinator do
     :ok
   end
 
+  # The configuration holds origin credentials, such as S3 keys and
+  # authorization headers, which a crash report would print.
+  @impl GenServer
+  def format_status(%{state: state} = status), do: %{status | state: %{state | config: :redacted}}
+
   defp call_session(server, message, timeout) do
     GenServer.call(server, message, timeout)
   catch

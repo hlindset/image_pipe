@@ -84,6 +84,9 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- A malformed request is no longer logged. Its `400` line quoted the raw
+  request, so a request with a bad `Authorization` header put the token in
+  the log.
 - The lines the libraries the server uses log while it starts, such as the
   CA certificates loading, follow `[telemetry] log_level` and `log_format`.
   Before, they were always text and ignored `log_level`.

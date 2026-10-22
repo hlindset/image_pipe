@@ -411,6 +411,40 @@ defmodule ImagePipeServer.ApplicationTest do
     end
   end
 
+  describe "malformed requests" do
+    test "answer 400 without logging the request's headers" do
+      config =
+        Config.build!(
+          url: [allow_unsigned: true],
+          server: [port: 0, bind: "127.0.0.1", health_port: 0]
+        )
+
+      drain = Health.new()
+
+      listeners = [
+        App.http_child(config, {ImagePipeServer.Router, App.router_options(config, drain)}),
+        App.health_child(config, drain)
+      ]
+
+      for {{Bandit, opts}, index} <- Enum.with_index(listeners) do
+        name = :"listener_#{System.unique_integer([:positive])}"
+        opts = put_in(opts, [:thousand_island_options, :supervisor_options], name: name)
+        start_supervised!(Supervisor.child_spec({Bandit, opts}, id: {:malformed, index}))
+        {:ok, {_ip, port}} = ThousandIsland.listener_info(name)
+
+        log =
+          capture_log(fn ->
+            {:ok, socket} = :gen_tcp.connect(~c"127.0.0.1", port, [:binary, active: false])
+            :ok = :gen_tcp.send(socket, "GET / HTTP/1.1\r\nAuthorization Bearer s3cr3t\r\n\r\n")
+            assert {:ok, "HTTP/1.0 400" <> _rest} = :gen_tcp.recv(socket, 0, 2_000)
+            assert {:error, :closed} = :gen_tcp.recv(socket, 0, 2_000)
+          end)
+
+        refute log =~ "s3cr3t"
+      end
+    end
+  end
+
   describe "shutdown" do
     defmodule SlowPlug do
       @behaviour Plug

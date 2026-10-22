@@ -294,6 +294,9 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   for a `403` invalid signature, a `400` for a signed URL sent to a mount
   without signing keys, a `410` expired URL, and a `404` concealed source that doesn't
   decrypt. Before, these lines had no reason.
+- A crash report from a streaming response, or from
+  `ImagePipe.Source.S3.CredentialWarmup`, no longer prints the configured
+  origin credentials, such as S3 keys and authorization headers.
 - Request headers and cookies named in `vary_on` no longer select a separate
   stored original. Every value shares one stored original. Only the
   processed images differ. A new cachebuster still downloads the original
