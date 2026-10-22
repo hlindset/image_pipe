@@ -15,8 +15,8 @@
 # releases with (@image_pipe_version in mix.exs) from Hex instead of the
 # sibling projects. Release images build this way.
 
-ARG ELIXIR_IMAGE=hexpm/elixir:1.20.4-erlang-29.1.1-debian-trixie-20260918-slim
-ARG RUNTIME_IMAGE=debian:trixie-20260918-slim
+ARG ELIXIR_IMAGE=hexpm/elixir:1.20.4-erlang-29.1.1-debian-trixie-20261005-slim
+ARG RUNTIME_IMAGE=debian:trixie-20261005-slim
 ARG IMAGE_PIPE_LIBS=path
 
 FROM ${ELIXIR_IMAGE} AS toolchain
@@ -169,6 +169,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       libheif-plugin-aomdec libheif-plugin-aomenc libheif-plugin-dav1d \
       libstdc++6 libncurses6 libsctp1 openssl ca-certificates curl libjemalloc2 \
     && rm -rf /var/lib/apt/lists/* /tmp/vips-runtime-packages
+
+# Mozilla removed these emSign roots after eMudhra issued intermediates whose
+# private keys are known. Erlang's :ssl has no revocation data for those
+# intermediates, so the roots must not be trusted at all. Debian's package
+# still ships some of them.
+RUN sed -i -E 's#^mozilla/emSign_(ECC_Root_CA_-_G3|Root_CA_-_C1|ECC_Root_CA_-_C3)\.crt$#!&#' \
+      /etc/ca-certificates.conf \
+    && update-ca-certificates --fresh >/dev/null
 
 # rel/env.sh preloads jemalloc from this path, which is the same on every
 # architecture.
