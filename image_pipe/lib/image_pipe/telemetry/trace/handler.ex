@@ -36,7 +36,6 @@ defmodule ImagePipe.Telemetry.Trace.Handler do
     # what a cache lookup reads: :response or :source_record
     :entry,
     # files a sweep removed, per kind
-    :pins,
     :temps,
     :bodies,
     :unreadable,

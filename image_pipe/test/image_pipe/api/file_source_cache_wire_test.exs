@@ -164,34 +164,12 @@ defmodule ImagePipe.API.FileSourceCacheWireTest do
     assert get_resp_header(response, "etag") == [~s("host")]
   end
 
-  test "by default the original is read in place and never copied", ctx do
-    input_root = Path.join(ctx.root, "input-pool")
-    opts = mount(ctx, input_cache: [root: input_root])
-
-    assert get(@path, opts).status == 200
-    assert get("/w=8/format=png/src/media/beach.jpg", opts).status == 200
-    assert pooled(input_root) == []
-  end
-
-  test "copy: :keep keeps the original in the input pool", ctx do
-    input_root = Path.join(ctx.root, "input-pool")
-
-    opts = mount(ctx, file_options: [copy: :keep], input_cache: [root: input_root])
-
-    assert get(@path, opts).status == 200
-    assert [_original | _] = pooled(input_root)
-  end
-
-  test "a write-once file's ETag depends on root_id and path, not copy or root", ctx do
+  test "a write-once file's ETag depends on root_id and path, not root", ctx do
     moved = Path.join(ctx.root, "moved")
     File.mkdir_p!(moved)
     File.cp!("priv/static/images/beach.jpg", Path.join(moved, "beach.jpg"))
 
-    first =
-      mount(ctx,
-        file_options: [stable: :immutable],
-        input_cache: [root: Path.join(ctx.root, "input-pool")]
-      )
+    first = mount(ctx, file_options: [stable: :immutable])
 
     etag = fn file_options ->
       opts = remount(first, ctx, file_options: [stable: :immutable] ++ file_options)
@@ -199,30 +177,22 @@ defmodule ImagePipe.API.FileSourceCacheWireTest do
       etag
     end
 
-    read_in_place = etag.([])
-
-    assert etag.(copy: :keep) == read_in_place
-    assert etag.(copy: :keep, root: moved) == read_in_place
-    assert etag.(root: moved) == read_in_place
+    assert etag.(root: moved) == etag.([])
   end
 
-  test "a write-once file with kept copies is cached by root_id, not root", ctx do
+  test "a write-once file is cached by root_id, not root", ctx do
     moved = Path.join(ctx.root, "moved")
     File.mkdir_p!(moved)
     File.cp!("priv/static/images/beach.jpg", Path.join(moved, "beach.jpg"))
 
-    first_opts =
-      mount(ctx,
-        file_options: [stable: :immutable, copy: :keep],
-        input_cache: [root: Path.join(ctx.root, "input-pool")]
-      )
+    first_opts = mount(ctx, file_options: [stable: :immutable])
 
     first = get(@path, first_opts)
     assert first.status == 200
     flush_fetches()
 
     moved_opts =
-      remount(first_opts, ctx, file_options: [stable: :immutable, copy: :keep, root: moved])
+      remount(first_opts, ctx, file_options: [stable: :immutable, root: moved])
 
     again = get(@path, moved_opts)
     assert again.resp_body == first.resp_body
@@ -307,8 +277,6 @@ defmodule ImagePipe.API.FileSourceCacheWireTest do
 
   defp image(response), do: Image.from_binary!(response.resp_body)
 
-  defp pooled(root), do: Path.wildcard(Path.join(root, "**/*.body"))
-
   # Observes a new output cache with the options for `overrides`, and returns
   # the options its instance runs with.
   defp mount(ctx, overrides \\ []), do: ctx |> options(overrides) |> CacheObserver.observe()
@@ -319,7 +287,7 @@ defmodule ImagePipe.API.FileSourceCacheWireTest do
 
     ctx
     |> options(overrides)
-    |> Keyword.merge(Keyword.take(previous, [:cache, :input_cache]))
+    |> Keyword.merge(Keyword.take(previous, [:cache]))
     |> Caches.start!()
   end
 

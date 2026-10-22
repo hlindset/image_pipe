@@ -43,17 +43,6 @@ defmodule ImagePipe.Source.File do
                         filesystems whose times can't be trusted, such as a network \
                         filesystem whose server clock can lag behind this host's.
                         """
-                      ],
-                      copy: [
-                        type: {:in, [:none, :keep]},
-                        type_doc: "`:none` or `:keep`",
-                        default: :none,
-                        doc: """
-                        `:keep` stores a copy of each original in the \
-                        [originals cache](cache.md#originals-cache), so other sizes \
-                        and formats don't read the file again. Use it on network \
-                        filesystems such as EFS or NFS. Needs `:input_cache` configured.
-                        """
                       ]
                     ] ++ CacheSettings.schema()
                   )
@@ -119,7 +108,7 @@ defmodule ImagePipe.Source.File do
         CacheSettings.fields(opts,
           stable?: CacheSettings.immutable?(opts),
           seed: identity,
-          copy?: Keyword.fetch!(opts, :copy) == :keep
+          copy?: false
         )
 
       {:ok,

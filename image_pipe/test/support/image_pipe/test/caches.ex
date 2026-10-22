@@ -38,7 +38,7 @@ defmodule ImagePipe.Test.Caches do
   @doc "The name of the instance `start!/1` started for `options`."
   def instance(options) do
     roots =
-      for key <- [:cache, :input_cache], cache = options[key], cache != nil, do: cache[:root]
+      for key <- [:cache], cache = options[key], cache != nil, do: cache[:root]
 
     hash = :crypto.hash(:sha256, Enum.join(roots, "\n")) |> Base.encode16() |> binary_part(0, 16)
     Module.concat(__MODULE__, hash)
@@ -64,8 +64,8 @@ defmodule ImagePipe.Test.Caches do
   @doc "Adds the size cap to the caches in `options` that don't set one."
   def cap(options) do
     Enum.map(options, fn
-      {key, cache} when key in [:cache, :input_cache] and is_list(cache) ->
-        {key, Keyword.put_new(cache, :max_size_bytes, @max_size_bytes)}
+      {:cache, cache} when is_list(cache) ->
+        {:cache, Keyword.put_new(cache, :max_size_bytes, @max_size_bytes)}
 
       other ->
         other
@@ -117,7 +117,7 @@ defmodule ImagePipe.Test.Caches do
 
   def await_writes(options) when is_list(options) do
     roots =
-      for key <- [:cache, :input_cache], cache = options[key], cache != nil, do: cache[:root]
+      for key <- [:cache], cache = options[key], cache != nil, do: cache[:root]
 
     await_roots(roots, System.monotonic_time(:millisecond) + 10_000)
   end

@@ -130,8 +130,7 @@ defmodule ImagePipeServer.ApplicationTest do
           url: [allow_unsigned: true],
           pool: [max_concurrency: 2],
           cache: [
-            cache: [root: Path.join(dir, "out"), max_size_bytes: 1_000_000],
-            input_cache: [root: Path.join(dir, "in"), max_size_bytes: 1_000_000]
+            cache: [root: Path.join(dir, "out"), max_size_bytes: 1_000_000]
           ]
         )
 

@@ -5,7 +5,7 @@ defmodule ImagePipe.Cache.SourceRecordsTest do
 
   setup do
     table = Module.concat(__MODULE__, "T#{System.unique_integer([:positive])}")
-    start_supervised!({SourceRecords, table})
+    start_supervised!({ImagePipe.Cache.RecentTable, table})
     %{table: table}
   end
 

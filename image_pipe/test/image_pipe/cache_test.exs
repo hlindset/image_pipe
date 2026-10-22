@@ -103,38 +103,6 @@ defmodule ImagePipe.CacheTest do
     end
   end
 
-  test "ImagePipe init rejects cache pools whose roots overlap" do
-    root = Path.join(System.tmp_dir!(), "image_pipe_overlapping_roots")
-    on_exit(fn -> File.rm_rf(root) end)
-
-    for {output, input} <- [
-          {root, root},
-          {root, Path.join(root, "input")},
-          {Path.join(root, "output"), root},
-          {root <> "/", root <> "/../image_pipe_overlapping_roots"}
-        ] do
-      assert_raise ArgumentError, ~r/cache_pools_require_separate_roots/, fn ->
-        ImagePipe.Plug.init(
-          Caches.cap(
-            mount(
-              cache: [root: output],
-              input_cache: [root: input]
-            )
-          )
-        )
-      end
-    end
-
-    assert Caches.plug(
-             Caches.start!(
-               mount(
-                 cache: [root: Path.join(root, "output")],
-                 input_cache: [root: Path.join(root, "output-input")]
-               )
-             )
-           )
-  end
-
   test "ImagePipe init preserves normalized filesystem cache options" do
     root = Path.join(System.tmp_dir!(), "image_pipe_cache_init")
     on_exit(fn -> File.rm_rf(root) end)

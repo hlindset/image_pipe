@@ -2,10 +2,10 @@
 # mix run --no-compile bench/source_waiters.exs IMAGE MIBPS [ROUNDS]
 #
 # A loopback origin sends IMAGE at MIBPS. Each round, on a new source URL so
-# both caches are cold, a leader requests a 1200 px wide copy and three
+# the cache is cold, a leader requests a 1200 px wide copy and three
 # followers request 800, 400, and 200 px copies a quarter of the way into the
-# download. SOURCE_WAITERS_INPUT_CACHE=off runs without an originals cache, and
-# SOURCE_WAITERS_SAME=on has the followers request the leader's size.
+# download. SOURCE_WAITERS_SAME=on has the followers request the leader's
+# size.
 # Prints one JSON line per round, with times in ms from the
 # leader's start:
 #
@@ -71,7 +71,7 @@ defmodule SourceWaitersBench do
                ]
              ],
              cache: [root: Path.join(root, "output"), max_size_bytes: 10_000_000_000]
-           ] ++ input_cache(root)}
+           ]}
         ],
         strategy: :one_for_one
       )
@@ -145,14 +145,6 @@ defmodule SourceWaitersBench do
     case System.get_env("SOURCE_WAITERS_SAME") do
       "on" -> [1200, 1200, 1200]
       _ -> @widths
-    end
-  end
-
-  # SOURCE_WAITERS_INPUT_CACHE=off leaves out the originals cache.
-  defp input_cache(root) do
-    case System.get_env("SOURCE_WAITERS_INPUT_CACHE") do
-      "off" -> []
-      _ -> [input_cache: [root: Path.join(root, "input"), max_size_bytes: 10_000_000_000]]
     end
   end
 

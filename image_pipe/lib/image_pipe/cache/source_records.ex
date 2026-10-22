@@ -1,33 +1,13 @@
 defmodule ImagePipe.Cache.SourceRecords do
   # Keeps the records of an instance's originals in memory, so an unchanged
   # local file isn't read and hashed again on every request, and a cached
-  # image from an origin can be found without downloading the original. The
-  # process owns the table; requests read and write it directly.
+  # image from an origin can be found without downloading the original, in
+  # a `RecentTable`.
   #
   # A full table forgets the least recently used of a few sampled records.
   @moduledoc false
-  use GenServer
 
   alias ImagePipe.Cache.RecentTable
-
-  def child_spec(table),
-    do: %{id: {__MODULE__, table}, start: {__MODULE__, :start_link, [table]}}
-
-  def start_link(table), do: GenServer.start_link(__MODULE__, table)
-
-  @impl true
-  def init(table) do
-    ^table =
-      :ets.new(table, [
-        :named_table,
-        :public,
-        :set,
-        read_concurrency: true,
-        write_concurrency: true
-      ])
-
-    {:ok, table}
-  end
 
   @spec get(atom(), String.t(), integer()) :: ImagePipe.Source.Record.t() | nil
   def get(table, key, now \\ now()), do: RecentTable.get(table, key, now)

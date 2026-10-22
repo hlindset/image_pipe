@@ -45,11 +45,11 @@ defmodule ImagePipe.Cache.FileSystemSyncTest do
         do: :erlang.trace(pid, true, [:call, :strict_monotonic_timestamp, {:tracer, tracer}])
 
     :erlang.trace_pattern({:file, :datasync, 1}, true, [])
-    :erlang.trace_pattern({:file, :rename, 2}, true, [])
+    :erlang.trace_pattern({:prim_file, :rename, 2}, true, [])
 
     on_exit(fn ->
       :erlang.trace_pattern({:file, :datasync, 1}, false, [])
-      :erlang.trace_pattern({:file, :rename, 2}, false, [])
+      :erlang.trace_pattern({:prim_file, :rename, 2}, false, [])
     end)
 
     assert FileSystem.commit_sink(state, opts) == :ok
@@ -74,7 +74,7 @@ defmodule ImagePipe.Cache.FileSystemSyncTest do
       {:trace_ts, _pid, :call, {:file, :datasync, [_io]}, ts} ->
         collect([{ts, :datasync} | calls])
 
-      {:trace_ts, _pid, :call, {:file, :rename, [_from, to]}, ts} ->
+      {:trace_ts, _pid, :call, {:prim_file, :rename, [_from, to]}, ts} ->
         collect([{ts, {:rename, to}} | calls])
 
       {:calls, pid} ->

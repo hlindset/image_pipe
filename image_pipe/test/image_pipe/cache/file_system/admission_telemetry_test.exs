@@ -29,7 +29,7 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTelemetryTest do
   # built from them.
   defp cache_opts(ctx, overrides) do
     Keyword.merge(
-      [root: ctx.tmp_dir, pool: :input, max_size_bytes: 1_000_000, sketch_width: 256],
+      [root: ctx.tmp_dir, max_size_bytes: 1_000_000, sketch_width: 256],
       overrides
     )
   end
@@ -96,7 +96,7 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTelemetryTest do
     stop_event = ctx.prefix ++ [:cache, :admission, :stop]
 
     assert_receive {:telemetry, ^stop_event, %{duration: _},
-                    %{result: :admitted, victim_count: 0, pool: :input}}
+                    %{result: :admitted, victim_count: 0, pool: :output}}
   end
 
   test "emits an admission span with a rejected result on over-cap", ctx do
@@ -109,7 +109,7 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTelemetryTest do
     stop_event = ctx.prefix ++ [:cache, :admission, :stop]
 
     assert_receive {:telemetry, ^stop_event, _measurements,
-                    %{result: :rejected, reason: :over_cap, victim_count: 0, pool: :input}}
+                    %{result: :rejected, reason: :over_cap, victim_count: 0, pool: :output}}
   end
 
   test "emits an eviction stop event when a write evicts", ctx do
@@ -128,7 +128,7 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTelemetryTest do
     stop_event = ctx.prefix ++ [:cache, :eviction, :stop]
 
     assert_receive {:telemetry, ^stop_event, %{count: 1, bytes: 5_000},
-                    %{trigger: :admission, pool: :input}}
+                    %{trigger: :admission, pool: :output}}
   end
 
   test "emits an eviction stop event when the startup scan evicts", ctx do
@@ -152,6 +152,6 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTelemetryTest do
     stop_event = ctx.prefix ++ [:cache, :eviction, :stop]
 
     assert_receive {:telemetry, ^stop_event, %{count: 1, bytes: 5_000},
-                    %{trigger: :startup, pool: :input}}
+                    %{trigger: :startup, pool: :output}}
   end
 end

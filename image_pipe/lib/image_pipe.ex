@@ -104,8 +104,8 @@ defmodule ImagePipe do
   Mount it with the `:instance` option of `ImagePipe.Plug`, and pass its name
   to `run/4`, `write/5`, `validate/2`, and `url_config/1`.
 
-  A configuration with `cache` or `input_cache` must be used through an
-  instance, which starts the processes that track each cache's size.
+  A configuration with `cache` must be used through an instance, which
+  starts the processes that track the cache's size.
   An `ImagePipe.Plug` mount without `:instance`, and `run/4` with a
   configuration from `config/1`, raise `ArgumentError` for a configuration
   with a cache.
@@ -201,9 +201,8 @@ defmodule ImagePipe do
 
   Every option of `config/1` overrides the configuration for this call, such
   as `max_input_pixels: 50_000_000`. Invalid options raise `ArgumentError`.
-  An instance name takes the same options, except `:cache` and
-  `:input_cache`, which raise `ArgumentError`: the caches belong to the
-  instance.
+  An instance name takes the same options, except `:cache`, which raises
+  `ArgumentError`: the cache belongs to the instance.
   `run/4` and `write/5` also take:
 
   #{ImagePipe.Run.options_docs()}
@@ -306,20 +305,19 @@ defmodule ImagePipe do
     do: ImagePipe.Run.write(resolve(config), builder, input, path, options)
 
   @doc """
-  Reports the bytes and entries a running instance's caches hold, and their
+  Reports the bytes and entries a running instance's cache holds, and its
   hits and misses since the VM started.
 
       ImagePipe.cache_stats(MyApp.ImagePipe)
       #=> %{
       #=>   output: %{bytes: 812_345_678, entries: 5120, max_bytes: 1_073_741_824,
       #=>             counting?: false, hits: 9120, misses: 1310, read_errors: 0,
-      #=>             available: true, refused: false},
-      #=>   input: %{...}
+      #=>             available: true, refused: false}
       #=> }
 
-  The map has an `:output` entry for the `cache` option and an `:input` entry
-  for `input_cache`. It leaves out a cache that isn't configured. Raises
-  `ArgumentError` when no instance with the name is running.
+  The map has an `:output` entry for the `cache` option, and is empty when
+  no cache is configured. Raises `ArgumentError` when no instance with the
+  name is running.
 
   A cache whose `root` another node [owns](cache.md#cache-root-owner-file)
   isn't used by this node. Its entry has only `refused: true` and
@@ -345,7 +343,7 @@ defmodule ImagePipe do
 
   Each node reports only its own counts.
   """
-  @spec cache_stats(atom()) :: %{optional(:output | :input) => map()}
+  @spec cache_stats(atom()) :: %{optional(:output) => map()}
   def cache_stats(name) when is_atom(name),
     do: ImagePipe.Cache.stats(Config.fetch_configured!(name).options)
 

@@ -9,7 +9,6 @@ defmodule ImagePipe.Cache.WriterTest do
   alias ImagePipe.Cache.FileSystem.Owner
   alias ImagePipe.Cache.FileSystem.Writers
   alias ImagePipe.Cache.Key
-  alias ImagePipe.Cache.Publication
   alias ImagePipe.Test.Caches
 
   @content_type "text/plain"
@@ -36,7 +35,6 @@ defmodule ImagePipe.Cache.WriterTest do
 
     %{
       root: Path.join(root, "cache"),
-      originals: Path.join(root, "originals"),
       images: images,
       prefix: prefix
     }
@@ -207,88 +205,22 @@ defmodule ImagePipe.Cache.WriterTest do
   end
 
   describe "a fetch's writes" do
-    test "skip the original and run the rest at the writer limit", ctx do
-      opts = originals_opts(ctx)
+    test "run in the request" do
       test = self()
 
-      blockers =
-        for n <- 1..64 do
-          spec = Supervisor.child_spec({Task, fn -> receive(do: (:stop -> :ok)) end}, id: n)
-          {:ok, pid} = Writers.start_child(ctx.originals, spec)
-          pid
-        end
-
-      on_exit(fn -> Enum.each(blockers, &send(&1, :stop)) end)
-
-      Cache.publish("source", nil, staged(ctx, test), opts)
-      assert_received :record
-      refute_received :original
-      assert_received {:stage, %{cache: :stage_dropped, reason: :writer_limit, pool: :input}}
-
-      Cache.publish("source", nil, fn -> send(test, :invalidated) end, opts)
-      assert_received :invalidated
-    end
-
-    test "run a write to memory in the request, without a writer", ctx do
-      opts = originals_opts(ctx)
-      test = self()
-
-      Cache.publish("source", nil, {:memory, fn -> send(test, {:remembered, self()}) end}, opts)
+      Cache.publish("source", nil, fn -> send(test, {:remembered, self()}) end)
       assert_received {:remembered, ^test}
-
-      expired = make_ref()
-      forget = {:invalidate, fn -> send(test, {:forgotten, self()}) end}
-      Cache.publish("source", expired, {:memory, forget}, opts)
-      assert_received {:forgotten, ^test}
     end
 
-    test "skip the original without an originals cache, and reserve nothing", ctx do
-      opts = cache_opts(ctx, [])
-      test = self()
-      {:staged, path, put, _then} = staged(ctx, test)
-
-      Cache.publish(
-        "source",
-        nil,
-        {:staged, path, put, fn -> send(test, {:record, self()}) end},
-        opts
-      )
-
-      assert_received {:record, ^test}
-      refute_received :original
-      refute_received {:stage, _metadata}
-      assert Writers.pending(ctx.root) == 0
-    end
-
-    test "run an invalidation after their lease expired, and drop the rest", ctx do
-      opts = originals_opts(ctx)
+    test "run an invalidation after their lease expired, and drop the rest" do
       test = self()
       expired = make_ref()
 
-      Cache.publish("source", expired, {:invalidate, fn -> send(test, :invalidated) end}, opts)
-      Cache.publish("source", expired, fn -> send(test, :remembered) end, opts)
-      Caches.await_writes(opts)
+      Cache.publish("source", expired, {:invalidate, fn -> send(test, :invalidated) end})
+      Cache.publish("source", expired, fn -> send(test, :remembered) end)
 
       assert_received :invalidated
       refute_received :remembered
-      assert_received {:stage, %{cache: :stage_dropped, reason: :deadline}}
-    end
-
-    test "release their reservation when the request never hands them over" do
-      test = self()
-
-      for stop <- [:cancel, :exit] do
-        writer = spawn(&Publication.await/0)
-        send(writer, {:finish, fn -> send(test, {:released, stop}) end})
-        waiting(writer)
-
-        case stop do
-          :cancel -> send(writer, :cancel)
-          :exit -> Process.exit(writer, :shutdown)
-        end
-
-        assert_receive {:released, ^stop}
-      end
     end
   end
 
@@ -306,33 +238,6 @@ defmodule ImagePipe.Cache.WriterTest do
     assert :ok = commit(cache, key("b"), String.duplicate("b", 4_700))
     assert {:hit, entry} = Cache.lookup_entry(key("b"), opts)
     Entry.close(entry)
-  end
-
-  # Returns once `pid` has handled its messages and waits for more, so it
-  # traps exits by then.
-  defp waiting(pid) do
-    case Process.info(pid, [:message_queue_len, :status]) do
-      [message_queue_len: 0, status: :waiting] -> :ok
-      _busy -> waiting(pid)
-    end
-  end
-
-  defp originals_opts(ctx) do
-    Cache.validate_config!(
-      Caches.start!(
-        cache: [root: ctx.root],
-        input_cache: [root: ctx.originals],
-        telemetry_prefix: ctx.prefix
-      )
-    )
-  end
-
-  # A staged original in a real file, whose write and record report here.
-  defp staged(ctx, test) do
-    path = Path.join(ctx.originals <> "_staging", "original")
-    File.mkdir_p!(Path.dirname(path))
-    File.write!(path, "original bytes")
-    {:staged, path, fn _path -> send(test, :original) end, fn -> send(test, :record) end}
   end
 
   defp cache_opts(ctx, cache) do

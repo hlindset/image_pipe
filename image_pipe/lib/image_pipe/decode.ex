@@ -15,6 +15,7 @@ defmodule ImagePipe.Decode do
     deps: [
       ImagePipe.Format,
       ImagePipe.Plan,
+      ImagePipe.RawFile,
       ImagePipe.Source,
       ImagePipe.Telemetry,
       ImagePipe.Transform
@@ -28,6 +29,7 @@ defmodule ImagePipe.Decode do
   alias ImagePipe.Decode.WebpFrames
   alias ImagePipe.Format.Detector
   alias ImagePipe.Plan.Spec
+  alias ImagePipe.RawFile
   alias ImagePipe.Source
   alias ImagePipe.Telemetry
   alias ImagePipe.Transform.Executor
@@ -677,7 +679,7 @@ defmodule ImagePipe.Decode do
   defp source_byte_size({:download, _download, _prefix}), do: nil
 
   defp source_byte_size({:path, path}) do
-    case File.stat(path, time: :posix) do
+    case RawFile.stat(path, time: :posix) do
       {:ok, %File.Stat{size: size}} -> size
       _ -> nil
     end

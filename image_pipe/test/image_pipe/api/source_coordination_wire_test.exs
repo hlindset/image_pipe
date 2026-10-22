@@ -35,20 +35,27 @@ defmodule ImagePipe.API.SourceCoordinationWireTest do
   def event(_event, _measurements, metadata, test), do: send(test, {:coordination, metadata})
   def generated(_event, _measurements, _metadata, test), do: send(test, {:generated, self()})
 
-  test "without a cache, variants of one original download at once", context do
-    mount = start(context, [])
-    first = async(context, fn -> request(mount, 12) end)
-    assert_receive {:streaming, leader}
-    second = async(context, fn -> request(mount, 8) end)
-    assert_receive {:streaming, other}
+  for {name, caches} <- [
+        {"without a cache", []},
+        {"with only a processed-image cache", [:cache]}
+      ] do
+    test "#{name}, cold requests for different sizes share one download", context do
+      mount = start(context, cache_options(context, unquote(caches)))
+      first = async(context, fn -> request(mount, 12) end)
+      assert_receive {:fetch, ["original"], _}
+      assert_receive {:streaming, leader}
+      second = async(context, fn -> request(mount, 8) end)
+      await_source_waiter(second.pid)
+      send(leader, :continue)
 
-    for worker <- [leader, other], do: send(worker, :continue)
-    assert Task.await(first).status == 200
-    assert Task.await(second).status == 200
-    refute_received {:coordination, %{pool: :input}}
+      assert Task.await(first).status == 200
+      assert Task.await(second).status == 200
+      refute_received {:fetch, ["original"], _}
+      refute_received {:streaming, _}
+    end
   end
 
-  test "without an originals cache, new variants of a known original download at once",
+  test "with only a processed-image cache, new sizes of a known original share one download",
        context do
     mount = start(context, cache: [root: Path.join(context.root, "output")])
     warm = async(context, fn -> request(mount, 16) end)
@@ -56,50 +63,78 @@ defmodule ImagePipe.API.SourceCoordinationWireTest do
     send(worker, :continue)
     assert Task.await(warm).status == 200
     await_writes(context)
+    flush_fetches()
 
     first = async(context, fn -> request(mount, 12) end)
+    assert_receive {:fetch, ["original"], _}
     assert_receive {:streaming, leader}
     second = async(context, fn -> request(mount, 8) end)
-    assert_receive {:streaming, other}
+    await_source_waiter(second.pid)
+    send(leader, :continue)
 
-    for worker <- [leader, other], do: send(worker, :continue)
     assert Task.await(first).status == 200
+    assert Task.await(second).status == 200
+    refute_received {:fetch, ["original"], _}
+    refute_received {:streaming, _}
+  end
+
+  # The module isn't async, so no other test reads TMPDIR meanwhile.
+  test "a download held in memory is shared too", context do
+    tmp = Path.join(context.root, "tmp")
+    File.mkdir_p!(tmp)
+    File.write!(Path.join(tmp, "image_pipe"), "")
+    previous = System.get_env("TMPDIR")
+    System.put_env("TMPDIR", tmp)
+
+    on_exit(fn ->
+      if previous, do: System.put_env("TMPDIR", previous), else: System.delete_env("TMPDIR")
+    end)
+
+    mount = start(context, cache: [root: Path.join(context.root, "output")])
+    first = async(context, fn -> request(mount, 12) end)
+    assert_receive {:fetch, ["original"], _}
+    assert_receive {:streaming, leader}
+    second = async(context, fn -> request(mount, 8) end)
+    await_source_waiter(second.pid)
+    send(leader, :continue)
+
+    assert Task.await(first).status == 200
+    assert Task.await(second).status == 200
+    refute_received {:fetch, ["original"], _}
+  end
+
+  test "a request that shares a download keeps its copy when the first request exits",
+       context do
+    mount = start(context, cache: [root: Path.join(context.root, "output")])
+    first = held(context, fn -> request(mount, 12) end)
+    assert_receive {:streaming, leader}
+    second = async(context, fn -> request(mount, 8) end)
+    await_source_waiter(second.pid)
+    send(leader, :continue)
+
+    assert_receive {:done, ^first, %{status: 200}}
+    send(first, :release)
+    ref = Process.monitor(first)
+    assert_receive {:DOWN, ^ref, :process, ^first, _reason}
     assert Task.await(second).status == 200
   end
 
-  test "without an originals cache, cold requests for different sizes download at once",
+  test "with only a processed-image cache, identical cold requests share one download and one image",
        context do
     mount = start(context, cache: [root: Path.join(context.root, "output")])
     first = async(context, fn -> request(mount, 12) end)
+    assert_receive {:fetch, ["original"], _}
     assert_receive {:streaming, leader}
-    second = async(context, fn -> request(mount, 8) end)
-    assert_receive {:streaming, other}
+    second = async(context, fn -> request(mount, 12) end)
+    assert_receive {:coordination, %{operation: :download, result: :waiting}}
+    send(leader, :continue)
 
-    for worker <- [leader, other], do: send(worker, :continue)
-    assert Task.await(first).status == 200
-    assert Task.await(second).status == 200
-  end
-
-  for {name, caches} <- [
-        {"with only a processed-image cache", [:cache]},
-        {"with both caches", [:cache, :input_cache]}
-      ] do
-    test "#{name}, identical cold requests share one download and one image", context do
-      mount = start(context, cache_options(context, unquote(caches)))
-      first = async(context, fn -> request(mount, 12) end)
-      assert_receive {:fetch, ["original"], _}
-      assert_receive {:streaming, leader}
-      second = async(context, fn -> request(mount, 12) end)
-      assert_receive {:coordination, %{operation: :download, result: :waiting}}
-      send(leader, :continue)
-
-      original = Task.await(first)
-      assert original.status == 200
-      assert Task.await(second).resp_body == original.resp_body
-      assert_received {:generated, _}
-      refute_received {:generated, _}
-      refute_received {:fetch, ["original"], _}
-    end
+    original = Task.await(first)
+    assert original.status == 200
+    assert Task.await(second).resp_body == original.resp_body
+    assert_received {:generated, _}
+    refute_received {:generated, _}
+    refute_received {:fetch, ["original"], _}
   end
 
   test "identical cold requests share one download of an original the origin marks no-cache",
@@ -183,7 +218,6 @@ defmodule ImagePipe.API.SourceCoordinationWireTest do
     mount =
       start(context,
         cache: [root: Path.join(context.root, "output")],
-        input_cache: [root: Path.join(context.root, "input")],
         origin: origin("no-store")
       )
 
@@ -327,14 +361,14 @@ defmodule ImagePipe.API.SourceCoordinationWireTest do
     assert_receive {:coordination, %{operation: :download, result: :waiting}}
     refute_receive {:coordination, %{operation: :download, result: :bypass}}, 1_000
     assert_receive {:coordination, %{operation: :download, result: :bypass}}, 5_000
-    assert_receive {:fetch, ["blocked"], other}
+    await_source_waiter(second.pid)
 
-    for worker <- [leader, other], do: send(worker, :continue)
+    send(leader, :continue)
     assert_receive {:streaming, ^leader}
-    assert_receive {:streaming, ^other}
-    for worker <- [leader, other], do: send(worker, :continue)
+    send(leader, :continue)
     assert Task.await(first).status == 200
     assert Task.await(second).status == 200
+    refute_received {:fetch, ["blocked"], _}
   end
 
   test "a low-priority request waits for an identical normal one but never leads", context do
@@ -342,10 +376,10 @@ defmodule ImagePipe.API.SourceCoordinationWireTest do
     low = async(context, fn -> request(mount, "w=12/priority=low") end)
     assert_receive {:streaming, low_worker}
     normal = async(context, fn -> request(mount, "w=12") end)
-    assert_receive {:streaming, normal_worker}
-    for worker <- [low_worker, normal_worker], do: send(worker, :continue)
-    Task.await(low)
-    Task.await(normal)
+    refute_receive {:coordination, %{operation: :download, result: :waiting}}
+    send(low_worker, :continue)
+    assert Task.await(low).status == 200
+    assert Task.await(normal).status == 200
 
     mount = start(context, cache: [root: Path.join(context.root, "second")])
     flush_fetches()
@@ -360,7 +394,7 @@ defmodule ImagePipe.API.SourceCoordinationWireTest do
     refute_received {:fetch, ["original"], _}
   end
 
-  test "watermarked requests for different sizes download at once", context do
+  test "watermarked requests for different sizes share one download", context do
     mark = Image.new!(8, 8, color: :blue) |> Image.write!(:memory, suffix: ".png")
 
     marks = [
@@ -379,11 +413,11 @@ defmodule ImagePipe.API.SourceCoordinationWireTest do
     first = async(context, fn -> request(mount, "w=12/wm=logo") end)
     assert_receive {:streaming, leader}
     second = async(context, fn -> request(mount, "w=8/wm=logo") end)
-    assert_receive {:streaming, other}
-    for worker <- [leader, other], do: send(worker, :continue)
+    await_source_waiter(second.pid)
+    send(leader, :continue)
     assert Task.await(first).status == 200
     assert Task.await(second).status == 200
-    refute_received {:coordination, %{result: :waiting}}
+    refute_received {:streaming, _}
   end
 
   test "the request summary says when a request used another's download", context do

@@ -107,7 +107,7 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
     put_disk_entry(tmp_dir, hash, "persisted body")
     {:ok, paths} = FileSystem.paths_from_hash(hash, root: tmp_dir)
     {:ok, descriptor, _} = FileSystem.read_descriptor(paths.meta_path)
-    :ok = Store.delete(%Key{hash: hash, data: []}, root: tmp_dir)
+    remove_disk_entry(paths, descriptor)
     Admission.hit(pid, descriptor)
 
     assert entry_row(pid, hash) == nil
@@ -354,7 +354,7 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
     put_disk_entry(tmp_dir, hash, "old-on-disk-body")
     {:ok, paths} = FileSystem.paths_from_hash(hash, root: tmp_dir)
     {:ok, snapshot, _mtime} = FileSystem.read_descriptor(paths.meta_path)
-    :ok = Store.delete(%Key{hash: hash, data: []}, root: tmp_dir)
+    remove_disk_entry(paths, snapshot)
 
     opts = base_opts(registry: registry, tmp_dir: tmp_dir)
     pid = start_supervised!({Admission, opts})
@@ -394,26 +394,9 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
 
   defp apply_snapshot(pid, entry), do: GenServer.call(pid, {:apply_scan_batch, [entry]})
 
-  test "a scan snapshot of an entry deleted mid-scan is skipped", ctx do
-    hash = hex_hash("d")
-    opts = base_opts(registry: ctx.registry, tmp_dir: ctx.tmp_dir)
-
-    pid =
-      during_scan(ctx, opts, fn pid ->
-        put_disk_entry(ctx.tmp_dir, hash, "old body")
-        {paths, entry} = snapshot(ctx.tmp_dir, hash)
-        assert Admission.delete(pid, paths) == :ok
-
-        assert :ok = apply_snapshot(pid, entry)
-        assert stored_bytes(pid) == 0
-      end)
-
-    assert stored_bytes(pid) == 0
-
-    assert FileSystem.get(%Key{hash: hash, data: []},
-             root: ctx.tmp_dir,
-             max_size_bytes: 1_000_000
-           ) == :miss
+  defp remove_disk_entry(paths, descriptor) do
+    File.rm!(paths.meta_path)
+    File.rm!(Path.join(paths.dir, descriptor.body_filename))
   end
 
   test "a scan snapshot of an entry evicted mid-scan is skipped", ctx do

@@ -161,8 +161,7 @@ defmodule ImagePipeServer.StatsTest do
     assert conn.status == 200
     assert ["application/json" <> _] = get_resp_header(conn, "content-type")
 
-    assert %{"output" => output} = body = JSON.decode!(conn.resp_body)
-    refute Map.has_key?(body, "input")
+    assert %{"output" => output} = JSON.decode!(conn.resp_body)
 
     assert %{"max_bytes" => 10_000_000, "hits" => 0, "misses" => 1, "read_errors" => 0} =
              output

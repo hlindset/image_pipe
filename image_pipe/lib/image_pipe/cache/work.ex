@@ -71,27 +71,26 @@ defmodule ImagePipe.Cache.Work do
 
   # Completion releases this lease and hands a resource-free value only to
   # matching requests already queued. Nothing is retained for later arrivals.
-  # A lease handed to a writer stays locked until the writer releases it.
   def complete(ref, value), do: call({:complete, ref, value}, 5_000)
+
+  # The processes of the queued requests `complete_each/2` can answer: those
+  # whose `share:` matches the holder's.
+  def sharing(ref) do
+    case call({:sharing, ref}, 5_000) do
+      pids when is_list(pids) -> pids
+      :busy -> []
+    end
+  end
+
+  # Like `complete/2`, with a value of its own for each waiting process in
+  # `values`, such as a resource handed to it. A matching request that isn't
+  # in `values` stays queued.
+  def complete_each(ref, values), do: call({:complete_each, ref, values}, 5_000)
 
   # The holder of `ref` found that its work will store nothing, so the
   # requests waiting for it go ahead on their own, without a lease, and the
   # key is free for later arrivals. The holder's lease is no longer current.
   def release_waiters(ref), do: call({:release_waiters, ref}, 5_000)
-
-  @doc """
-  Hands the lease `ref` to `owner`, a cache writer publishing for it. The
-  lease keeps its identity, so `current?/1` and `publish/3` still accept it,
-  but only `owner` releases it, with `unlock/1`, or when it stops. The lease
-  is released anyway after `deadline` milliseconds, so waiters stop waiting
-  on slow storage. A writer whose publication outlives the deadline has
-  already passed `publish/3`'s check.
-  """
-  def transfer(nil, _owner, _deadline), do: :ok
-  def transfer(ref, owner, deadline), do: call({:transfer, ref, owner, deadline}, 5_000)
-
-  def unlock(nil), do: :ok
-  def unlock(ref), do: call({:unlock, ref}, 5_000)
 
   def refresh(key, fun, opts \\ []) do
     result = call({:refresh, key, fun}, 5_000)
@@ -140,9 +139,7 @@ defmodule ImagePipe.Cache.Work do
   end
 
   @impl true
-  # `transfers` maps a handed-off lease to its owner, the owner's monitor and
-  # the deadline's timer.
-  def init(_), do: {:ok, %{locks: %{}, refs: %{}, jobs: %{}, cooldown: %{}, transfers: %{}}}
+  def init(_), do: {:ok, %{locks: %{}, refs: %{}, jobs: %{}, cooldown: %{}}}
 
   @impl true
   def handle_call({:lock, key, context}, from, state) do
@@ -159,35 +156,28 @@ defmodule ImagePipe.Cache.Work do
     end
   end
 
-  # The request that handed its lease off unlocks it on its way out, which
-  # leaves it to the writer.
-  def handle_call({:unlock, ref}, {caller, _tag}, state) do
-    case Map.get(state.transfers, ref) do
-      %{owner: owner} when owner != caller -> {:reply, :ok, state}
-      _own_lease -> {:reply, :ok, release(state, ref)}
-    end
-  end
-
-  def handle_call({:transfer, ref, owner, deadline}, _from, state) do
-    case Map.has_key?(state.refs, ref) do
-      true ->
-        Process.demonitor(ref, [:flush])
-
-        transfer = %{
-          owner: owner,
-          monitor: Process.monitor(owner),
-          timer: Process.send_after(self(), {:deadline, ref}, deadline)
-        }
-
-        {:reply, :ok, put_in(state.transfers[ref], transfer)}
-
-      false ->
-        {:reply, :error, state}
-    end
-  end
+  def handle_call({:unlock, ref}, _from, state), do: {:reply, :ok, release(state, ref)}
 
   def handle_call({:complete, ref, value}, _from, state) do
-    {:reply, :ok, complete_cohort(state, ref, value)}
+    {:reply, :ok, complete_cohort(state, ref, fn _pid -> {:ok, value} end)}
+  end
+
+  def handle_call({:sharing, ref}, _from, state) do
+    pids =
+      with {:ok, key} <- Map.fetch(state.refs, ref),
+           %{owner: ^ref} = lock <- Map.fetch!(state.locks, key) do
+        for {_ref, {pid, _tag}, context} <- lock.waiters,
+            lock.context != nil and context == lock.context,
+            do: pid
+      else
+        _ -> []
+      end
+
+    {:reply, pids, state}
+  end
+
+  def handle_call({:complete_each, ref, values}, _from, state) do
+    {:reply, :ok, complete_cohort(state, ref, &Map.fetch(values, &1))}
   end
 
   def handle_call({:release_waiters, ref}, _from, state) do
@@ -226,7 +216,7 @@ defmodule ImagePipe.Cache.Work do
 
         lock ->
           waiting = for {ref, {^pid, _tag}, _context} <- lock.waiters, do: ref
-          if granted_from_queue?(lock, pid, state), do: waiting ++ [lock.owner], else: waiting
+          if lock.granted_to == pid, do: waiting ++ [lock.owner], else: waiting
       end
 
     {:reply, :ok, Enum.reduce(refs, state, &release(&2, &1))}
@@ -258,9 +248,6 @@ defmodule ImagePipe.Cache.Work do
     end
   end
 
-  defp granted_from_queue?(lock, pid, state),
-    do: lock.granted_to == pid and not Map.has_key?(state.transfers, lock.owner)
-
   defp enqueue(key, {pid, _tag} = from, context, state) do
     ref = Process.monitor(pid)
     refs = Map.put(state.refs, ref, key)
@@ -282,14 +269,8 @@ defmodule ImagePipe.Cache.Work do
   def handle_info({ref, _result}, state) when is_reference(ref),
     do: {:noreply, finish_job(state, ref)}
 
-  def handle_info({:DOWN, monitor, :process, _pid, _reason}, state) do
-    case Enum.find(state.transfers, fn {_ref, transfer} -> transfer.monitor == monitor end) do
-      {ref, _transfer} -> {:noreply, release(state, ref)}
-      nil -> {:noreply, state |> release(monitor) |> finish_job(monitor)}
-    end
-  end
-
-  def handle_info({:deadline, ref}, state), do: {:noreply, release(state, ref)}
+  def handle_info({:DOWN, monitor, :process, _pid, _reason}, state),
+    do: {:noreply, state |> release(monitor) |> finish_job(monitor)}
 
   def handle_info({:expire, ref}, state) do
     case Map.get(state.jobs, ref) do
@@ -321,23 +302,14 @@ defmodule ImagePipe.Cache.Work do
   defp release(state, ref) do
     Process.demonitor(ref, [:flush])
 
-    state =
-      case Map.pop(state.transfers, ref) do
-        {nil, _transfers} ->
-          state
-
-        {transfer, transfers} ->
-          Process.demonitor(transfer.monitor, [:flush])
-          Process.cancel_timer(transfer.timer)
-          %{state | transfers: transfers}
-      end
-
     case Map.pop(state.refs, ref) do
       {nil, _refs} -> state
       {key, refs} -> release_lock(%{state | refs: refs}, key, ref)
     end
   end
 
+  # `value` gives each matching waiter's process `{:ok, value}`, or `:error`
+  # to leave it queued.
   defp complete_cohort(state, ref, value) do
     case Map.fetch(state.refs, ref) do
       :error ->
@@ -347,14 +319,15 @@ defmodule ImagePipe.Cache.Work do
         %{owner: ^ref} = lock = Map.fetch!(state.locks, key)
 
         {shared, waiters} =
-          Enum.split_with(lock.waiters, fn {_ref, _from, context} ->
-            lock.context != nil and context == lock.context
+          Enum.split_with(lock.waiters, fn {_ref, {pid, _tag}, context} ->
+            lock.context != nil and context == lock.context and value.(pid) != :error
           end)
 
         shared_refs =
-          Enum.map(shared, fn {waiter, from, _context} ->
+          Enum.map(shared, fn {waiter, {pid, _tag} = from, _context} ->
+            {:ok, shared} = value.(pid)
             Process.demonitor(waiter, [:flush])
-            GenServer.reply(from, {:shared, value})
+            GenServer.reply(from, {:shared, shared})
             waiter
           end)
 
@@ -364,7 +337,7 @@ defmodule ImagePipe.Cache.Work do
             locks: Map.put(state.locks, key, %{lock | waiters: waiters})
         }
 
-        if Map.has_key?(state.transfers, ref), do: state, else: release(state, ref)
+        release(state, ref)
     end
   end
 

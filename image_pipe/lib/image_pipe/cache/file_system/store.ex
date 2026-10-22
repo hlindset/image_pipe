@@ -11,6 +11,7 @@ defmodule ImagePipe.Cache.FileSystem.Store do
   alias ImagePipe.Cache.FileSystem.Sweep
   alias ImagePipe.Cache.FileSystem.Writers
   alias ImagePipe.Cache.Key
+  alias ImagePipe.RawFile
   alias ImagePipe.SafePath
 
   @metadata_version 1
@@ -23,20 +24,8 @@ defmodule ImagePipe.Cache.FileSystem.Store do
                       type_doc: "absolute path (`t:String.t/0`)",
                       doc: """
                       Directory that holds the cache files. Must be an absolute path. \
-                      The `cache` and `input_cache` roots must be separate, neither \
-                      inside the other. Plug initialization fails otherwise. An instance \
-                      whose root another instance in the VM already uses raises \
-                      `ArgumentError` when it starts.
-                      """
-                    ],
-                    pool: [
-                      type: {:in, [:input, :output]},
-                      type_doc: "`:input` or `:output`",
-                      doc: """
-                      Tags the cache's telemetry events with `pool`, so events from an \
-                      originals cache can be told apart from the processed-image cache. \
-                      Defaults to `:output`, or `:input` for a cache configured as \
-                      `:input_cache`.
+                      An instance whose root another instance in the VM already uses \
+                      raises `ArgumentError` when it starts.
                       """
                     ],
                     max_size_bytes: [
@@ -69,7 +58,7 @@ defmodule ImagePipe.Cache.FileSystem.Store do
   def cache_children(opts) do
     registry_name = registry_name(Keyword.fetch!(opts, :root))
     telemetry = Keyword.take(opts, [:telemetry_prefix])
-    sweep = [root_dir(opts), Keyword.get(opts, :pool, :output), telemetry, registry_name]
+    sweep = [root_dir(opts), :output, telemetry, registry_name]
 
     [
       {Registry, keys: :unique, name: registry_name},
@@ -205,48 +194,6 @@ defmodule ImagePipe.Cache.FileSystem.Store do
     end
   end
 
-  @doc false
-  # Opens a sink over a complete file the caller already hashed, hard-linking it
-  # instead of copying. The caller's file keeps its own name. Linking fails
-  # across filesystems, and the caller then copies the bytes into a sink.
-  def open_linked_sink(%Key{} = key, metadata, path, body_sha256, opts) when is_list(opts) do
-    with {:ok, paths} <- paths(key, opts),
-         temp_body_path = temp_path(paths),
-         :ok <- in_partition(paths, fn -> :file.make_link(path, temp_body_path) end) do
-      case open_linked_body(temp_body_path) do
-        {:ok, body_io, size} ->
-          {:ok,
-           %{
-             paths: paths,
-             temp_body_path: temp_body_path,
-             temp_meta_path: nil,
-             body_io: body_io,
-             size: size,
-             body_sha256: Base.encode16(body_sha256, case: :lower),
-             metadata: metadata
-           }}
-
-        {:error, reason} ->
-          cleanup_temp_files([temp_body_path])
-          {:error, reason}
-      end
-    end
-  end
-
-  # The descriptor is kept for the datasync before the commit's rename.
-  defp open_linked_body(path) do
-    with {:ok, body_io} <- :file.open(path, [:read, :raw, :binary]) do
-      case :file.read_file_info(body_io) do
-        {:ok, info} ->
-          {:ok, body_io, File.Stat.from_record(info).size}
-
-        {:error, reason} ->
-          :file.close(body_io)
-          {:error, reason}
-      end
-    end
-  end
-
   def commit_sink(state, opts) when is_map(state) do
     case lookup_admission(opts) do
       {:ok, pid} ->
@@ -353,8 +300,7 @@ defmodule ImagePipe.Cache.FileSystem.Store do
   # leave a published body at full length with lost blocks. Hits check only
   # the size, which wouldn't catch that.
   defp prepare_sink_commit(state, body_sha256, body_filename) do
-    with :ok <- refresh_body_time(state),
-         :ok <- :file.datasync(state.body_io),
+    with :ok <- :file.datasync(state.body_io),
          :ok <- close_body_io(state),
          encoded_metadata = sink_metadata(state, body_sha256, body_filename),
          {:ok, temp_meta_path} <- write_sink_metadata(state.paths, encoded_metadata) do
@@ -365,20 +311,9 @@ defmodule ImagePipe.Cache.FileSystem.Store do
     end
   end
 
-  # A linked body can carry an old mtime. Refresh it before publication so the
-  # leftover sweep leaves it alone until its metadata has been installed.
-  defp refresh_body_time(%{body_sha256: _} = state),
-    do: :file.change_time(state.temp_body_path, :calendar.local_time())
-
-  defp refresh_body_time(%{hash_context: _}), do: :ok
-
-  # A rename consumes a temp file, unless the temp is a hard link to the file
-  # it replaces: then the rename does nothing and the temp stays. Only a
-  # linked body can be one.
   defp commit_prepared_sink(state, body_filename) do
     case commit_sink_files(state, body_filename) do
       :ok ->
-        if Map.has_key?(state, :body_sha256), do: cleanup_temp_files([state.temp_body_path])
         :ok
 
       error ->
@@ -468,71 +403,9 @@ defmodule ImagePipe.Cache.FileSystem.Store do
     end
   end
 
-  @doc false
-  # Hashes the stored body against its metadata. Returns `:miss` when nothing
-  # is stored, and an error for a body that differs or can't be read.
-  def verify(%Key{} = key, opts) do
-    with {:ok, paths} <- paths(key, opts),
-         {:ok, metadata} <- read_metadata(paths),
-         {:ok, body_path} <- body_path_from_metadata(paths, metadata) do
-      if matching_body_file?(body_path, metadata.body_filename),
-        do: :ok,
-        else: {:error, {:invalid_metadata, :body_digest_mismatch}}
-    end
-  end
-
   def metadata(%Key{} = key, opts) do
     with {:ok, paths} <- paths(key, opts), do: read_metadata(paths)
   end
-
-  def refresh_source_record(key, previous, record, opts) do
-    with {:ok, paths} <- paths(key, opts) do
-      case lookup_admission(opts) do
-        {:ok, pid} -> Admission.refresh_source_record(pid, paths, previous, record)
-        :unavailable -> :ok
-      end
-    end
-  end
-
-  def refresh_entry(paths, previous, record) do
-    case read_metadata(paths) do
-      {:ok, %{source_record: ^previous} = metadata} ->
-        write_refreshed_metadata(paths, %{metadata | source_record: record})
-
-      _missing_or_changed ->
-        :ok
-    end
-  end
-
-  defp write_refreshed_metadata(paths, metadata) do
-    binary = :erlang.term_to_binary(metadata, [:deterministic])
-
-    with {:ok, temp} <- write_sink_metadata(paths, binary) do
-      result = File.rename(temp, paths.meta_path)
-      File.rm(temp)
-      result
-    end
-  end
-
-  def delete(key, opts) do
-    with {:ok, paths} <- paths(key, opts) do
-      case lookup_admission(opts) do
-        {:ok, pid} -> Admission.delete(pid, paths)
-        :unavailable -> unwrap_delete(delete_entry(paths))
-      end
-    end
-  end
-
-  def delete_entry(paths) do
-    with {:ok, metadata} <- read_metadata(paths),
-         {:ok, path} <- body_path_from_metadata(paths, metadata),
-         :ok <- File.rm(paths.meta_path) do
-      {:ok, File.rm(path)}
-    end
-  end
-
-  defp unwrap_delete({:ok, result}), do: result
-  defp unwrap_delete(result), do: result
 
   defp read_metadata(paths) do
     with {:ok, binary} <- read_cache_file(paths.meta_path, :metadata), do: decode_metadata(binary)
@@ -638,7 +511,7 @@ defmodule ImagePipe.Cache.FileSystem.Store do
   defp commit_sink_files(state, body_filename) do
     body_path = Path.join(state.paths.dir, body_filename)
 
-    with :ok <- File.rename(state.temp_body_path, body_path) do
+    with :ok <- RawFile.rename(state.temp_body_path, body_path) do
       commit_metadata_file(state.paths.meta_path, state.temp_meta_path)
     end
   end
@@ -646,37 +519,11 @@ defmodule ImagePipe.Cache.FileSystem.Store do
   defp cost_us(metadata), do: Map.get(metadata, :cost_us, 0)
 
   defp commit_metadata_file(meta_path, meta_tmp_path) do
-    File.rename(meta_tmp_path, meta_path)
-  end
-
-  defp matching_body_file?(body_path, body_filename) do
-    with {:ok, %{body_sha256: expected_sha256}} <- parse_body_filename(body_filename),
-         {:ok, actual_sha256} <- file_sha256(body_path) do
-      actual_sha256 == expected_sha256
-    else
-      _reason -> false
-    end
-  end
-
-  defp file_sha256(path) do
-    with {:ok, io} <- File.open(path, [:read, :binary]) do
-      try do
-        sha256 =
-          io
-          |> IO.binstream(64 * 1024)
-          |> Enum.reduce(:crypto.hash_init(:sha256), &:crypto.hash_update(&2, &1))
-          |> finalize_body_sha256()
-
-        {:ok, sha256}
-      after
-        File.close(io)
-      end
-    end
+    RawFile.rename(meta_tmp_path, meta_path)
   end
 
   defp close_body_io(%{body_io: body_io}), do: :file.close(body_io)
 
-  defp sink_body_sha256(%{body_sha256: body_sha256}), do: body_sha256
   defp sink_body_sha256(state), do: finalize_body_sha256(state.hash_context)
 
   defp finalize_body_sha256(hash_context) do
@@ -696,7 +543,7 @@ defmodule ImagePipe.Cache.FileSystem.Store do
   defp cleanup_temp_files(temp_paths) do
     temp_paths
     |> Enum.reject(&is_nil/1)
-    |> Enum.each(&File.rm/1)
+    |> Enum.each(&RawFile.delete/1)
   end
 
   @doc false
@@ -766,7 +613,7 @@ defmodule ImagePipe.Cache.FileSystem.Store do
   end
 
   defp rm_tolerant(path) do
-    case File.rm(path) do
+    case RawFile.delete(path) do
       :ok ->
         :ok
 
@@ -862,7 +709,7 @@ defmodule ImagePipe.Cache.FileSystem.Store do
   defp in_partition(paths, fun) do
     case fun.() do
       {:error, :enoent} ->
-        with :ok <- File.mkdir_p(paths.dir), do: fun.()
+        with :ok <- RawFile.make_dir_p(paths.dir), do: fun.()
 
       result ->
         result

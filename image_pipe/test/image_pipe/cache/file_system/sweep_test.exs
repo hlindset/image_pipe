@@ -28,8 +28,6 @@ defmodule ImagePipe.Cache.FileSystem.SweepTest do
   # A body named for its 5-byte content ("bytes") and no cost.
   defp body_name(hash, sha), do: "#{hash}.#{sha}.5.0.body"
 
-  defp pin_name(ms), do: ".image-pipe-pin-#{ms}-Ab_c-dE.tmp"
-
   test "removes expired temps and untracked bodies and keeps everything live", %{
     root: root,
     dir: dir
@@ -39,22 +37,18 @@ defmodule ImagePipe.Cache.FileSystem.SweepTest do
     untracked = write!(dir, body_name(@other, @sha), @old)
     fresh_untracked = write!(dir, body_name(@other, String.duplicate("d", 64)))
 
-    expired_pin = write!(dir, pin_name(System.os_time(:millisecond) - 7_200_000))
-    fresh_pin = Path.join(dir, pin_name(System.os_time(:millisecond)))
-    File.ln!(tracked, fresh_pin)
-    legacy_pin = write!(dir, ".image-pipe-Ab_c-dE.tmp", @old)
+    staged_name = write!(dir, ".image-pipe-Ab_c-dE.tmp", @old)
 
     expired_temp = write!(dir, ".#{@hash}.Ab_c-dE.tmp", @old)
     fresh_temp = write!(dir, ".#{@other}.Ab_c-dE.tmp")
     unrelated = write!(dir, "notes.txt", @old)
 
-    assert %{pins: 1, temps: 1, bodies: 1, bytes: 15} = Sweep.sweep_root(root)
+    assert %{temps: 1, bodies: 1, bytes: 10} = Sweep.sweep_root(root)
 
-    refute File.exists?(expired_pin)
     refute File.exists?(expired_temp)
     refute File.exists?(untracked)
 
-    for path <- [tracked, fresh_untracked, fresh_pin, legacy_pin, fresh_temp, unrelated],
+    for path <- [tracked, fresh_untracked, staged_name, fresh_temp, unrelated],
         do: assert(File.exists?(path))
   end
 
@@ -165,18 +159,7 @@ defmodule ImagePipe.Cache.FileSystem.SweepTest do
   end
 
   test "a missing root is an empty sweep" do
-    assert %{pins: 0, temps: 0, bodies: 0, unreadable: 0, bytes: 0} =
+    assert %{temps: 0, bodies: 0, unreadable: 0, bytes: 0} =
              Sweep.sweep_root(Path.join(System.tmp_dir!(), "missing-#{System.unique_integer()}"))
-  end
-
-  test "removes expired staged originals and keeps fresh ones", %{dir: dir} do
-    expired = write!(dir, ".image-pipe-Ab_c-dE.tmp", @old)
-    fresh = write!(dir, ".image-pipe-Fg_h-iJ.tmp")
-    other = write!(dir, "other.tmp", @old)
-
-    assert %{staged: 1, bytes: 5} = Sweep.sweep_staged(dir)
-    refute File.exists?(expired)
-    assert File.exists?(fresh)
-    assert File.exists?(other)
   end
 end

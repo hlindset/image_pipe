@@ -78,14 +78,13 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
           ]
         ],
         cache: [root: Path.join(root, "output")],
-        input_cache: [root: Path.join(root, "input")],
         clock: fn -> Agent.get(state, & &1.now) end
       )
 
     %{config: http(shared), shared: shared, state: state, root: root, red: red}
   end
 
-  test "native and HTTP calls share output hits and input bytes across variants", %{
+  test "native and HTTP calls share output hits across variants", %{
     shared: shared
   } do
     prefix = [__MODULE__, :native_reuse]
@@ -104,7 +103,7 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
     http = request(config, 6)
     assert http.status == 200
     assert_receive :transformed
-    refute_received {:origin, _, _}
+    assert_receive {:origin, _, []}
     assert {:ok, cached} = native(shared, 6)
     assert cached.data == http.resp_body
     assert {cached.width, cached.height} == {6, 4}
@@ -112,7 +111,7 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
     refute_received {:origin, _, _}
   end
 
-  test "a fetch past the coordinator's key limit still stores the original", %{
+  test "a fetch past the coordinator's key limit still stores its image", %{
     config: config
   } do
     test_pid = self()
@@ -134,7 +133,7 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
 
     assert request(config, 12).status == 200
     assert_receive {:origin, _, []}
-    assert request(config, 6).status == 200
+    assert request(config, 12).status == 200
     refute_received {:origin, _, _}
 
     for holder <- holders, do: send(holder.pid, :release)
@@ -172,26 +171,11 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
     other = request(config, 12, [{"x-tenant", "two"}, {"cookie", "session=abc"}])
     assert other.status == 200
     assert get_resp_header(other, "etag") == get_resp_header(same, "etag")
+    assert_receive {:origin, _, []}
     assert {:ok, _} = native(shared, 12)
+    assert_receive {:origin, _, []}
     assert request(config, 12).status == 200
     refute_received {:origin, _, _}
-  end
-
-  test "vary values share one stored original, and a cachebuster downloads it again",
-       %{shared: shared} do
-    shared = restart(shared, vary_on: [{:header, "X-Tenant"}])
-    config = http(shared)
-
-    assert request(config, 12, [{"x-tenant", "one"}]).status == 200
-    assert_receive {:origin, _, []}
-
-    assert request(config, 12, [{"x-tenant", "two"}]).status == 200
-    assert request(config, 14, [{"x-tenant", "three"}]).status == 200
-    refute_received {:origin, _, _}
-
-    busted = call(conn(:get, "/cb=1/w=12/format=png/src/https://origin.test/image.png"), config)
-    assert busted.status == 200
-    assert_receive {:origin, _, []}
   end
 
   test "native Accept negotiation shares the corresponding HTTP variant", %{shared: shared} do
@@ -241,7 +225,7 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
       end
     end
 
-    assert_receive {:origin, _, []}
+    for _ <- 1..3, do: assert_receive({:origin, _, []})
     refute_received {:origin, _, _}
   end
 
@@ -289,7 +273,6 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
     assert_receive {:origin, _, []}
     assert {:ok, _} = native(shared, 12)
     assert_receive {:origin, _, []}
-    assert Path.wildcard(Path.join(root, "input/**/*.body")) == []
   end
 
   defp native(shared, width, options \\ []) do
@@ -377,7 +360,7 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
     Task.await(leader)
   end
 
-  test "a decode failure in one variant keeps the original other variants share", %{
+  test "a decode failure in one variant leaves other variants usable", %{
     config: config
   } do
     # CMYK is imported through its embedded profile, so preserving a corrupt
@@ -413,59 +396,17 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
     assert_receive :origin
     assert get.("format=png/profile=preserve").status == 415
     assert get.("w=8/format=png/profile=strip").status == 200
-    refute_received :origin
   end
 
-  test "a stored original whose bytes are corrupt is discarded after a decode failure", %{
-    config: config,
-    root: root
-  } do
-    assert request(config, 12).status == 200
-    assert_receive {:origin, _, []}
-    [body] = Path.wildcard(Path.join([root, "input", "**", "*.body"]))
-    File.write!(body, :binary.copy(<<0>>, File.stat!(body).size))
-
-    assert request(config, 6).status == 415
-    refute_received {:origin, _, _}
-    assert request(config, 6).status == 200
-    assert_receive {:origin, _, []}
-  end
-
-  test "variants reuse original bytes and fresh conditionals avoid origin work", %{config: config} do
+  test "fresh conditionals avoid origin work", %{config: config} do
     first = request(config, 12)
     assert first.status == 200
     assert_receive {:origin, _, []}
     assert [etag] = get_resp_header(first, "etag")
-    assert request(config, 8).status == 200
-    refute_received {:origin, _, _}
     assert request(config, 12).resp_body == first.resp_body
     assert request(config, 12, [{"if-none-match", etag}]).status == 304
     refute_received {:origin, _, _}
     assert get_resp_header(first, "cache-control") == ["public, max-age=60"]
-  end
-
-  test "input telemetry counts reused bytes without counting output-only hits", %{config: config} do
-    prefix = [__MODULE__, :input_bytes]
-    event = prefix ++ [:cache, :input, :stop]
-    handler = make_ref()
-
-    :telemetry.attach(
-      handler,
-      event,
-      fn _, _, metadata, owner ->
-        send(owner, {:input_read, metadata})
-      end,
-      self()
-    )
-
-    on_exit(fn -> :telemetry.detach(handler) end)
-    config = restart(config, telemetry_prefix: prefix)
-    assert request(config, 12).status == 200
-    assert request(config, 8).status == 200
-    assert_receive {:input_read, %{cache: :hit, pool: :input, bytes: bytes}}
-    assert bytes > 0
-    assert request(config, 12).status == 200
-    refute_received {:input_read, _}
   end
 
   test "304 refresh keeps the derived bytes and changed 200 changes pixels and validator", %{
@@ -487,7 +428,7 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
     assert_receive {:origin, _, [~s("v1")]}
   end
 
-  test "origin no-store forbids both caches", %{config: config, state: state, root: root} do
+  test "origin no-store forbids storing the image", %{config: config, state: state} do
     Agent.update(state, &%{&1 | control: "no-store, max-age=60"})
     first = request(config, 12)
     assert first.status == 200
@@ -496,21 +437,18 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
     assert_receive {:origin, _, []}
     assert request(config, 12).status == 200
     assert_receive {:origin, _, []}
-    assert Path.wildcard(Path.join(root, "input/**/*.body")) == []
   end
 
-  test "generation limits apply to input hits while successful output hits remain usable", %{
-    config: config
+  test "generation limits apply to new images while successful output hits remain usable", %{
+    shared: shared
   } do
-    first = request(config, 12)
-    assert first.status == 200
+    assert {:ok, _} = native(shared, 12)
     assert_receive {:origin, _, []}
-    constrained = restart(config, max_body_bytes: 1)
-    assert request(constrained, 12).status == 200
-    assert request(constrained, 8).status == 413
-    pixel_constrained = restart(config, max_input_pixels: 1)
-    assert request(pixel_constrained, 12).status == 200
-    assert request(pixel_constrained, 8).status == 413
+    assert {:ok, _} = native(shared, 12, max_body_bytes: 1)
+    assert {:error, {:source, :body_too_large}} = native(shared, 8, max_body_bytes: 1)
+    assert {:ok, _} = native(shared, 12, max_input_pixels: 1)
+    assert {:error, {:input_limit, _}} = native(shared, 8, max_input_pixels: 1)
+    for _ <- 1..2, do: assert_receive({:origin, _, []})
     refute_received {:origin, _, _}
   end
 
@@ -545,7 +483,7 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
     config = restart(config, source_cache_policy: [storage: :allow, freshness: {:force, 60}])
     assert request(config, 12).status == 200
     assert_receive {:origin, _, []}
-    assert request(config, 8).status == 200
+    assert request(config, 12).status == 200
     refute_received {:origin, _, _}
   end
 
@@ -560,11 +498,10 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
     assert_receive {:origin, _, []}
     Agent.update(state, &%{&1 | now: 5_000_000, version: 2})
     assert request(config, 12).resp_body == first.resp_body
-    assert request(config, 8).status == 200
     refute_received {:origin, _, _}
   end
 
-  test "cache writes and hits report the body size", %{config: config, red: red} do
+  test "cache writes and hits report the body size", %{config: config} do
     prefix = [__MODULE__, :body_bytes]
     handler = make_ref()
 
@@ -579,45 +516,13 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
     config = restart(config, telemetry_prefix: prefix)
     response = request(config, 12)
     assert response.status == 200
-    input_bytes = byte_size(red)
     output_bytes = byte_size(response.resp_body)
-    assert_receive {:write, %{pool: :input, cache: :write, bytes: ^input_bytes}}
     assert_receive {:write, %{pool: :output, cache: :write, bytes: ^output_bytes}}
     assert request(config, 12).resp_body == response.resp_body
     assert_receive {:lookup, %{entry: :response, cache: :hit, bytes: ^output_bytes}}
   end
 
-  test "input eviction leaves fresh output evidence available", %{config: config, root: root} do
-    first = request(config, 12)
-    assert_receive {:origin, _, []}
-    File.rm_rf!(Path.join(root, "input"))
-    assert request(config, 12).resp_body == first.resp_body
-    refute_received {:origin, _, _}
-    assert request(config, 8).status == 200
-    assert_receive {:origin, _, []}
-  end
-
-  test "input admission rejection leaves independently bounded output storage usable", %{
-    config: config,
-    root: root
-  } do
-    config =
-      restart(config,
-        input_cache: [root: Path.join(root, "bounded-input"), max_size_bytes: 1],
-        cache: [root: Path.join(root, "bounded-output"), max_size_bytes: 100_000]
-      )
-
-    first = request(config, 12)
-    assert first.status == 200
-    assert_receive {:origin, _, []}
-    assert Path.wildcard(Path.join(root, "bounded-input/**/*.body")) == []
-    assert request(config, 12).resp_body == first.resp_body
-    refute_received {:origin, _, _}
-    assert request(config, 8).status == 200
-    assert_receive {:origin, _, []}
-  end
-
-  test "a cachebuster bypasses both pools while preserving byte validators", %{config: config} do
+  test "a cachebuster bypasses the cache while preserving byte validators", %{config: config} do
     request_version = fn version ->
       call(conn(:get, "/cb=#{version}/w=12/format=png/src/https://origin.test/image.png"), config)
     end
@@ -663,7 +568,7 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
     assert request(config, 12).status == 502
   end
 
-  test "no-cache validates on every request without downloading unchanged bytes", %{
+  test "no-cache validates on every request", %{
     config: config,
     state: state
   } do
@@ -673,58 +578,10 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
     assert_receive {:origin, _, []}
     assert request(config, 8).status == 200
     assert_receive {:origin, _, [~s("v1")]}
+    assert_receive {:origin, _, []}
     assert request(config, 12).resp_body == first.resp_body
     assert_receive {:origin, _, [~s("v1")]}
     refute_received {:origin, _, _}
-  end
-
-  test "after a restart, warm hits take the original's record from the originals cache", %{
-    config: config
-  } do
-    assert request(config, 12).status == 200
-    assert_receive {:origin, _, []}
-    Caches.await_writes(config)
-
-    config = restart(config, [])
-    assert remembered(config) == 0
-    assert request(config, 12).status == 200
-    assert remembered(config) == 1
-    assert request(config, 8).status == 200
-    refute_received {:origin, _, _}
-  end
-
-  test "after a restart, a no-cache original is remembered on its first revalidation", %{
-    config: config,
-    state: state
-  } do
-    Agent.update(state, &%{&1 | control: "no-cache"})
-    assert request(config, 12).status == 200
-    assert_receive {:origin, _, []}
-    Caches.await_writes(config)
-
-    config = restart(config, [])
-    assert request(config, 12).status == 200
-    assert_receive {:origin, _, [~s("v1")]}
-    assert remembered(config) == 1
-
-    for _ <- 1..2, do: assert(request(config, 12).status == 200)
-    assert_receive {:origin, _, [~s("v1")]}
-    assert_receive {:origin, _, [~s("v1")]}
-    refute_received {:origin, _, _}
-  end
-
-  test "more originals than the instance remembers are each fetched once", %{config: config} do
-    config = restart(config, max_remembered_originals: 2)
-
-    for _round <- 1..3, name <- ["a", "b", "c"] do
-      conn = conn(:get, "/w=12/format=png/src/https://origin.test/#{name}.png")
-      assert call(conn, config).status == 200
-      Caches.await_writes(config)
-    end
-
-    for _name <- ["a", "b", "c"], do: assert_receive({:origin, _, []})
-    refute_received {:origin, _, _}
-    assert remembered(config) == 2
   end
 
   test "a revalidating warm hit reads the source record once", %{shared: shared, state: state} do
@@ -761,6 +618,7 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
       small = request(config, 8)
       assert_receive {:origin, _, []}
       assert_receive {:origin, _, [~s("v1")]}
+      assert_receive {:origin, _, []}
       Agent.update(state, &%{&1 | block: true})
       supervisor = start_supervised!(Task.Supervisor)
       leader = Task.Supervisor.async_nolink(supervisor, fn -> request(config, 12) end)
@@ -873,67 +731,7 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
     assert {:error, {:source, :body_too_large}} = Task.await(follower)
     assert_receive {:origin, _, [~s("v1")]}
     assert_receive {:origin, _, [~s("v1")]}
-    refute_received {:origin, _, _}
-  end
-
-  test "a shared validation gives variant misses independent input leases", %{
-    shared: shared,
-    state: state
-  } do
-    prefix = [__MODULE__, :cohort_input_leases]
-    config = restart(shared, telemetry_prefix: prefix)
-    Agent.update(state, &%{&1 | control: "no-cache"})
-    first = request(config, 12)
     assert_receive {:origin, _, []}
-    Agent.update(state, &%{&1 | block: true})
-    supervisor = start_supervised!(Task.Supervisor)
-    leader = Task.Supervisor.async_nolink(supervisor, fn -> request(config, 12) end)
-    assert_receive {:blocked, worker}
-    handler = make_ref()
-
-    :telemetry.attach(
-      handler,
-      prefix ++ [:cache, :input, :stop],
-      fn _, _, %{cache: :hit}, parent ->
-        send(parent, {:pinned, self()})
-
-        receive do
-          :continue -> :ok
-        after
-          5_000 -> flunk("pinned input was never released")
-        end
-      end,
-      self()
-    )
-
-    on_exit(fn -> :telemetry.detach(handler) end)
-    cancelled = Task.Supervisor.async_nolink(supervisor, fn -> request(config, 8) end)
-    survivor = Task.Supervisor.async_nolink(supervisor, fn -> request(config, 6) end)
-    for task <- [cancelled, survivor], do: await_source_waiter(task)
-    Agent.update(state, &%{&1 | block: false})
-    send(worker, :continue)
-    assert_receive {:pinned, _}
-    assert_receive {:pinned, _}
-    assert Task.await(leader).resp_body == first.resp_body
-
-    table = :sys.get_state(ImagePipe.Cache.Resources).table
-
-    pins =
-      for {_token, owner, path, _monitor} <- :ets.tab2list(table),
-          owner in [cancelled.pid, survivor.pid],
-          do: {owner, path}
-
-    assert length(pins) == 2
-    assert pins |> Enum.map(&elem(&1, 1)) |> Enum.uniq() |> length() == 2
-    {_, survivor_path} = List.keyfind(pins, survivor.pid, 0)
-    Task.shutdown(cancelled, :brutal_kill)
-    assert File.exists?(survivor_path)
-    send(survivor.pid, :continue)
-    response = Task.await(survivor)
-    assert response.status == 200
-    assert Image.width(Image.from_binary!(response.resp_body)) == 6
-    refute File.exists?(survivor_path)
-    assert_receive {:origin, _, [~s("v1")]}
     refute_received {:origin, _, _}
   end
 
@@ -1123,6 +921,7 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
     on_exit(fn -> :telemetry.detach(handler) end)
     assert request(config, 12).status == 200
     assert_receive {:origin, _, [~s("v1")]}
+    assert_receive {:origin, _, []}
     refute_received {:origin, _, _}
   end
 
@@ -1165,7 +964,7 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
     refute_received {:auth_resolved, _}
   end
 
-  test "immutable source storage permission permits conditionals after both pools are removed", %{
+  test "immutable source storage permission permits conditionals after the cache is removed", %{
     config: config,
     root: root
   } do
@@ -1184,20 +983,6 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
 
     refute_received {:origin, _, _}
     refute File.exists?(root)
-  end
-
-  test "a truncated original fails open while a surviving output remains usable", %{
-    config: config,
-    root: root
-  } do
-    first = request(config, 12)
-    assert_receive {:origin, _, []}
-    [body] = Path.wildcard(Path.join(root, "input/**/*.body"))
-    File.write!(body, binary_part(File.read!(body), 0, 100))
-    assert request(config, 12).resp_body == first.resp_body
-    refute_received {:origin, _, _}
-    assert request(config, 8).status == 200
-    assert_receive {:origin, _, []}
   end
 
   test "must-revalidate blocks stale reuse and survives downstream headers", %{
@@ -1228,7 +1013,6 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
 
     config =
       shared
-      |> Keyword.delete(:input_cache)
       |> Keyword.put(:telemetry_prefix, prefix)
       |> Caches.start!()
       |> http()
@@ -1365,9 +1149,6 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
 
   defp run(shared, builder, input, options \\ []),
     do: IP.run(Caches.instance(shared), builder, input, options)
-
-  defp remembered(config),
-    do: :ets.info(Module.concat(Caches.instance(config), ImagePipe.Cache.SourceRecords), :size)
 
   # Replaces the running instance with one serving `config` with `overrides`.
   defp restart(config, overrides) do

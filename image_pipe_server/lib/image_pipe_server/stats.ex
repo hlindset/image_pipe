@@ -27,7 +27,7 @@ defmodule ImagePipeServer.Stats do
           token_hash: binary(),
           instance: atom(),
           disk: atom(),
-          roots: %{optional(:output | :input) => Path.t()}
+          roots: %{optional(:output) => Path.t()}
         }
 
   @doc "Whether the request is for a stats endpoint."

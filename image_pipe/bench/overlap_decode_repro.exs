@@ -159,8 +159,7 @@ defmodule OverlapDecodeRepro do
          ]
        ]
      ],
-     cache: [root: Path.join(root, "output"), max_size_bytes: 1_000_000_000],
-     input_cache: [root: Path.join(root, "input"), max_size_bytes: 1_000_000_000]}
+     cache: [root: Path.join(root, "output"), max_size_bytes: 1_000_000_000]}
   end
 
   def capture(event, measurements, meta, events),

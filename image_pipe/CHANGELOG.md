@@ -16,9 +16,9 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `watermark_source_url=` fields, and the tracer records them on the
   `image_pipe.parse` and `image_pipe.request` spans. See
   [`[:parse]`](docs/telemetry-events.md#parse).
-- `ImagePipe.cache_stats/1` reports each cache's stored bytes and entries,
-  its size cap, and its hits and misses since start, or `refused: true` for
-  a cache whose root another node owns. A cache that doesn't report its
+- `ImagePipe.cache_stats/1` reports the cache's stored bytes and entries,
+  its size cap, and its hits and misses since start, or `refused: true`
+  when another node owns its root. A cache that doesn't report its
   size within a second has `available: false`. See
   [Usage and hit rate](docs/cache.md#usage-and-hit-rate).
 - `max_remembered_originals` sets how many originals an instance remembers
@@ -107,20 +107,18 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Concurrent requests for one new original share its download in more
   configurations, and no longer wait for a download they would repeat. See
   [request coalescing](docs/caching-and-freshness.md#request-coalescing).
-  - With a processed-image cache but no originals cache, requests for the
-    same processed image download the original once. Before, each one
-    waited for the first download and then downloaded it again.
-  - Without an originals cache, requests for different sizes or formats of
-    one original download it at the same time instead of one after another.
-    Requests for the same image do too when no cache is configured, caching
-    is turned off for the source, or its configuration denies storage.
+  - With a processed-image cache, requests for the same processed image
+    download the original once. Before, without an originals cache, each
+    one waited for the first download and then downloaded it again.
+  - Requests for the same processed image download the original at the
+    same time when caching is turned off for the source or its
+    configuration denies storage.
   - When the original may not be stored, waiting requests start their own
     downloads as soon as the origin responds, instead of after the first
     download finishes.
   - Requests for the same processed image that wait longer than the source's
     `fetch_timeout` plus one second for a new original's download no longer
-    answer `504`. Without an originals cache they download it themselves.
-    With one, they wait for the stored original like requests for other
+    answer `504`. They then wait for the download like requests for other
     sizes. For sources without a `fetch_timeout`, such as files, that first
     wait lasts at most 60 seconds.
 - `gradient` on an 8-bit image takes less time, since it blends in one pass.
@@ -133,18 +131,18 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   original, which reported as `:source` before. Handlers that match on
   `:operation` or `:pool` must accept `:download`. `:source` events now come
   only from requests that wait for or lead a shared download or check, so
-  none are emitted without a cache, for a source with
-  `internal_cache: :disabled`, or for a new original without an originals
-  cache. `:source` can report `:bypass` with `reason: :not_stored`, and
-  `:download` reports `:bypass`, with `reason: :not_stored` or
-  `reason: :watermark_not_stored` when storage is the cause.
+  none are emitted for a source with `internal_cache: :disabled`, and for a
+  local file only when a processed-image cache is configured. `:source` can
+  report `:bypass` with `reason: :not_stored`, and `:download` reports
+  `:bypass`, with `reason: :not_stored` or `reason: :watermark_not_stored`
+  when storage is the cause.
 - A WebP original scaled down a lot matches the same image as a JPEG or PNG
   original. Like a JPEG, it's decoded at 1/2, 1/4, or 1/8 of its size, the
   smallest that stays at or above the requested size, and the resize does the
   rest. Before, it was decoded straight at the requested size, so a thumbnail
   under about 200 pixels wide differed visibly from the JPEG or PNG one.
-- When a cache with `max_size_bytes` is full, a new processed image or
-  original that many requests want is kept sooner. The cache now counts
+- When a cache with `max_size_bytes` is full, a new processed image that
+  many requests want is kept sooner. The cache now counts
   each request that misses it, including requests that wait for another
   request's copy, instead of counting how often it's written.
 - A cache with `max_size_bytes` uses less than half the memory to track
@@ -166,9 +164,7 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   processed-image cache, for up to `max_remembered_originals` originals.
   They no longer take its space or get evicted with its images. After a
   restart, a local file is hashed again, and an image from an origin is
-  downloaded again, on its first request, unless the originals cache holds a
-  copy. With HTTP or S3 sources, run an originals cache so that restarts
-  don't download every original in use again. Those already stored in a
+  downloaded again, on its first request. Those already stored in a
   cache are no longer read, and the cache evicts them in time like any image
   it holds. Keeping these details takes none of the processed-image cache's
   64 writes, so it never makes a processed image's write drop.
@@ -233,9 +229,22 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - A second instance whose cache `root` another instance in the VM already
   uses raises `ArgumentError` naming the root when it starts. Before, its
   start failed with `{:already_started, pid}`.
+- The cache, downloads, and decoding no longer queue their file operations
+  behind the Erlang VM's single file-server process.
+- Concurrent requests for different sizes or formats of an original from an
+  HTTP or S3 source share one download, with or without a cache. Before,
+  without an originals cache, each request downloaded the original itself.
+- An instance keeps the bytes of up to 64 recently used watermark images in
+  memory, so a watermark from an origin is no longer downloaded for every
+  processed image. See [What is stored](docs/cache.md#what-is-stored).
 
 ### Removed
 
+- **Breaking:** The originals cache: the `input_cache` option, and the file
+  source's `copy` option, which kept copies of local files in it. Remove
+  them from your configuration, and delete the originals cache's directory.
+  The `[:cache, :input]` event and the request summary's `:input_cache`
+  field are gone, and `[:cache, :sweep]` no longer reports `:pins`.
 - **Breaking:** The `ImagePipe.Plug` option `allow_debug_headers`. A
   request's `debug` option always adds the debug headers. Remove the option
   from your configuration. With signed URLs, only your app can add `debug`.
@@ -368,9 +377,6 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   response does. Before, a host's `max-age=86400` kept the error cached
   after the URL expired. Errors found while parsing the URL keep the host's
   `Cache-Control` unchanged.
-- A request whose watermark crashed while it was fetched no longer keeps its
-  original from being evicted from the originals cache until its connection
-  closes.
 - A thin `crop` or `region` of a JPEG or WebP image blends in far fewer
   pixels from just outside it. A crop under 16 pixels on its short side,
   such as an 8-pixel strip, decodes at full size and takes in none.

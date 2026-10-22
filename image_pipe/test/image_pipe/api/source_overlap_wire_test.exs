@@ -19,7 +19,6 @@ defmodule ImagePipe.API.SourceOverlapWireTest do
     if tags[:broken_cache] do
       File.mkdir_p!(root)
       File.write!(Path.join(root, "output"), "unavailable")
-      File.write!(Path.join(root, "input"), "unavailable")
     end
 
     prefix = [__MODULE__, test]
@@ -55,7 +54,6 @@ defmodule ImagePipe.API.SourceOverlapWireTest do
           ]
         ],
         cache: [root: Path.join(root, "output")],
-        input_cache: [root: Path.join(root, "input")],
         http_cache: :auto
       )
 
@@ -76,14 +74,11 @@ defmodule ImagePipe.API.SourceOverlapWireTest do
     task = Task.Supervisor.async_nolink(context.tasks, fn -> request(context) end)
     assert_receive {:origin_held, origin}, 2_000
     assert_receive {:decoded, %{result: :ok}}, 2_000
-    assert Path.wildcard(Path.join(context.root, "input/**/*.body")) == []
     send(origin, :continue)
     response = Task.await(task, 10_000)
     assert response.status == 200
     assert {:ok, image} = Image.from_binary(response.resp_body)
     assert {Image.width(image), Image.height(image)} == {100, 150}
-    [original] = Path.wildcard(Path.join(context.root, "input/**/*.body"))
-    assert File.read!(original) == context.body
 
     builder =
       ImagePipe.URL.new()
@@ -173,7 +168,6 @@ defmodule ImagePipe.API.SourceOverlapWireTest do
           ]
         ],
         cache: [root: Path.join(context.root, "output")],
-        input_cache: [root: Path.join(context.root, "input")],
         max_body_bytes: 20_000_000,
         max_input_pixels: 60_000_000
       )
@@ -187,7 +181,7 @@ defmodule ImagePipe.API.SourceOverlapWireTest do
     assert_receive {:closed, ["empty.jpg"]}
   end
 
-  test "overlap selected after a large burst preserves the original and cached pixels", context do
+  test "overlap selected after a large burst preserves pixels", context do
     <<head::binary-size(64 * 1024), burst::binary-size(1_500_000), tail::binary>> = context.body
     observer = self()
 
@@ -239,7 +233,6 @@ defmodule ImagePipe.API.SourceOverlapWireTest do
           ]
         ],
         cache: [root: Path.join(context.root, "output")],
-        input_cache: [root: Path.join(context.root, "input")],
         max_body_bytes: 20_000_000,
         max_input_pixels: 60_000_000
       )
@@ -252,16 +245,7 @@ defmodule ImagePipe.API.SourceOverlapWireTest do
     response = Task.await(task, 10_000)
 
     assert response.status == 200
-    [original] = Path.wildcard(Path.join(context.root, "input/**/*.body"))
-    assert File.stat!(original).size == byte_size(context.body)
-    assert File.read!(original) == context.body
     assert_pixels(response, context, [])
-
-    assert_receive {:fetch, ["burst.jpg", "image"], _}
-    cached_source = request(context, "w=100/-/rotate=45")
-    assert cached_source.status == 200
-    assert_pixels(cached_source, context, rotate: 45)
-    refute_received {:fetch, _, _}
   end
 
   property "generated source chunking preserves originals with and without overlap", context do
@@ -346,7 +330,6 @@ defmodule ImagePipe.API.SourceOverlapWireTest do
             ]
           ],
           cache: [root: Path.join(root, "output")],
-          input_cache: [root: Path.join(root, "input")],
           max_body_bytes: 20_000_000,
           max_input_pixels: 60_000_000
         )
@@ -367,8 +350,6 @@ defmodule ImagePipe.API.SourceOverlapWireTest do
 
         assert response.status == 200
         assert response.resp_body == context.body
-        [original] = Path.wildcard(Path.join(root, "input/**/*.body"))
-        assert File.read!(original) == context.body
       after
         File.rm_rf!(root)
       end
@@ -381,7 +362,6 @@ defmodule ImagePipe.API.SourceOverlapWireTest do
     assert_receive {:decoded, %{result: :ok}}, 2_000
     send(origin, :truncate)
     assert Task.await(task, 10_000).status == 502
-    assert Path.wildcard(Path.join(context.root, "input/**/*.body")) == []
     assert Path.wildcard(Path.join(context.root, "output/**/*.body")) == []
   end
 
@@ -564,7 +544,7 @@ defmodule ImagePipe.API.SourceOverlapWireTest do
   end
 
   @tag fixture: "cooking.png"
-  test "early crop completion still stages the entire original before publishing", context do
+  test "early crop completion still waits for the entire original", context do
     task =
       Task.Supervisor.async_nolink(context.tasks, fn ->
         request(context, "crop=32,32/anchor=top-left")
@@ -576,11 +556,8 @@ defmodule ImagePipe.API.SourceOverlapWireTest do
     assert_receive {:DOWN, ^monitor, :process, ^worker, reason}, 2_000
     assert reason in [:normal, :noproc]
     assert Task.yield(task, 0) == nil
-    assert Path.wildcard(Path.join(context.root, "input/**/*.body")) == []
     send(origin, :continue)
     assert Task.await(task, 10_000).status == 200
-    [original] = Path.wildcard(Path.join(context.root, "input/**/*.body"))
-    assert File.read!(original) == context.body
   end
 
   test "pixel limits still reject a speculative candidate", context do
@@ -618,7 +595,6 @@ defmodule ImagePipe.API.SourceOverlapWireTest do
           ]
         ],
         cache: [root: Path.join(context.root, "output")],
-        input_cache: [root: Path.join(context.root, "input")],
         watermarks: %{logo: [source: "mark.png"]}
       )
 

@@ -1,5 +1,4 @@
 # Run each mode in a fresh VM:
-# mise exec -- mix run bench/coordinated_cache.exs two-pool
 # mise exec -- mix run bench/coordinated_cache.exs output-only
 # mise exec -- mix run bench/coordinated_cache.exs binary-source
 Code.require_file("support/buffered_http.exs", __DIR__)
@@ -105,7 +104,6 @@ defmodule CoordinatedCacheBench do
         warm_ms: warm_us / 1000,
         cold_origin_bytes: cold_bytes,
         warm_origin_bytes: :counters.get(fetched, 1) - cold_bytes,
-        input_stored_bytes: stored_bytes(Path.join(root, "input")),
         output_stored_bytes: stored_bytes(Path.join(root, "output")),
         rss_peak_bytes: rss,
         libvips_peak_bytes: Vix.Vips.tracked_get_mem_highwater(),
@@ -126,9 +124,6 @@ defmodule CoordinatedCacheBench do
       :ets.delete(events)
     end
   end
-
-  defp input_options("two-pool", root),
-    do: [input_cache: [root: Path.join(root, "input")]]
 
   defp input_options("output-only", _root), do: []
   defp input_options("binary-source", _root), do: []
@@ -176,4 +171,4 @@ defmodule CoordinatedCacheBench do
   end
 end
 
-CoordinatedCacheBench.run(List.first(System.argv()) || "two-pool")
+CoordinatedCacheBench.run(List.first(System.argv()) || "output-only")

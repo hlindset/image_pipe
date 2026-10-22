@@ -88,7 +88,6 @@ defmodule ImagePipe.Cache.FileSystemPropertyTest do
         assert :ok = FileSystem.commit_sink(sink, opts)
         assert {:hit, entry} = FileSystem.get(cache_key, opts)
         assert entry.body == body
-        assert :ok = Store.verify(cache_key, opts)
         assert {:ok, metadata} = Store.metadata(cache_key, opts)
         assert metadata.body_byte_size == byte_size(body)
         assert metadata.body_sha256 == body_sha256(body)

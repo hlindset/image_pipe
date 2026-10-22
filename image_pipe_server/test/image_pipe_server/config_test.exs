@@ -41,6 +41,30 @@ defmodule ImagePipeServer.ConfigTest do
              end) =~ "servr: unknown setting"
     end
 
+    test "rejects an originals cache and a file source's copy" do
+      assert error(fn ->
+               Config.options!(%{
+                 "url" => %{"allow_unsigned" => true},
+                 "cache" => %{"input" => %{"root" => "/var/cache/in", "max_size_bytes" => 1}}
+               })
+             end) =~ "cache.input: unknown setting"
+
+      assert error(fn ->
+               Config.options!(%{
+                 "url" => %{"allow_unsigned" => true},
+                 "sources" => %{
+                   "images" => %{
+                     "adapter" => "file",
+                     "match" => "path",
+                     "root" => "/srv/images",
+                     "root_id" => "images",
+                     "copy" => "keep"
+                   }
+                 }
+               })
+             end) =~ "copy: unknown setting"
+    end
+
     test "converts [url], keeping hex source-encryption keys as given" do
       hex = Base.encode16(@key32, case: :lower)
 
@@ -110,7 +134,6 @@ defmodule ImagePipeServer.ConfigTest do
           "url" => %{"allow_unsigned" => true},
           "cache" => %{
             "output" => %{"root" => "/var/cache/out", "max_size_bytes" => 1_000_000},
-            "input" => %{"root" => {:env, "/var/cache/in"}, "max_size_bytes" => 2_000_000},
             "vary_on" => [%{"header" => "x-tenant"}],
             "max_remembered_originals" => 50_000
           }
@@ -118,7 +141,6 @@ defmodule ImagePipeServer.ConfigTest do
 
       output = cache[:cache]
       assert Enum.sort(output) == [max_size_bytes: 1_000_000, root: "/var/cache/out"]
-      assert Enum.sort(cache[:input_cache]) == [max_size_bytes: 2_000_000, root: "/var/cache/in"]
       assert cache[:vary_on] == [{:header, "x-tenant"}]
       assert cache[:max_remembered_originals] == 50_000
     end
@@ -417,14 +439,6 @@ defmodule ImagePipeServer.ConfigTest do
                })
              end) =~
                "invalid configuration: cache.output.root: expected an absolute path"
-
-      assert error(fn ->
-               Config.options!(%{
-                 "url" => %{"allow_unsigned" => true},
-                 "cache" => %{"input" => %{"max_size_bytes" => 1}}
-               })
-             end) ==
-               "invalid configuration: cache.input.root: required"
 
       assert error(fn ->
                Config.options!(%{

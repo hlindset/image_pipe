@@ -379,9 +379,6 @@ defmodule ImagePipe.InstanceTest do
 
       assert limit.([]) == 10_000
 
-      assert limit.(input_cache: Keyword.put(big, :root, Path.join(ctx.cache_root, "in"))) ==
-               10_000
-
       huge = [root: Path.join(ctx.cache_root, "huge"), max_size_bytes: 1_000_000_000_000]
       assert limit.(cache: huge) == 1_000_000
 
@@ -566,10 +563,8 @@ defmodule ImagePipe.InstanceTest do
     test "Plug.init/1 rejects a cache, even one an instance runs", ctx do
       start_instance(ctx)
 
-      for cache <- [cache: ctx.bounded, input_cache: ctx.bounded] do
-        assert_raise ArgumentError, ~r/ImagePipe instance/, fn ->
-          ImagePipe.Plug.init([sources: ctx.sources] ++ [cache])
-        end
+      assert_raise ArgumentError, ~r/ImagePipe instance/, fn ->
+        ImagePipe.Plug.init(sources: ctx.sources, cache: ctx.bounded)
       end
     end
   end

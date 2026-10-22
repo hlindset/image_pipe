@@ -1,19 +1,22 @@
 defmodule ImagePipe.Execution.Watermarks do
   @moduledoc false
   # Watermark assets are additional request inputs. Each distinct asset
-  # resolves through the configured sources and, for remote sources, the
-  # input cache, exactly like the main source. Assets are acquired in tasks
-  # that run while the caller acquires the main source.
+  # resolves through the configured sources, and its record is kept like the
+  # main source's. Assets are acquired in tasks that run while the caller
+  # acquires the main source.
   #
   # `prepare_async/3` establishes byte identity before the conditional gate:
-  # it reuses a fresh input-cache record, or fetches (revalidating a stale
-  # record). `open_async/2` reads the bytes of assets that prepare did not
-  # fetch, after an output-cache miss. Both read whole bodies into memory and
-  # release their input leases before returning.
+  # it reuses a fresh record, or fetches (revalidating a stale record).
+  # `open_async/2` reads the bytes of assets that prepare did not fetch,
+  # after an output-cache miss. Both read whole bodies into memory and release
+  # their staged files before returning. An asset's bytes are kept in the
+  # instance's memory (`Cache.watermark_bytes/3`).
 
+  alias ImagePipe.Cache
   alias ImagePipe.Execution.SourceCache
   alias ImagePipe.Execution.Watermark
   alias ImagePipe.Plan.Spec
+  alias ImagePipe.RawFile
   alias ImagePipe.Representation
   alias ImagePipe.Representation.IdentityMaterial
   alias ImagePipe.Source
@@ -175,8 +178,11 @@ defmodule ImagePipe.Execution.Watermarks do
         SourceCache.immutable_record(source, config) || SourceCache.lookup(source, key, config)
 
       case SourceCache.status(record, source, config) do
-        :fresh -> {:ok, %{watermark | record: record}}
-        _validate -> acquire(watermark, record, config)
+        :fresh ->
+          {:ok, %{watermark | record: record, bytes: remembered(watermark, record, config)}}
+
+        _validate ->
+          acquire(watermark, record, config)
       end
     end
   end
@@ -189,7 +195,7 @@ defmodule ImagePipe.Execution.Watermarks do
 
       case acquisition.response do
         nil -> {:ok, watermark}
-        response -> leased_bytes(watermark, response, acquisition.lease, config)
+        _response -> leased_bytes(watermark, acquisition, config)
       end
     end
   end
@@ -203,22 +209,37 @@ defmodule ImagePipe.Execution.Watermarks do
   defp open(watermark, config) do
     with {:ok, acquisition} <-
            SourceCache.input(watermark.source, watermark.input_key, watermark.record, nil, config) do
-      leased_bytes(watermark, acquisition.response, acquisition.lease, config)
+      leased_bytes(watermark, acquisition, config)
     end
   end
 
-  defp leased_bytes(watermark, response, lease, config) do
-    with {:ok, bytes} <- read(response, config), do: {:ok, %{watermark | bytes: bytes}}
+  # The bytes are kept under the identity of the record they were read with,
+  # which can be newer than the one the request prepared with.
+  defp leased_bytes(watermark, %{record: record} = acquisition, config) do
+    with {:ok, bytes} <- read(acquisition.response, config) do
+      if remembers?(watermark, record),
+        do:
+          Cache.remember_watermark_bytes(watermark.input_key, record.byte_identity, bytes, config)
+
+      {:ok, %{watermark | bytes: bytes}}
+    end
   after
-    SourceCache.release(lease)
+    SourceCache.release(acquisition.lease)
   end
+
+  defp remembered(watermark, record, config) do
+    if remembers?(watermark, record),
+      do: Cache.watermark_bytes(watermark.input_key, record.byte_identity, config)
+  end
+
+  defp remembers?(watermark, record), do: SourceCache.storable?(record, watermark.source)
 
   defp read(%Response{path: path}, config) when is_binary(path) do
     limit = Keyword.fetch!(config, :max_body_bytes)
 
-    case File.stat(path) do
+    case RawFile.stat(path) do
       {:ok, %{size: size}} when size > limit -> {:error, {:source, :body_too_large}}
-      {:ok, _stat} -> path |> File.read() |> read_result()
+      {:ok, _stat} -> path |> RawFile.read() |> read_result()
       {:error, _reason} -> {:error, {:source, :invalid_body}}
     end
   end

@@ -10,7 +10,6 @@ defmodule ImagePipe.Execution.Acquisition do
     :response,
     :lease,
     :source_bytes,
-    :source_sha256,
     :processing,
     :processing_deadline,
     :buffered

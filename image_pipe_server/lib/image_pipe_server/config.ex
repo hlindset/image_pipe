@@ -16,7 +16,7 @@ defmodule ImagePipeServer.Config do
       affect URL generation and are not accepted.
     * `[sources.<name>]` - named sources
       (see `ImagePipeServer.Config.Sources`).
-    * `[cache]` - `output` and `input` file system caches, and
+    * `[cache]` - the `output` file system cache, and
       `vary_on` as `[{ header = "..." }, { cookie = "..." }]`.
     * `[processing]` - the processing options of `ImagePipe.config/1`,
       including `watermarks.<name>` asset tables, `presets.<name>` option
@@ -245,7 +245,6 @@ defmodule ImagePipeServer.Config do
   defp cache_schema do
     [
       output: [type: {:convert, &file_system(&1, output_schema(), &2), output_schema()}],
-      input: [type: {:convert, &file_system(&1, store_schema(), &2), store_schema()}],
       vary_on: [type: {:list, {:tuple, [{:in, [:header, :cookie]}, :string]}}],
       max_remembered_originals: [type: :pos_integer]
     ]
@@ -256,7 +255,6 @@ defmodule ImagePipeServer.Config do
       {:ok,
        Enum.map(options, fn
          {:output, cache} -> {:cache, cache}
-         {:input, cache} -> {:input_cache, cache}
          other -> other
        end)}
     end
@@ -270,7 +268,6 @@ defmodule ImagePipeServer.Config do
 
   defp store_schema do
     Store.options_schema()
-    |> Keyword.delete(:pool)
     |> Keyword.merge(root: [type: {:convert, &cache_root/2, "string (absolute path)"}])
   end
 

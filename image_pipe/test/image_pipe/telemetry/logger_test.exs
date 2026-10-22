@@ -247,12 +247,10 @@ defmodule ImagePipe.Telemetry.LoggerTest do
 
     log =
       capture_log(fn ->
-        for stage <- [:input, :refresh] do
-          :telemetry.execute(prefix ++ [:cache, stage, :stop], %{duration: 1_000}, %{
-            result: :source_error,
-            pool: :input
-          })
-        end
+        :telemetry.execute(prefix ++ [:cache, :refresh, :stop], %{duration: 1_000}, %{
+          result: :source_error,
+          pool: :input
+        })
 
         :telemetry.execute(prefix ++ [:cache, :coordination], %{}, %{
           result: :coalesced,
@@ -261,7 +259,7 @@ defmodule ImagePipe.Telemetry.LoggerTest do
         })
       end)
 
-    for stage <- [:input, :refresh], do: assert(log =~ "cache #{stage}: source_error")
+    assert log =~ "cache refresh: source_error"
     assert log =~ "(input pool)"
     assert log =~ "cache coordination: coalesced"
     assert log =~ "[warning]"
@@ -798,7 +796,6 @@ defmodule ImagePipe.Telemetry.LoggerTest do
       capture_log(fn ->
         for fields <- [
               %{cache: :read_error},
-              %{input_cache: :read_error},
               %{staging: :memory, staging_reason: :dir}
             ] do
           :telemetry.execute(
@@ -810,7 +807,6 @@ defmodule ImagePipe.Telemetry.LoggerTest do
       end)
 
     assert log =~ "[warning] GET /w=40/src/a.jpg 200 3ms cache=read_error"
-    assert log =~ "[warning] GET /w=40/src/a.jpg 200 3ms input_cache=read_error"
     assert log =~ "[info] GET /w=40/src/a.jpg 200 3ms staging=memory staging_reason=dir"
   end
 

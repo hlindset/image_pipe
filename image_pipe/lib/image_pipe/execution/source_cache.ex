@@ -1,11 +1,11 @@
 defmodule ImagePipe.Execution.SourceCache do
   @moduledoc false
   alias ImagePipe.Cache
-  alias ImagePipe.Cache.Input
-  alias ImagePipe.Cache.Resources
   alias ImagePipe.Cache.Work
-  alias ImagePipe.Execution.{Acquisition, Overlap}
+  alias ImagePipe.Execution.{Acquisition, Overlap, Staging}
+  alias ImagePipe.Execution.Staging.Resources
   alias ImagePipe.MaterialDigest
+  alias ImagePipe.RawFile
   alias ImagePipe.Source
   alias ImagePipe.Source.CacheState
   alias ImagePipe.Source.Record
@@ -13,8 +13,8 @@ defmodule ImagePipe.Execution.SourceCache do
   alias ImagePipe.Telemetry
 
   # Staging derives a content identity, retains the origin's freshness, and
-  # keeps a copy of the original when the source asks for one. A local file with
-  # a strong identity and no copy is read where it is.
+  # copies the original to a staged file when the source asks for one. A
+  # local file with a strong identity and no copy is read where it is.
   def staged?(%{cache_semantics: %{byte_identity: :content}}), do: true
   def staged?(%{cache_semantics: %{copy?: copy?}}), do: copy?
 
@@ -31,16 +31,7 @@ defmodule ImagePipe.Execution.SourceCache do
   def lookup(source, key, config) do
     case source.internal_cache do
       :disabled -> nil
-      :enabled -> Cache.source_record(key, config) || recall(key, config)
-    end
-  end
-
-  # A record kept with the original's copy goes back into memory, so later
-  # requests don't read it from disk again.
-  defp recall(key, config) do
-    with %Record{} = record <- Input.metadata(key, config) do
-      Cache.recall_source(key, record, config)
-      record
+      :enabled -> Cache.source_record(key, config)
     end
   end
 
@@ -63,6 +54,17 @@ defmodule ImagePipe.Execution.SourceCache do
         cohort = validation_cohort(source, previous, adapter, config)
         acquire_locked(source, key, previous, preparation, config, download, cohort)
     end
+  end
+
+  # A first download is shared with the other requests for the same original
+  # made with the same settings.
+  defp download_cohort(source, config) do
+    MaterialDigest.of({
+      :download,
+      source.fetch,
+      source.cache_semantics,
+      Keyword.take(config, [:max_body_bytes, :clock, :cache])
+    })
   end
 
   defp acquire_local(
@@ -111,6 +113,8 @@ defmodule ImagePipe.Execution.SourceCache do
   # `cohort` is the validation cohort this request may share a validation
   # with, or nil.
   defp acquire_locked(source, key, previous, preparation, config, download, cohort \\ nil) do
+    cohort = if is_nil(previous), do: download_cohort(source, config), else: cohort
+
     coordinate(
       shared_work?(source, previous, config),
       key,
@@ -130,6 +134,7 @@ defmodule ImagePipe.Execution.SourceCache do
             _validate -> fetch(source, key, record, preparation, config, {lease, download})
           end
 
+        if is_nil(previous), do: share_download(coordination, result, source)
         complete_validation(coordination, result, source, cohort)
       end,
       work_opts(source, config, cohort)
@@ -160,7 +165,7 @@ defmodule ImagePipe.Execution.SourceCache do
         source.fetch,
         source.cache_semantics,
         untimed(previous),
-        Keyword.take(config, [:max_body_bytes, :clock, :cache, :input_cache])
+        Keyword.take(config, [:max_body_bytes, :clock, :cache])
       })
     end
   end
@@ -179,47 +184,82 @@ defmodule ImagePipe.Execution.SourceCache do
     end
   end
 
-  # A record whose source no longer allows storage never reads a stored
-  # original, even before the publication that discards it has run.
+  # Downloads the original of `record`, a current record whose bytes this
+  # request needs, sharing the download with other requests for it.
   def input(source, key, record, preparation, config) do
-    stored = if storable?(record, source), do: Input.open(key, record, config), else: :miss
-
-    case stored do
-      {:ok, path, lease} ->
-        checked_input(record, path, lease, config)
-
-      :miss ->
-        coordinate(
-          storable?(record, source) and Keyword.has_key?(config, :input_cache),
-          key,
-          fn coordination, _outcome ->
-            open_or_fetch(source, key, record, preparation, config, coordination)
-          end,
-          work_opts(source, config)
-        )
-        |> waited()
-        |> finish_overlap()
-    end
+    coordinate(
+      storable?(record, source) and staged?(source),
+      key,
+      fn coordination, _outcome ->
+        lease = if coordination, do: coordination
+        result = fetch(source, key, nil, preparation, config, {lease, nil}, record)
+        share_download(coordination, result, source)
+        result
+      end,
+      work_opts(source, config, download_cohort(source, config))
+    )
+    |> waited()
+    |> finish_overlap()
   end
 
   # A request waits for another one's work on the same source only when that
-  # work can leave something it uses: a stored original, or a shared check of
-  # a known one. A request that gets only a new original's record still has
-  # to download the original to make its image, so without an originals cache
-  # it doesn't wait for a first download.
+  # work can leave something it uses: a stored original, a staged one it
+  # shares (`share_download/3`), or a shared check of a known one.
   defp coordinate(true, key, fun, opts), do: Work.run({:source, key.hash}, fun, opts)
   defp coordinate(false, _key, fun, _opts), do: fun.(false, :uncoordinated)
 
   defp shared_work?(%{internal_cache: :disabled}, _previous, _config), do: false
 
-  defp shared_work?(_source, previous, config),
-    do:
-      Keyword.has_key?(config, :input_cache) or
-        (previous != nil and Keyword.has_key?(config, :cache))
+  defp shared_work?(source, previous, config),
+    do: staged?(source) or (previous != nil and Keyword.has_key?(config, :cache))
+
+  # The requests waiting for this download each get their own hard link to
+  # the staged original, tracked for that request, or the bytes of one held
+  # in memory. A link that can't be made leaves its request queued, to take
+  # the lease next. Nothing is shared for an original that may not be stored.
+  defp share_download(
+         lease,
+         {:ok, %Acquisition{response: %Response{} = response, record: record} = acquisition},
+         source
+       )
+       when is_reference(lease) do
+    with true <- storable?(record, source),
+         [_ | _] = waiting <- Work.sharing(lease) do
+      shared = %{acquisition | processing: nil, processing_deadline: nil}
+
+      values =
+        for pid <- waiting,
+            {:ok, copy} <- [shared_copy(shared, response, pid)],
+            into: %{},
+            do: {pid, {:ok, copy}}
+
+      Work.complete_each(lease, values)
+    end
+  end
+
+  defp share_download(_lease, _result, _source), do: :ok
+
+  defp shared_copy(%Acquisition{lease: :unavailable} = acquisition, _response, _pid),
+    do: {:ok, acquisition}
+
+  defp shared_copy(acquisition, %Response{path: path} = response, pid) when is_binary(path) do
+    link = Staging.temporary_path(Staging.dir())
+
+    with :ok <- RawFile.make_link(path, link),
+         {_token, ^link} = lease <- Resources.track(link, pid) do
+      {:ok, %{acquisition | response: %{response | path: link}, lease: lease}}
+    else
+      _failed ->
+        RawFile.delete(link)
+        :error
+    end
+  end
+
+  defp shared_copy(_acquisition, _response, _pid), do: :error
 
   # A request waiting behind another one's download gives up a second after
   # that download's own deadline, with the same timeout error.
-  defp work_opts(source, config, cohort \\ nil) do
+  defp work_opts(source, config, cohort) do
     case wait_timeout(source) do
       nil -> coordination_opts(config, cohort)
       timeout -> Keyword.put(coordination_opts(config, cohort), :wait, timeout)
@@ -252,39 +292,6 @@ defmodule ImagePipe.Execution.SourceCache do
 
   defp finish_overlap(result), do: result
 
-  defp open_or_fetch(source, key, record, preparation, config, ref) when is_reference(ref) do
-    case Input.recheck(key, record, config) do
-      {:ok, path, lease} -> checked_input(record, path, lease, config)
-      :miss -> fetch(source, key, nil, preparation, config, {ref, nil}, record)
-    end
-  end
-
-  defp open_or_fetch(source, key, record, preparation, config, false),
-    do: fetch(source, key, nil, preparation, config, {nil, nil}, record)
-
-  defp checked_input(record, path, lease, config) do
-    limit = Keyword.fetch!(config, :max_body_bytes)
-
-    case File.stat(path) do
-      {:ok, %{size: size}} when size <= limit ->
-        {:ok,
-         %Acquisition{
-           record: record,
-           response: %Response{path: path, origin: record.origin},
-           lease: lease,
-           source_bytes: size
-         }}
-
-      {:ok, _stat} ->
-        Resources.release(lease)
-        {:error, {:source, :body_too_large}}
-
-      {:error, _reason} ->
-        Resources.release(lease)
-        {:error, {:source, :invalid_body}}
-    end
-  end
-
   # `lease` is this request's lease on the source's work and `download` the
   # lease identical requests wait on, either nil. `release_unstored/5` lets
   # both sets of waiters go when the response may not be stored. `known` is a
@@ -292,7 +299,6 @@ defmodule ImagePipe.Execution.SourceCache do
   # original whose evidence still matches it isn't rehashed.
   defp fetch(source, key, previous, preparation, config, {lease, download}, known \\ nil) do
     Telemetry.span(config, [:source, :stage], %{}, fn ->
-      started = System.monotonic_time(:microsecond)
       preparation = if is_nil(previous), do: preparation
 
       stage = fn response ->
@@ -301,8 +307,7 @@ defmodule ImagePipe.Execution.SourceCache do
       end
 
       result = fetch_response(source, previous, config, stage)
-      cost = System.monotonic_time(:microsecond) - started
-      result = publish_coordinated(result, source, key, previous || known, cost, config, lease)
+      result = publish_coordinated(result, source, key, previous || known, config, lease)
       {result, stop_metadata(result)}
     end)
   end
@@ -318,15 +323,14 @@ defmodule ImagePipe.Execution.SourceCache do
 
   # Only writes take the publication lock, so a check that changes nothing,
   # the steady state for a local file, doesn't. A lease that is no longer
-  # current skips the writes. Writes to disk run off the request, in a cache
-  # writer that takes the lease (see `Cache.publish/4`).
-  defp publish_coordinated(result, source, key, previous, cost, config, lease) do
-    case publication(result, source, key, previous, cost, config) do
+  # current skips the writes (see `Cache.publish/3`).
+  defp publish_coordinated(result, source, key, previous, config, lease) do
+    case publication(result, source, key, previous, config) do
       {result, nil} ->
         result
 
       {result, write} ->
-        Cache.publish(key.hash, lease, write, config)
+        Cache.publish(key.hash, lease, write)
         result
     end
   end
@@ -337,9 +341,9 @@ defmodule ImagePipe.Execution.SourceCache do
   defp fetch_response(source, _previous, config, fun),
     do: Source.with_fetched(source, config, fun)
 
-  # The result of a fetch and the cache writes it calls for, or `nil` when it
-  # calls for none.
-  defp publication({:not_modified, origin}, source, key, previous, _cost, config) do
+  # The result of a fetch and the write to memory it calls for, or `nil` when
+  # it calls for none.
+  defp publication({:not_modified, origin}, source, key, previous, config) do
     record = Record.refresh(previous, origin)
 
     write =
@@ -349,18 +353,11 @@ defmodule ImagePipe.Execution.SourceCache do
     {{:ok, %Acquisition{record: record}}, write}
   end
 
-  defp publication(
-         {:ok, %Acquisition{record: record, response: response, source_sha256: sha256}} = result,
-         source,
-         key,
-         previous,
-         cost,
-         config
-       ) do
+  defp publication({:ok, %Acquisition{record: record}} = result, source, key, previous, config) do
     write =
       cond do
         storable?(record, source) ->
-          store(source, key, previous, record, {response, sha256}, cost, config)
+          store(source, key, previous, record, config)
 
         # Nothing is stored for a source that isn't cached internally.
         source.internal_cache == :disabled ->
@@ -373,63 +370,29 @@ defmodule ImagePipe.Execution.SourceCache do
     {result, write}
   end
 
-  defp publication(
-         {:error, {:source, {:bad_status, status}}} = error,
-         _source,
-         key,
-         _previous,
-         _cost,
-         config
-       )
+  defp publication({:error, {:source, {:bad_status, status}}} = error, _source, key, _, config)
        when status in [401, 403, 404, 410],
        do: {error, invalidation(key, config)}
 
-  defp publication(error, _source, _key, _previous, _cost, _config), do: {error, nil}
+  defp publication(error, _source, _key, _previous, _config), do: {error, nil}
 
-  defp store(source, key, previous, record, {response, sha256}, cost, config) do
-    copy? = response.path != nil and source.cache_semantics.copy?
-    remember? = not unchanged_record?(previous, record, source, config)
-    if copy?, do: Input.count_miss(key, config)
-
-    cond do
-      copy? and remember? ->
-        {:staged, response.path, &Input.put(key, &1, sha256, record, cost, config),
-         fn -> Cache.remember_source(key, record, config) end}
-
-      copy? ->
-        {:staged, response.path, &Input.put(key, &1, sha256, record, cost, config), nil}
-
-      remember? ->
-        {:memory, fn -> Cache.remember_source(key, record, config) end}
-
-      true ->
-        nil
-    end
+  defp store(source, key, previous, record, config) do
+    if not unchanged_record?(previous, record, source, config),
+      do: fn -> Cache.remember_source(key, record, config) end
   end
 
   defp remember(source, key, record, config) do
-    case {storable?(record, source), Keyword.get(config, :input_cache)} do
-      {true, nil} ->
-        {:memory, fn -> Cache.remember_source(key, record, config) end}
-
-      {true, _input_cache} ->
-        fn ->
-          Input.refresh(key, record, config)
-          Cache.remember_source(key, record, config)
-        end
-
-      {false, _input_cache} ->
-        invalidation(key, config)
+    case storable?(record, source) do
+      true -> fn -> Cache.remember_source(key, record, config) end
+      false -> invalidation(key, config)
     end
   end
 
-  # An invalidation runs even after its lease has expired: dropping an entry
-  # is always safe, and skipping one could keep serving a removed source.
-  # Without an originals cache, an invalidation only forgets a record.
-  defp invalidation(key, config) do
-    write = {:invalidate, fn -> invalidate(key, config) end}
-    if Keyword.get(config, :input_cache), do: write, else: {:memory, write}
-  end
+  # An invalidation runs even after its lease has expired: forgetting a
+  # record is always safe, and skipping one could keep serving a removed
+  # source.
+  defp invalidation(key, config),
+    do: {:invalidate, fn -> Cache.remember_source(key, nil, config) end}
 
   # A check that moved only the receipt times of a record that must be
   # validated on every use leaves the stored record as useful as the new one,
@@ -446,23 +409,6 @@ defmodule ImagePipe.Execution.SourceCache do
 
   defp untimed(%Record{origin: origin} = record),
     do: %{record | received_at: nil, origin: %{origin | requested_at: nil, received_at: nil}}
-
-  # A decode failure can come from the request (an output profile libvips
-  # can't apply) as easily as from the source, and libvips is lazy, so a
-  # corrupt source often fails only in the encoder. Refetching helps only when
-  # the stored original no longer matches what was fetched, so the original
-  # and its record are dropped only then.
-  def check(key, config) do
-    case Input.verify(key, config) do
-      {:error, _reason} -> invalidate(key, config)
-      _intact_or_missing -> :ok
-    end
-  end
-
-  defp invalidate(key, config) do
-    Input.discard(key, config)
-    Cache.remember_source(key, nil, config)
-  end
 
   def storable?(record, source),
     do:
@@ -492,12 +438,18 @@ defmodule ImagePipe.Execution.SourceCache do
             now(config)
           )
 
-    {:ok,
-     %Acquisition{
-       record: record,
-       response: %Response{path: original, origin: response.origin},
-       source_bytes: File.stat!(original).size
-     }}
+    case RawFile.stat(original) do
+      {:ok, %File.Stat{size: size}} ->
+        {:ok,
+         %Acquisition{
+           record: record,
+           response: %Response{path: original, origin: response.origin},
+           source_bytes: size
+         }}
+
+      {:error, _reason} ->
+        {:error, {:source, :unreadable}}
+    end
   rescue
     exception in Source.StreamError -> {:error, {:source, exception.reason}}
     _exception in File.Error -> {:error, {:source, :unreadable}}
@@ -505,11 +457,11 @@ defmodule ImagePipe.Execution.SourceCache do
 
   # Without a private staging directory, the original is buffered in memory.
   defp stage(response, source, preparation, config, _known) do
-    dir = Input.staging_dir()
-    path = Input.temporary_path(dir)
+    dir = Staging.dir()
+    path = Staging.temporary_path(dir)
 
     lease =
-      case Input.private_dir(dir) do
+      case Staging.private_dir(dir) do
         :ok -> Resources.track(path)
         :error -> :unavailable
       end
@@ -536,7 +488,6 @@ defmodule ImagePipe.Execution.SourceCache do
          response: prepared,
          lease: lease,
          source_bytes: size,
-         source_sha256: digest,
          processing: processing,
          buffered: buffered
        }}
@@ -561,9 +512,9 @@ defmodule ImagePipe.Execution.SourceCache do
     do: %Response{stream: [bytes], origin: origin}
 
   defp spool(stream, path, response, preparation, config) do
-    case File.open(path, [:read, :write, :binary, :exclusive]) do
+    case :file.open(path, [:read, :write, :binary, :exclusive, :raw]) do
       {:ok, io} ->
-        _result = File.chmod(path, 0o600)
+        _result = RawFile.set_mode(path, 0o600)
 
         overlap = Overlap.start(response, preparation, config, path)
 
@@ -574,7 +525,7 @@ defmodule ImagePipe.Execution.SourceCache do
             Overlap.close(overlap)
             :erlang.raise(kind, reason, __STACKTRACE__)
         after
-          File.close(io)
+          :file.close(io)
         end
 
       {:error, _reason} ->

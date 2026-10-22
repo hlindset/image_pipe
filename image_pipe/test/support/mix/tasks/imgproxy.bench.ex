@@ -31,8 +31,9 @@ defmodule Mix.Tasks.Imgproxy.Bench do
       with `--compare`, `decode`, `colour`, `autoquality`, `placeholder`,
       `cache`, `concurrency`), or `perf` for 34 reference cases that cover
       every family and kind of source. With `--compare`, `perf` adds the 13
-      `ImagePipe.Test.Perf.Cases` every `perf` pull request times, and
-      `nightly` all 29 of them and the 6 `concurrency` cases.
+      `ImagePipe.Test.Perf.Cases` every `perf` pull request times and the
+      `burst_grid` case, and `nightly` all 29 of them and the 5
+      `concurrency` cases.
     * `--cpus` - CPUs pinned to each server, default 4. Must leave at least
       one CPU for `oha`.
     * `--concurrency` - server worker count and the second load level,
@@ -68,16 +69,18 @@ defmodule Mix.Tasks.Imgproxy.Bench do
   photo variants they read.
 
   The `cache` family runs on a second container per image, whose
-  configuration adds an output cache, an originals cache, and an `origin` HTTP
+  configuration adds an output cache and an `origin` HTTP
   source that reads the bench's sources from an `nginx` container on the
   same network. Every other case runs without a cache, as above.
 
-  The `concurrency` family, in the `nightly` set, isn't timed by oha. Each
-  case sends `--concurrency` requests at once for a new original, which the
-  origin sends at about 512 KiB/s, so they overlap its download. It runs
-  three such bursts per image and round, each in a container with the caches
-  the case names, and records the time to the last response, the downloads
-  the origin served, and the generations the server's stage log shows. The
+  The `concurrency` family isn't timed by oha. Its `nightly` cases send
+  `--concurrency` requests at once for a new original, which the origin sends
+  at about 512 KiB/s, so they overlap its download. Its `burst_grid` cases,
+  in the `perf` set, send 100 requests at once, each for a new original sent
+  at full rate. It runs three such bursts per image and round, each in a
+  container with the caches the case names, and records the time to the
+  last response, the downloads the origin served, the generations the
+  server's stage log shows, and the cache writes it logs as dropped. The
   counts don't vary between runs, so the report marks any difference in
   them.
 
@@ -171,13 +174,19 @@ defmodule Mix.Tasks.Imgproxy.Bench do
   }
   """
   @configs [:plain, :cached] ++
-             for(caches <- [:none, :output, :input, :both], do: {:burst, caches})
+             for(caches <- [:none, :output], do: {:burst, caches})
   # Bursts per image and round for each `concurrency` case.
   @bursts 3
   # The stage log line each generation writes.
   @generation_line "image_pipe transform execute:"
-  # The random part of a `random` case's URL, as oha generates it.
-  @token_regex "[a-z0-9]{16}"
+  # The line the default Logger writes for a cache write it drops.
+  @drop_line "stage_dropped"
+  # ImagePipe servers check signatures, so the bench signs every request with
+  # this key. Every image compared, old or new, accepts a 32-byte hex key.
+  @signing_key String.duplicate("0123456789abcdef", 4)
+  # How many signed URLs a `random` case gives oha, which draws one at random
+  # for each request. A window sends at most a few thousand, so few repeat.
+  @random_urls 100_000
   @max_input_pixels 100_000_000
   @max_body_bytes 100_000_000
 
@@ -285,9 +294,11 @@ defmodule Mix.Tasks.Imgproxy.Bench do
     Container.docker!(["network", "create", settings.network])
 
     try do
-      # One oha container serves every measurement, through `docker exec`.
+      # One oha container serves every measurement, through `docker exec`. It
+      # reads `random` cases' URL files from the work directory.
       Container.docker!(
         ["run", "-d", "--name", settings.oha, "--network", settings.network] ++
+          ["-v", "#{settings.work}:/work:ro"] ++
           ["--cpuset-cpus", settings.oha_cpus, "--entrypoint", "sleep", @oha, "infinity"]
       )
 
@@ -479,7 +490,7 @@ defmodule Mix.Tasks.Imgproxy.Bench do
     Mix.shell().info("Making #{length(PerfCases.variants())} photo variants")
 
     for {file, request} <- PerfCases.variants() do
-      url = "#{info.base_url}/#{request}/src/perf/photo12.jpg"
+      url = info.base_url <> sign("/#{request}/src/perf/photo12.jpg")
 
       case Req.get(url, decode_body: false, retry: false, receive_timeout: 300_000) do
         {:ok, %Req.Response{status: 200, body: body}} ->
@@ -530,7 +541,7 @@ defmodule Mix.Tasks.Imgproxy.Bench do
       image: image,
       health: "/health/live",
       configurable: true,
-      path: &Container.native_path/1,
+      path: &sign(Container.native_path(&1)),
       libvips: &Container.libvips(&1, "/usr/local/lib"),
       args:
         Enum.flat_map(settings.server_env, &["-e", &1]) ++
@@ -545,16 +556,17 @@ defmodule Mix.Tasks.Imgproxy.Bench do
   end
 
   # imgproxy's AVIF speed 8 is libvips effort 1 (`9 - speed`); both default
-  # to WebP effort 4. Neither checks signatures, and only the `:cached`
-  # configuration and the bursts' cache. Its caches sit in the image's `/var/cache/image_pipe`
-  # volume, not on the `/tmp` tmpfs, whose pages would count as the server's
-  # memory. Their sizes leave a measurement window nothing to evict.
+  # to WebP effort 4. imgproxy checks no signatures, and the bench signs
+  # ImagePipe's requests. Only the `:cached` configuration and the bursts have
+  # caches. They sit in the image's `/var/cache/image_pipe` volume, not on the
+  # `/tmp` tmpfs, whose pages would count as the server's memory. Their sizes
+  # leave a measurement window nothing to evict.
   defp server_config(settings, config) do
     plain_config(settings) <> extra_config(config, settings)
   end
 
   defp extra_config(:plain, _settings), do: ""
-  defp extra_config(:cached, settings), do: origin_config(settings) <> caches_config(:both)
+  defp extra_config(:cached, settings), do: origin_config(settings) <> caches_config(:output)
 
   # A burst's generations are counted from the stage log.
   defp extra_config({:burst, caches}, settings) do
@@ -591,19 +603,11 @@ defmodule Mix.Tasks.Imgproxy.Bench do
     """
   end
 
-  defp caches_config(:input) do
-    """
-
-    [cache.input]
-    root = "/var/cache/image_pipe/input"
-    max_size_bytes = 50_000_000_000
-    """
-  end
-
-  defp caches_config(:both), do: caches_config(:output) <> caches_config(:input)
-
   defp plain_config(settings) do
     """
+    [url]
+    keys = ["#{@signing_key}"]
+
     [sources.bench]
     adapter = "file"
     match = "path"
@@ -882,7 +886,7 @@ defmodule Mix.Tasks.Imgproxy.Bench do
 
         timings =
           Map.new(group, fn c ->
-            target = oha_target(server, c, url)
+            target = oha_target(server, c, url, settings)
             warm_up(target, settings)
             window = Map.fetch!(settings.windows, c.id)
             timing = Map.new(levels, &{"#{&1}", measure(target, &1, window, settings, info.name)})
@@ -904,7 +908,8 @@ defmodule Mix.Tasks.Imgproxy.Bench do
     }
   end
 
-  # Each burst case's bursts: `%{"ms", "downloads", "generations"}` for each.
+  # Each burst case's bursts: `%{"ms", "downloads", "generations", "drops"}`
+  # for each.
   defp run_bursts(server, bursts, settings) do
     server
     |> each_config(by_config(bursts), settings, fn info, _config, group ->
@@ -915,22 +920,28 @@ defmodule Mix.Tasks.Imgproxy.Bench do
     |> Enum.reduce(%{}, &Map.merge/2)
   end
 
-  # Sends a burst's requests at once, for a source path no request has used.
+  # Sends a burst's requests at once, for source paths no request has used.
   # Logger writes a request's stage lines around its response, so the counts
   # wait a moment for them.
   defp burst(b, info, settings) do
     token = token()
     before = log_count(info.name, @generation_line)
+    dropped = log_count(info.name, @drop_line)
+    finch = burst_finch(length(b.natives))
     started = System.monotonic_time(:millisecond)
 
     statuses =
       b.natives
+      |> Enum.with_index()
       |> Task.async_stream(
-        &Req.get("#{info.base_url}/#{&1}/src/origin/slow/r/#{token}/#{b.source}",
-          decode_body: false,
-          retry: false,
-          receive_timeout: 120_000
-        ),
+        fn {native, index} ->
+          Req.get(info.base_url <> sign("/#{native}/src/origin/#{burst_source(b, token, index)}"),
+            finch: [name: finch],
+            decode_body: false,
+            retry: false,
+            receive_timeout: 120_000
+          )
+        end,
         max_concurrency: length(b.natives),
         timeout: :infinity
       )
@@ -945,10 +956,26 @@ defmodule Mix.Tasks.Imgproxy.Bench do
 
     %{
       "ms" => ms,
-      "downloads" => log_count(settings.origin, "/slow/r/#{token}/"),
-      "generations" => log_count(info.name, @generation_line) - before
+      "downloads" => log_count(settings.origin, "/r/#{token}"),
+      "generations" => log_count(info.name, @generation_line) - before,
+      "drops" => log_count(info.name, @drop_line) - dropped
     }
   end
+
+  # Req's default pool holds 50 connections, fewer than `burst_grid` sends at
+  # once.
+  defp burst_finch(size) do
+    name = Module.concat(__MODULE__, "BurstFinch#{size}")
+
+    case Finch.start_link(name: name, pools: %{default: [size: size]}) do
+      {:ok, _pid} -> name
+      {:error, {:already_started, _pid}} -> name
+    end
+  end
+
+  # `:one` paces a single original so the requests overlap its download.
+  defp burst_source(%{originals: :one} = b, token, _index), do: "slow/r/#{token}/#{b.source}"
+  defp burst_source(%{originals: :each} = b, token, index), do: "r/#{token}-#{index}/#{b.source}"
 
   defp log_count(container, needle) do
     {logs, 0} = System.cmd("docker", ["logs", container], stderr_to_stdout: true)
@@ -967,18 +994,28 @@ defmodule Mix.Tasks.Imgproxy.Bench do
 
   defp randomize(c, _token), do: c
 
-  # oha's URL arguments for a case: a `random` case's URL is a regular
-  # expression oha draws a new URL from for every request. oha reads `.` in
-  # it literally, and the paths hold no other metacharacters.
-  defp oha_target(server, c, url) do
+  # oha's URL arguments for a case. A `random` case's URLs are signed, so oha
+  # can't generate them: it gets a file of new ones for each measurement.
+  defp oha_target(server, c, url, settings) do
     case Map.get(c, :random) do
       nil ->
         [url.(server.path.(c))]
 
       _random ->
-        marker = "zztokenzz"
-        regex = c |> randomize(marker) |> server.path.() |> url.()
-        ["--rand-regex-url", String.replace(regex, marker, @token_regex)]
+        name = "urls-#{server.key}-#{c.id}.txt"
+        urls = for _ <- 1..@random_urls, do: [url.(case_path(server, c)), ?\n]
+        File.write!(Path.join(settings.work, name), urls)
+        ["--urls-from-file", "/work/#{name}"]
+    end
+  end
+
+  defp sign(path), do: ImagePipe.URL.sign_path(path, url_config())
+
+  defp url_config do
+    with nil <- :persistent_term.get({__MODULE__, :url_config}, nil) do
+      config = ImagePipe.URL.config(keys: [@signing_key])
+      :persistent_term.put({__MODULE__, :url_config}, config)
+      config
     end
   end
 

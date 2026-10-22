@@ -14,6 +14,7 @@ defmodule ImagePipe.Cache.FileSystem.OwnerWatch do
   require Logger
 
   alias ImagePipe.Cache.FileSystem.Owner
+  alias ImagePipe.RawFile
 
   def start_link(claim), do: GenServer.start_link(__MODULE__, claim)
 
@@ -26,7 +27,7 @@ defmodule ImagePipe.Cache.FileSystem.OwnerWatch do
 
   @impl true
   def handle_info(:check, %{claim: claim} = state) do
-    case File.read(claim.path) do
+    case RawFile.read(claim.path) do
       {:ok, found} when found != state.found ->
         {:noreply, live_owner(state, found)}
 
@@ -77,7 +78,7 @@ defmodule ImagePipe.Cache.FileSystem.OwnerWatch do
   end
 
   defp read(claim) do
-    case File.read(claim.path) do
+    case RawFile.read(claim.path) do
       {:ok, found} -> found
       {:error, _reason} -> nil
     end

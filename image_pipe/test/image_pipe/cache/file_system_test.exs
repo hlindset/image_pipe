@@ -594,7 +594,7 @@ defmodule ImagePipe.Cache.FileSystemTest do
   end
 
   @tag cache: false
-  test "a write into an existing partition only renames through the file server", %{
+  test "writes into a new and an existing partition don't go through the file server", %{
     root: root
   } do
     opts = opts(root)
@@ -602,9 +602,9 @@ defmodule ImagePipe.Cache.FileSystemTest do
     [admission] = for {{Admission, _root}, pid, _type, _modules} <- children, do: pid
     write = fn hash -> commit_entry(key(hash), opts) end
 
-    write.(String.duplicate("a", 64))
     file_server = Process.whereis(:file_server_2)
     :erlang.trace(file_server, true, [:receive])
+    write.(String.duplicate("a", 64))
     write.(String.duplicate("a", 63) <> "b")
     _ = :sys.get_state(admission)
     :erlang.trace(file_server, false, [:receive])
@@ -618,7 +618,7 @@ defmodule ImagePipe.Cache.FileSystemTest do
           from in senders,
           do: elem(request, 0)
 
-    assert requests == [:rename, :rename]
+    assert requests == []
   end
 
   defp commit_entry(cache_key, opts) do

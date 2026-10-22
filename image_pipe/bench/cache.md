@@ -3,7 +3,6 @@
 Run each command in a fresh VM, from `image_pipe/`:
 
 ```sh
-mise exec -- mix run bench/coordinated_cache.exs two-pool
 mise exec -- mix run bench/coordinated_cache.exs output-only
 mise exec -- mix run bench/coordinated_cache.exs binary-source
 mise exec -- mix run bench/cache_reads.exs streamed
@@ -25,23 +24,19 @@ recommendation.
 
 ## Local sample, 2026-09-20
 
-| Measurement | Two pools | Output only | Buffered source |
-| --- | ---: | ---: | ---: |
-| Cold origin downloads | 1 | 12 | 12 |
-| Cold origin bytes | 10,671,398 | 128,056,776 | 128,056,776 |
-| Warm origin bytes | 0 | 0 | 0 |
-| Cold traversal, ms | 1,520.6 | 1,458.7 | 1,412.2 |
-| Warm traversal, ms | 4.8 | 4.6 | 4.8 |
-| Retained input body bytes | 10,671,398 | 0 | 0 |
-| Output-pool body bytes, including source records | 365,466 | 366,674 | 364,862 |
-| Sampled process RSS peak, bytes | 825,851,904 | 846,462,976 | 1,022,590,976 |
-| Libvips tracked memory peak, bytes | 54,485,402 | 47,439,350 | 53,579,412 |
+| Measurement | Output only | Buffered source |
+| --- | ---: | ---: |
+| Cold origin downloads | 12 | 12 |
+| Cold origin bytes | 128,056,776 | 128,056,776 |
+| Warm origin bytes | 0 | 0 |
+| Cold traversal, ms | 1,458.7 | 1,412.2 |
+| Warm traversal, ms | 4.6 | 4.8 |
+| Output-pool body bytes, including source records | 366,674 | 364,862 |
+| Sampled process RSS peak, bytes | 846,462,976 | 1,022,590,976 |
+| Libvips tracked memory peak, bytes | 47,439,350 | 53,579,412 |
 
-All twelve response hashes matched across all modes. All modes reported shrink
-factors 2 and 4, plus unshrunk loads. The input pool saved eleven original
-downloads (91.7% of origin bytes). This localhost run did not demonstrate a cold
-latency improvement: disk staging, verification, and coordination have costs,
-while a local origin has little network latency.
+All twelve response hashes matched across both modes. Both reported shrink
+factors 2 and 4, plus unshrunk loads.
 
 RSS includes the BEAM, local origin, Req, libvips, and Plug.Test's assembled
 response bodies. It is sampled with `ps`; libvips reports its own allocation

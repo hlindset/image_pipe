@@ -1,21 +1,20 @@
 # Caching and freshness
 
-ImagePipe can keep two caches: one for originals fetched from your sources, and
-one for processed images. A resized `cat.jpg` has no expiry time of its own.
-It stays valid as long as the original `cat.jpg` it was made from is up to
-date, so every size and format made from `cat.jpg` expires when the original
-does, and one request to the origin checks them all.
+A resized `cat.jpg` has no expiry time of its own. It stays valid as long as
+the original `cat.jpg` it was made from is up to date, so every size and
+format made from `cat.jpg` expires when the original does, and one request to
+the origin checks them all.
 
-Both caches, and the settings on this page, are host configuration, set for
+The cache, and the settings on this page, are host configuration, set for
 all sources or per source. Request URLs can't change them:
 
-- In Elixir, the `cache` and `input_cache` options set up the caches, with
-  the options listed in `ImagePipe.Cache.FileSystem`. The settings
+- In Elixir, the `cache` option sets up the cache, with the options listed
+  in `ImagePipe.Cache.FileSystem`. The settings
   are in [source cache settings](cache.md#source-cache-settings) and
   `ImagePipe.Source.File`.
 - In `image_pipe_server`, see
   [server configuration](../../image_pipe_server/docs/server-configuration.md):
-  the `[cache]` table sets up the caches, and the settings are under
+  the `[cache]` table sets up the cache, and the settings are under
   `[processing]` and each `[sources.<name>]` table.
 
 ## Originals and processed images
@@ -35,8 +34,6 @@ Immutable sources share them only when their settings match too.
 - When a check finds the same bytes, the existing processed images are reused
   without processing anything. This holds for a `304` and for a full download
   that turns out identical.
-- Processed images can still be served after the original has been evicted
-  from the originals cache.
 
 Unless the source is [immutable](#immutable-sources), an instance remembers
 each original's content hash in memory to find its processed images,
@@ -50,15 +47,13 @@ on the server.
 
 After a restart, or once an original is forgotten, its next request
 downloads it from the origin, or reads and hashes the local file, before
-its processed images can be served. When the
-[originals cache](cache.md#originals-cache) holds a copy, the instance takes
-what it needs from that copy instead. With HTTP or S3 sources, run an
-originals cache if restarts shouldn't download every original in use again.
+its processed images can be served.
 
 ## Cache lifetime from origin headers
 
-The originals cache reads `Cache-Control`, `Expires`, `Date`, and `Age` as a
-shared cache does under [RFC 9111](https://www.rfc-editor.org/rfc/rfc9111).
+ImagePipe reads an original's `Cache-Control`, `Expires`, `Date`, and `Age`
+as a shared cache does under
+[RFC 9111](https://www.rfc-editor.org/rfc/rfc9111).
 
 - If the origin sends no lifetime, ImagePipe checks with the origin on every
   request. It never guesses a lifetime from `Last-Modified`. A fallback
@@ -145,16 +140,12 @@ Each request checks the file's size and timestamps, and reads the file again
 only when they have changed, after a restart, or once the file is forgotten
 (see [originals and processed images](#originals-and-processed-images)).
 Where file times can't be trusted, the source can read and hash the file on
-every check instead. With a fallback lifetime,
-requests within it skip the check.
-
-Originals are read where they are. On a network filesystem, the source can
-keep a local copy in the originals cache, so other sizes don't read the file
-over the network again.
+every check instead. With a fallback lifetime, requests within it skip the
+check. The file is always read where it is.
 
 The cache identifies files by the source's `root_id` and their path, not by
-the directory's `root`. Moving the directory to a new `root` keeps cached
-originals, processed images, and their `ETag`s, as long as `root_id` stays
+the directory's `root`. Moving the directory to a new `root` keeps processed
+images and their `ETag`s, as long as `root_id` stays
 the same. Two file sources with the same `root_id` share these entries, so
 they must use the same `root`. Otherwise the configuration fails to load.
 
@@ -163,10 +154,11 @@ they must use the same `root`. Otherwise the configuration fails to load.
 When many requests for a new processed image arrive at once, the original is
 downloaded once, and the image is made once and sent to all of them. This
 needs a processed-image cache, and applies only to images that may be stored.
-Requests for different sizes or formats of one original share its download
-only when an originals cache is configured. Otherwise each of them downloads
-the original itself. When either cache is configured, requests that check a
-previously downloaded original with its origin share one check. When
+Requests for different sizes or formats of an original from an HTTP or S3
+source share its download while it runs, with or without a cache, and so do
+requests that check a previously downloaded original with its origin. For a
+local file, requests share one check only when a processed-image cache is
+configured. When
 [caching is turned off](cache.md#source-cache-settings) for the source,
 nothing is shared.
 

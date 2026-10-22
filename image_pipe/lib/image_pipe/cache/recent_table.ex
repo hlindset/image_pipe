@@ -1,13 +1,33 @@
 defmodule ImagePipe.Cache.RecentTable do
   # An ETS table of at most a limit of rows, `{key, value, used}`, that
-  # forgets the least recently used of a few sampled rows when full. Its
-  # owner creates the table. A table that is missing while its owner
-  # restarts is read as empty and skips writes, since its users keep only
-  # shortcuts in it.
+  # forgets the least recently used of a few sampled rows when full. The
+  # process this module starts owns the table, and requests read and write
+  # it directly. A table that is missing while its owner restarts is read as
+  # empty and skips writes, since its users keep only shortcuts in it.
   #
   # `used` is the second a row was last read or written, updated at most
   # once a second per key.
   @moduledoc false
+  use GenServer
+
+  def child_spec(table),
+    do: %{id: {__MODULE__, table}, start: {__MODULE__, :start_link, [table]}}
+
+  def start_link(table), do: GenServer.start_link(__MODULE__, table)
+
+  @impl true
+  def init(table) do
+    ^table =
+      :ets.new(table, [
+        :named_table,
+        :public,
+        :set,
+        read_concurrency: true,
+        write_concurrency: true
+      ])
+
+    {:ok, table}
+  end
 
   @spec get(atom(), term(), integer()) :: term() | nil
   def get(table, key, now \\ now()) do

@@ -127,6 +127,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Plan,
       ImagePipe.Processing,
       ImagePipe.ProcessingPool,
+      ImagePipe.RawFile,
       ImagePipe.Representation,
       ImagePipe.Source,
       ImagePipe.Telemetry,
@@ -184,6 +185,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     assert_boundary_deps(decode, [
       ImagePipe.Format,
       ImagePipe.Plan,
+      ImagePipe.RawFile,
       ImagePipe.Source,
       ImagePipe.Telemetry,
       ImagePipe.Transform
@@ -247,6 +249,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
 
     assert_boundary_deps(application, [
       ImagePipe.Cache,
+      ImagePipe.Execution,
       ImagePipe.Output,
       ImagePipe.Source
     ])
@@ -260,6 +263,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     assert_boundary_deps(source, [
       ImagePipe.MaterialDigest,
       ImagePipe.Plan,
+      ImagePipe.RawFile,
       ImagePipe.SafePath,
       ImagePipe.Telemetry
     ])
@@ -456,6 +460,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Debug,
       ImagePipe.Format,
       ImagePipe.Output,
+      ImagePipe.RawFile,
       ImagePipe.SafePath,
       ImagePipe.Source,
       ImagePipe.Telemetry
@@ -467,13 +472,12 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Cache.Cost,
       ImagePipe.Cache.Entry,
       ImagePipe.Cache.File,
-      ImagePipe.Cache.Input,
-      ImagePipe.Cache.Resources,
       ImagePipe.Cache.Work,
       ImagePipe.Cache.OutputWork,
       ImagePipe.Cache.Key,
       ImagePipe.Cache.FileSystem,
       ImagePipe.Cache.FileSystem.CheckedDirs,
+      ImagePipe.Cache.FileSystem.PeriodicSweep,
       ImagePipe.Cache.FileSystem.RefusedRoots
     ])
   end
