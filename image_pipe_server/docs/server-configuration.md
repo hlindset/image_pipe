@@ -196,7 +196,6 @@ One table per source. The table name is the source's name. Besides
 | `root` | string |  |
 | `root_id` | string |  |
 | `verify` | `"stat"` or `"hash"` | `"stat"` |
-| `copy` | `"none"` or `"keep"` | `"none"` |
 | `stable` | `"auto"` or `"immutable"` | `"auto"` |
 | `internal_cache` | `"enabled"` or `"disabled"` | `"enabled"` |
 | `http_cache` | `"inherit"` or `"validators"` or `"auto"` or `"public"` or `"private"` | `"inherit"` |
@@ -327,15 +326,13 @@ table leaves out, from `AWS_WEB_IDENTITY_TOKEN_FILE`, `AWS_ROLE_ARN`,
 
 ### `[cache]`
 
-Caches on the local filesystem: `output` for processed images, `input` for originals. Their `root` directories must be separate, neither inside the other. Each cache needs `root` and `max_size_bytes`. `vary_on` names request headers and cookies whose values select separate processed copies (see [Vary](../../image_pipe/docs/cdn-http-cache.md#vary)). See [caching processed images](../../image_pipe/docs/caching-processed-images.md). `max_remembered_originals` is how many originals the server remembers in memory, with or without a cache: about 700 bytes for each local file and 1 KB for each image from an origin. It defaults to one for each 50 KB of `output.max_size_bytes`, at least 10,000 and at most 1,000,000. See [originals and processed images](../../image_pipe/docs/caching-and-freshness.md#originals-and-processed-images) for what happens when an original is forgotten.
+`output` caches processed images on the local filesystem. It needs `root` and `max_size_bytes`. `vary_on` names request headers and cookies whose values select separate processed copies (see [Vary](../../image_pipe/docs/cdn-http-cache.md#vary)). See [caching processed images](../../image_pipe/docs/caching-processed-images.md). `max_remembered_originals` is how many originals the server remembers in memory, with or without a cache: about 700 bytes for each local file and 1 KB for each image from an origin. It defaults to one for each 50 KB of `output.max_size_bytes`, at least 10,000 and at most 1,000,000. See [originals and processed images](../../image_pipe/docs/caching-and-freshness.md#originals-and-processed-images) for what happens when an original is forgotten.
 
 | Key | Type | Default |
 | --- | --- | --- |
 | `output.max_size_bytes` | integer > 0 |  |
 | `output.root` | string (absolute path) |  |
 | `output.max_body_bytes` | integer ≥ 0 |  |
-| `input.max_size_bytes` | integer > 0 |  |
-| `input.root` | string (absolute path) |  |
 | `vary_on` | array of `{ header = … }` or `{ cookie = … }` (string) |  |
 | `max_remembered_originals` | integer > 0 |  |
 

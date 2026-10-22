@@ -40,10 +40,8 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The hash of each local file and the cache headers of each origin image
   are kept in memory instead of in the `output` cache, so they no longer
   take its space. After a restart, a local file is hashed again, and an
-  image from an origin is downloaded again, on its first request, unless
-  the `input` cache holds a copy. With HTTP or S3 sources, configure an
-  `input` cache so that restarts don't download every original in use
-  again. See [`[cache]`](docs/server-configuration.md#cache).
+  image from an origin is downloaded again, on its first request. See
+  [`[cache]`](docs/server-configuration.md#cache).
 - Cache hits are served faster. The Erlang VM's dirty I/O schedulers, which
   read cached files, again spin briefly before they sleep
   (`+sbwtdio very_short`), so a hit's reads rarely wait for a sleeping
@@ -51,9 +49,20 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `text` log lines are no longer colored when the container runs on a
   terminal, such as with `docker run -t`. Set `[telemetry] log_colors = true`
   to color them by level.
+- Concurrent requests for different sizes or formats of an image from an
+  HTTP or S3 source share one download. Before, without `[cache.input]`,
+  each request downloaded the original.
+- The server keeps the bytes of up to 64 recently used watermark images in
+  memory, so a watermark from an origin is no longer downloaded for every
+  processed image.
 
 ### Removed
 
+- **Breaking:** `[cache.input]`, the cache for originals, and the file
+  source's `copy` setting. The server now refuses to start with either, so
+  remove them from `config.toml`. It doesn't delete an existing
+  `[cache.input]` directory, so delete it yourself. `/stats` no longer has
+  an `input` entry.
 - **Breaking:** `[http] allow_debug_headers`. A request's `debug` option
   always adds the debug headers. Remove the setting from `config.toml`. With
   signed URLs, only your app can add `debug`.

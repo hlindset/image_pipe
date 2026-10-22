@@ -220,8 +220,7 @@ that pods share (see
 
 ## Caches
 
-To set up `[cache.output]` for processed images and `[cache.input]` for
-originals, and to set their size limits, see
+To set up `[cache.output]` for processed images and its size limit, see
 [Caching processed images](../../image_pipe/docs/caching-processed-images.md).
 
 Whether a response is cached also depends on its source:
@@ -230,8 +229,7 @@ Whether a response is cached also depends on its source:
   `cache_policy` to override them.
 - File sources check each file for changes. Set `stable = "immutable"` for
   [immutable](../../image_pipe/docs/caching-and-freshness.md#immutable-sources)
-  files to skip the check. On a network filesystem such as EFS, `copy = "keep"` keeps
-  local copies of originals in the `[cache] input` pool.
+  files to skip the check.
 - A file source's `root_id` is part of the cache key of every result from that
   source. Keep it the same across restarts and replicas, or cached results
   aren't reused. The `root` path can differ between replicas or change over
@@ -272,16 +270,13 @@ curl -H "Authorization: Bearer a-long-random-string" http://localhost:8080/stats
     "available": true, "refused": false,
     "disk_free_bytes": 40213000000, "disk_total_bytes": 107374182400,
     "disk_age_seconds": 4
-  },
-  "input": {"bytes": 2104000000, "...": "..."}
+  }
 }
 ```
 
-- `hits` and `misses` count this replica's requests since it started. The
-  `output` cache counts each request once, and the `input` cache each
-  original a request needs: a hit when it's read from the cache, a miss
-  when it's downloaded. `read_errors` are stored entries the cache couldn't
-  read, also counted as misses.
+- `hits` and `misses` count this replica's requests since it started, each
+  request once. `read_errors` are stored entries the cache couldn't read,
+  also counted as misses.
 - `counting` is `true` for a short time after startup, while the cache
   counts the entries an earlier run left on disk. Until then, `bytes` and
   `entries` leave out the ones it hasn't reached.

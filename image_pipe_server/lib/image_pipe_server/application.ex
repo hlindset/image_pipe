@@ -161,7 +161,7 @@ defmodule ImagePipeServer.Application do
 
   def stats_options(%Config{} = config) do
     roots =
-      for {key, cache} <- [cache: :output, input_cache: :input],
+      for {key, cache} <- [cache: :output],
           cache_opts = Keyword.get(config.image_pipe.options, key),
           into: %{},
           do: {cache, Keyword.fetch!(cache_opts, :root)}
