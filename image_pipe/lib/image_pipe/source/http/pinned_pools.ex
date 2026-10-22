@@ -89,8 +89,12 @@ defmodule ImagePipe.Source.HTTP.PinnedPools do
     retire(now) ++ remaining
   end
 
+  # Finch looks up a pool's supervisor and then calls it, which exits if the
+  # pool stopped in between. The pool is then tried again at the next sweep.
   defp stopped?({finch, pool, retired_at}, now) do
     now - retired_at >= @interval and idle?(finch, pool) and stop(finch, pool)
+  catch
+    :exit, _reason -> false
   end
 
   defp idle?(finch, pool) do

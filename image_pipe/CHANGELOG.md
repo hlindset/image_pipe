@@ -300,6 +300,9 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- The daily sweep of a filesystem cache's leftover files keeps running after
+  one of the cache's processes restarts, and after a sweep fails. Before, it
+  stopped until ImagePipe restarted.
 - The request summary and the default Logger's request line carry `:reason`
   for a `403` invalid signature, a `400` for a signed URL sent to a mount
   without signing keys, a `410` expired URL, and a `404` concealed source that doesn't

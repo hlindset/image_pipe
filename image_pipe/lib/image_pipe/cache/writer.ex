@@ -13,10 +13,9 @@ defmodule ImagePipe.Cache.Writer do
   # dropped. The limit is a guess (image_plug-sole).
   @moduledoc false
 
-  use GenServer, restart: :temporary, shutdown: 25_000
+  use GenServer, restart: :temporary
 
   alias ImagePipe.Cache.FileSystem
-  alias ImagePipe.Cache.FileSystem.Owner
   alias ImagePipe.Cache.FileSystem.Writers
   alias ImagePipe.Cache.OutputWork
   alias ImagePipe.Cache.Sink
@@ -110,38 +109,11 @@ defmodule ImagePipe.Cache.Writer do
     {:stop, :normal, state}
   end
 
-  # A shutdown finishes a write whose chunks and commit already arrived,
-  # unless another node took the root over: the entry would land in a root
-  # this node no longer counts.
-  def handle_info({:EXIT, _pid, reason}, state) do
-    if Owner.refused?(state.root),
-      do: {:stop, reason, state},
-      else: {:stop, reason, drain(state)}
-  end
-
   @impl true
   def terminate(_reason, state) do
     if state.store, do: FileSystem.abort_sink(state.store, state.cache_opts)
     :atomics.put(state.counters, @finished, 1)
     release(state.counters, state.pending)
-  end
-
-  defp drain(%{store: nil} = state), do: state
-
-  defp drain(state) do
-    receive do
-      {:chunk, _chunk} = message ->
-        case handle_info(message, state) do
-          {:noreply, state} -> drain(state)
-          {:stop, _reason, state} -> state
-        end
-
-      {:commit, lease} ->
-        commit(state, lease)
-        %{state | store: nil}
-    after
-      0 -> state
-    end
   end
 
   defp commit(state, lease) do

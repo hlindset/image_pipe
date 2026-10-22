@@ -6,7 +6,6 @@ defmodule ImagePipe.Cache.WriterTest do
   alias ImagePipe.Cache
   alias ImagePipe.Cache.Entry
   alias ImagePipe.Cache.FileSystem
-  alias ImagePipe.Cache.FileSystem.Owner
   alias ImagePipe.Cache.FileSystem.Policy
   alias ImagePipe.Cache.FileSystem.Writers
   alias ImagePipe.Cache.Key
@@ -157,23 +156,6 @@ defmodule ImagePipe.Cache.WriterTest do
     assert stored_bodies(ctx.root) == []
   end
 
-  test "a shutdown doesn't finish a write into a root another node took over", ctx do
-    opts = cache_opts(ctx, [])
-    sink = Cache.open_sink(key(), {:complete_body, @content_type}, [], opts)
-    ref = Process.monitor(sink.writer)
-    :sys.suspend(sink.writer)
-
-    Process.exit(sink.writer, :shutdown)
-    sink = Cache.write_chunk(sink, "body", opts)
-    assert :ok = Cache.commit_sink(sink, opts)
-    Owner.refuse(ctx.root)
-    on_exit(fn -> Owner.accept(ctx.root) end)
-
-    :sys.resume(sink.writer)
-    assert_receive {:DOWN, ^ref, :process, _pid, :shutdown}
-    assert stored_bodies(ctx.root) == []
-  end
-
   test "an abort after the writer dropped the write reports nothing more", ctx do
     opts = cache_opts(ctx, [])
     sink = Cache.open_sink(key(), {:complete_body, @content_type}, [], opts)
@@ -186,6 +168,20 @@ defmodule ImagePipe.Cache.WriterTest do
 
     assert :ok = Cache.abort_sink(sink, :client_closed, opts)
     refute_received {:stage, %{cache: :stage_abandoned}}
+  end
+
+  test "a shutdown drops a write in progress and releases its pending bytes", ctx do
+    opts = cache_opts(ctx, [])
+    sink = Cache.open_sink(key(), {:complete_body, @content_type}, [], opts)
+    sink = Cache.write_chunk(sink, "body", opts)
+    _ = :sys.get_state(sink.writer)
+
+    restart_writers(ctx.root)
+    assert :ok = Cache.commit_sink(sink, opts)
+
+    assert stored_bodies(ctx.root) == []
+    assert Path.wildcard(Path.join(ctx.root, "**/*.tmp"), match_dot: true) == []
+    assert Writers.pending(ctx.root) == 0
   end
 
   test "a write whose writer was killed counts nothing against the restarted writers", ctx do
