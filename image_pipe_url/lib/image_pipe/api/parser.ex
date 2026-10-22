@@ -580,7 +580,6 @@ defmodule ImagePipe.API.Parser do
   defp message_for(:unknown_option), do: "unknown option"
   defp message_for(:missing_value), do: "missing value"
   defp message_for(:duplicate_option), do: "duplicate option"
-  defp message_for(:empty_segment), do: "empty option segment"
 
   defp message_for(:invalid_dimension),
     do: "invalid value: expected px from 1 to 2147483647, or `auto`"

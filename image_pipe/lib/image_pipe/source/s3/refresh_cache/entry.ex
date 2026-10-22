@@ -122,10 +122,6 @@ defmodule ImagePipe.Source.S3.RefreshCache.Entry do
     {:noreply, handle_result(result, %{state | task: nil})}
   end
 
-  def handle_info({:DOWN, ref, :process, _pid, reason}, %{task: %Task{ref: ref}} = state) do
-    {:noreply, handle_result({:error, {:crash, reason}}, %{state | task: nil})}
-  end
-
   def handle_info({:fetch_timeout, ref}, %{task: %Task{ref: ref} = task} = state) do
     result =
       case Task.shutdown(task, :brutal_kill) do

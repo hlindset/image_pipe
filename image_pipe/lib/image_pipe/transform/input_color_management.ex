@@ -26,15 +26,14 @@ defmodule ImagePipe.Transform.InputColorManagement do
   Conditions a decoded image into a working space before any processing step.
 
   1. Returns already-imported state (`color_imported?: true`) unchanged.
-  2. Unpacks Radiance-coded HDR input with `rad2float`.
-  3. For linear-light (`:VIPS_INTERPRETATION_scRGB`) input, drops the embedded
+  2. For linear-light (`:VIPS_INTERPRETATION_scRGB`) input, drops the embedded
      profile without saving it or setting `color_imported?`.
-  4. For sRGB, RGB, RGB16, B_W and GREY16 input, keeps the pixel values and the
+  3. For sRGB, RGB, RGB16, B_W and GREY16 input, keeps the pixel values and the
      embedded profile, saving the profile bytes on `State` as a backup for the
      output step without setting `color_imported?`.
-  5. For other input with an importable ICC profile, saves the profile bytes on
+  4. For other input with an importable ICC profile, saves the profile bytes on
      `State`, imports to PCS float, and sets `color_imported?`.
-  6. Converts to the working space, including when no profile was imported.
+  5. Converts to the working space, including when no profile was imported.
 
   Preserves dimensions, `source_dimensions`, and `decode_shrink`. Returns a
   failure to buffer the source as `Materializer` classifies it, and other
@@ -57,10 +56,8 @@ defmodule ImagePipe.Transform.InputColorManagement do
 
     Telemetry.span(state.telemetry_opts, [:transform, :input_color_management], %{}, fn ->
       result =
-        with {:ok, image} <- rad2float(image),
-             {:ok, new_state} <- do_condition(state, image, interp, target) do
-          {:ok, new_state}
-        else
+        case do_condition(state, image, interp, target) do
+          {:ok, new_state} -> {:ok, new_state}
           {:error, {tag, _reason}} = error when tag in [:decode, :transform] -> error
           {:error, reason} -> {:error, {__MODULE__, reason}}
         end
@@ -142,14 +139,6 @@ defmodule ImagePipe.Transform.InputColorManagement do
   end
 
   defp to_colorspace(image, target), do: Operation.colourspace(image, target)
-
-  # Only Radiance-coded sources need unpacking.
-  defp rad2float(image) do
-    case VixImage.header_value(image, "coding") do
-      {:ok, :VIPS_CODING_RAD} -> Operation.rad2float(image)
-      _ -> {:ok, image}
-    end
-  end
 
   # Workaround for `image`: removing a profile goes through Vix's mutable
   # image, which copies the image to memory in a linked process, so a corrupt
