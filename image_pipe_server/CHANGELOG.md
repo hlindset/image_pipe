@@ -79,9 +79,10 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The log keeps every line the server can write. Before, it kept at most
   500 lines a second and dropped the rest without a notice.
 - A log collector that reads the container's output slowly no longer delays
-  requests. Before, a request could wait several seconds. Lines the server
-  can't write are dropped, and a `notice` line says when dropping starts and
-  stops. See [Logging](docs/server-deployment.md#logging).
+  requests. Before, a request could wait several seconds. Up to 10,000 lines
+  can wait to be written. Lines past that are dropped, and a `notice` line
+  says when dropping starts and stops. See
+  [Logging](docs/server-deployment.md#logging).
 
 ## [0.3.0] - 2026-10-18
 
