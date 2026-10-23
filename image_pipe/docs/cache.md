@@ -78,12 +78,16 @@ headers in memory, so
 
 Each stored response is selected by:
 
-- The original's version (see
+- The original's version, and each watermark image's version (see
   [originals and processed images](caching-and-freshness.md#originals-and-processed-images)).
 - The processing options. Two spellings of the same options select the same
   entry.
 - The output format. For a URL without a `format` option this is the format
   chosen from `Accept`, not the `Accept` header itself.
+- The configured output settings that apply to the image, such as the
+  default qualities, encoder options, and metadata stripping.
+- Where each watermark comes from and its configured opacity. Renaming a
+  watermark keeps its entries.
 - The content detector and model, when the crop uses detection.
 - The URL's cachebuster.
 - The values of the request headers and cookies named in `vary_on`.
@@ -262,7 +266,7 @@ A node that stops abruptly, for example after a crash or `kill -9`, can leave
 temporary entry files behind, and bodies that no metadata file names. A
 running node can leave them too, for example when a request is killed while
 its image is being written.
-Metadata files the cache can't read, such as ones another ImagePipe version
+Metadata files the cache can't parse, such as ones another ImagePipe version
 wrote, count as left behind too, and so do their bodies. ImagePipe deletes
 them in the background once they are more than an hour old:
 

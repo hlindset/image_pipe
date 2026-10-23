@@ -44,7 +44,9 @@ max_input_pixels = 25000000
 <!-- tabs-close -->
 
 `max_result_width`, `max_result_height`, and `max_result_pixels` scale the
-output down to fit before it is encoded.
+output down to fit before it is encoded. Changing them doesn't change images
+that ImagePipe's cache, a CDN, or a browser already holds. To apply new limits
+to those, change the URLs' [`cb`](processing/request.md#cb).
 
 ## Limiting intermediate images
 

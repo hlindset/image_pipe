@@ -275,6 +275,14 @@ defmodule ImagePipe.DebugHeadersWireTest do
     assert server_timing =~ "encode;dur="
   end
 
+  test "no cache key header without a cache" do
+    conn = call(with_debug(stable_request_path()), stable_opts([]))
+
+    assert conn.status == 200
+    assert header(conn, "x-imagepipe-cache") == "miss"
+    assert header(conn, "x-imagepipe-cache-key") == nil
+  end
+
   test "a named output color profile renders as its name" do
     for {value, rendered} <- [
           {"srgb", "srgb"},
