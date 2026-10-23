@@ -14,7 +14,10 @@ defmodule ImagePipe.Cache.FileSystem.Store do
   alias ImagePipe.RawFile
   alias ImagePipe.SafePath
 
-  @metadata_version 1
+  # Bump when the stored metadata changes shape, including the
+  # `ImagePipe.Debug.Info` it can hold. An entry stored under another version
+  # is a miss, and the sweep removes it.
+  @metadata_version 2
   @commit_timeout 5_000
   @usage_timeout 1_000
   @options_schema NimbleOptions.new!(

@@ -69,7 +69,7 @@ defmodule ImagePipe.Cache.FileSystemTest do
   defp metadata(cache_key, body, overrides \\ []) do
     Map.merge(
       %{
-        metadata_version: 1,
+        metadata_version: 2,
         content_type: "image/webp",
         headers: [],
         created_at: "2026-04-29T10:15:00Z",

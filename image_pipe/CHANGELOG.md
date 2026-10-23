@@ -95,6 +95,8 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   options only it made useful, such as `anchor`.
 - Requests that use `autoquality` or `max-bytes` have new cache keys and
   ETags, so their cached copies miss once after upgrading.
+- A filesystem cache misses once after upgrading for every image it stored
+  before, and its startup sweep deletes those entries.
 - **Breaking:** `:max_blur_work` limits the total work of all `blur`,
   `progressive-blur`, and `sharpen` steps in a request, across all its
   groups, instead of each blur on its own. Each step counts the pixels of
