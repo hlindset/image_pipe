@@ -41,7 +41,8 @@ configuration, such as `"w=400/h=300/fit=cover"`. Leave out names the
 database doesn't have, and the request answers `400` with
 `unknown preset`. When the database is unreachable, the request answers
 `503`, whether `fetch/2` returns `{:error, reason}` or, as `repo.all/1` does
-here, raises.
+here, raises. A definition that doesn't parse or names a watermark the
+configuration doesn't define answers `500`.
 
 ## Cache the definitions
 

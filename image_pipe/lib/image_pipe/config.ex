@@ -590,8 +590,8 @@ defmodule ImagePipe.Config do
   # source encryption keys can't decrypt would answer each of them with an
   # error.
   defp concealed_watermarks!(presets, url) do
-    for {owner, preset} <- preset_owners(presets),
-        token <- watermark_tokens(preset) do
+    for {owner, groups} <- preset_owners(presets),
+        %{watermark_token: token} when is_binary(token) <- groups do
       concealed_watermark!(owner, token, url.options)
     end
 
@@ -614,17 +614,21 @@ defmodule ImagePipe.Config do
     end
   end
 
+  # Each owner's group option maps: the request defaults' groups, and every
+  # layer of a compiled preset.
   defp preset_owners(presets) do
-    [
-      {"request_defaults", Keyword.fetch!(presets, :request_defaults)}
-      | Enum.map(presets[:presets], fn {name, preset} -> {~s(preset "#{name}"), preset} end)
-    ]
+    defaults =
+      case Keyword.fetch!(presets, :request_defaults) do
+        nil -> []
+        %{groups: groups} -> [{"request_defaults", Map.values(groups)}]
+      end
+
+    named =
+      for {name, preset} <- presets[:presets],
+          do: {~s(preset "#{name}"), preset.groups |> Map.values() |> Enum.concat()}
+
+    defaults ++ named
   end
-
-  defp watermark_tokens(%{groups: groups}),
-    do: for({_index, %{watermark_token: token}} when is_binary(token) <- groups, do: token)
-
-  defp watermark_tokens(nil), do: []
 
   defp lookup_options(options) do
     case options[:preset_lookup] do

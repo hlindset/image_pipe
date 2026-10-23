@@ -40,11 +40,12 @@ defmodule ImagePipe.API.Presets do
   @spec references(map()) :: [String.t()]
   def references(%{groups: groups}), do: Presets.references(groups)
 
-  # Compiles looked-up presets over the static compiled map they may reference.
-  @spec compile_lookup(map(), map()) :: {:ok, map()} | :error
-  def compile_lookup(parsed, static) do
+  # Compiles looked-up presets over the static compiled map they may reference,
+  # checking them against the host's watermark names.
+  @spec compile_lookup(map(), map(), Presets.watermarks()) :: {:ok, map()} | :error
+  def compile_lookup(parsed, static, watermarks) do
     with {:ok, compiled} <- Presets.compile(parsed, static),
-         :ok <- check_conflicts(Map.take(compiled, Map.keys(parsed)), nil, nil) do
+         :ok <- check_conflicts(Map.take(compiled, Map.keys(parsed)), nil, watermarks) do
       {:ok, compiled}
     else
       {:error, _message} -> :error
@@ -86,7 +87,7 @@ defmodule ImagePipe.API.Presets do
   defp check_conflicts(presets, defaults, watermarks) do
     named = for {name, preset} <- Enum.sort(presets), do: {"preset #{inspect(name)}", preset}
 
-    Enum.find_value([{"request_defaults", defaults} | named], :ok, fn
+    Enum.find_value([{"request_defaults", single_layer(defaults)} | named], :ok, fn
       {_label, nil} ->
         nil
 
@@ -97,6 +98,11 @@ defmodule ImagePipe.API.Presets do
         end
     end)
   end
+
+  defp single_layer(nil), do: nil
+
+  defp single_layer(%{groups: groups, request: request}),
+    do: %{groups: Map.new(groups, fn {i, options} -> {i, [options]} end), request: [request]}
 
   defp parse_value(label, value) do
     with {:ok, fragment} <- fragment(label, value) do

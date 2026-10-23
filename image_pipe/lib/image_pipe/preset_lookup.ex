@@ -36,7 +36,7 @@ defmodule ImagePipe.PresetLookup do
   | --- | --- | --- |
   | A requested name is missing from the map | `400` | `{:invalid_request, issues}` |
   | `{:error, reason}`, a raise, an exit, a value other than `{:ok, map}`, or a non-string fragment | `503` | `{:preset, :lookup_unavailable}` |
-  | A fragment that doesn't parse, references an unknown preset, forms a cycle, or sets options that can't be combined | `500` | `{:preset, :invalid_definition}` |
+  | A fragment that doesn't parse, references an unknown preset or watermark, forms a cycle, sets options that can't be combined, or has a `wm-enc` token that no key in `:source_encryption_keys` decrypts | `500` | `{:preset, :invalid_definition}` |
 
   Names in the returned map that were not requested are ignored. Each call
   emits the `[:image_pipe, :preset, :lookup]` telemetry span.

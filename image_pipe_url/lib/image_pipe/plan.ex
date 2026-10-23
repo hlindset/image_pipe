@@ -233,7 +233,7 @@ defmodule ImagePipe.Plan do
 
   defp validate_known_groups(indexed, request, presets, defaults, watermarks, unknown) do
     stubs =
-      Map.new(unknown, fn {_index, name} -> {name, %{groups: %{0 => %{}}, request: %{}}} end)
+      Map.new(unknown, fn {_index, name} -> {name, %{groups: %{0 => []}, request: []}} end)
 
     tainted = MapSet.new(unknown, &elem(&1, 0))
 

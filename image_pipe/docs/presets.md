@@ -44,6 +44,10 @@ Within one group, three layers combine, each overriding the one before it:
    wins where both set an option.
 3. Options written in the URL.
 
+A preset that names other presets counts as those presets in its place,
+followed by its own options. With `brand` defined as `preset=card,dark`, `/preset=brand` is the same
+request as `/preset=card,dark`.
+
 An option written in the URL overrides presets only in its own group, so
 `/w=300/-/preset=card` resizes twice. Presets in separate groups stack, so
 `/preset=frame/-/preset=frame` pads twice.
@@ -63,6 +67,12 @@ layer had set it, and takes the options that depended on it along.
 URL are kept, so `/preset=card/w=unset/fit=cover` still fails when nothing
 else resizes. Because `unset` has this meaning, no watermark or detection
 class can be named `unset`.
+
+A value that a later layer unsets or replaces counts as never written, so
+it doesn't replace anything below it either. A preset's `q` normally
+replaces the request defaults' `format-q`. With request defaults of
+`format-q=avif:50` and `q80` defined as `q=80`, `/preset=q80/q=unset`
+encodes AVIF at 50, like a URL without `preset=q80`.
 
 In `format-q` and the encoder options, `unset` can also come first in the
 list. `jpeg-options=unset,progressive` drops the inherited JPEG fields, then

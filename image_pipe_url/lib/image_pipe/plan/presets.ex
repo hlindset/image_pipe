@@ -15,11 +15,19 @@ defmodule ImagePipe.Plan.Presets do
   # A pipeline preset (one with several groups) must supply every group option
   # in the request; request options may come from anywhere.
   #
-  # An `:unset` value clears its option from every lower layer, together with
-  # its override family (a family modifier's `unset` clears only itself) and
-  # the inherited options whose requirement the merged group no longer meets.
-  # It survives compilation, so a preset's unset also clears request
-  # defaults, and is removed when a request is expanded.
+  # A compiled preset keeps its layers: per group and for the request options,
+  # the ordered option maps of the presets it references, inlined, then its
+  # own. A request's layers are resolved together, so a nested preset gives
+  # the same result as listing its parts, and a write that a higher layer
+  # unsets or replaces counts as never written:
+  #
+  #   1. An `:unset` value clears its option from every lower layer, together
+  #      with its override family (a family modifier's `unset` clears only
+  #      itself) and the inherited options whose requirement the merged group
+  #      no longer meets.
+  #   2. From the top layer down, each option that no higher layer replaced
+  #      clears what it overrides in lower layers: its own key, its family, a
+  #      `q`'s per-format qualities, a `region`'s crop modifiers and guide.
   @moduledoc false
 
   alias ImagePipe.Plan.Spec.Issue
@@ -49,7 +57,7 @@ defmodule ImagePipe.Plan.Presets do
     :avif_options
   ]
 
-  @type compiled :: %{groups: %{non_neg_integer() => map()}, request: map()}
+  @type compiled :: %{groups: %{non_neg_integer() => [map()]}, request: [map()]}
   @type watermarks :: Validation.watermarks()
 
   # `compiled` seeds already-compiled presets that `parsed` fragments may
@@ -93,7 +101,7 @@ defmodule ImagePipe.Plan.Presets do
 
     with {:ok, compiled} <- dependencies,
          {:ok, preset} <- compose(groups, request, compiled, nil) do
-      preset = drop_groups(preset, &(&1 == %{}))
+      preset = drop_groups(preset, &(&1 == []))
       preset = %{groups: preset.groups, request: preset.request}
       {:ok, preset, Map.put(compiled, name, preset)}
     else
@@ -135,15 +143,14 @@ defmodule ImagePipe.Plan.Presets do
           do: issue(:unknown_preset, index, name)
 
     with [] <- unknown,
-         {:ok, expanded} <- compose(groups, request, presets, defaults) do
-      expanded = drop_groups(expanded, &(drop_unset(&1) == %{}))
+         {:ok, layered} <- compose(groups, request, presets, defaults) do
+      resolved = %{
+        layered
+        | groups: Map.new(layered.groups, fn {i, layers} -> {i, resolve_group(layers)} end),
+          request: resolve_request(layered.request)
+      }
 
-      {:ok,
-       %{
-         expanded
-         | groups: Map.new(expanded.groups, fn {i, options} -> {i, drop_unset(options)} end),
-           request: drop_unset(expanded.request)
-       }}
+      {:ok, drop_groups(resolved, &(&1 == %{}))}
     else
       [_ | _] = issues -> {:error, issues}
       {:error, _issues} = error -> error
@@ -168,8 +175,8 @@ defmodule ImagePipe.Plan.Presets do
   def conflicts(%{groups: groups, request: request}, watermarks) do
     groups
     |> Enum.sort()
-    |> Enum.map(&drop_unset(elem(&1, 1)))
-    |> Validation.errors(drop_unset(request), MapSet.new(), watermarks)
+    |> Enum.map(&resolve_group(elem(&1, 1)))
+    |> Validation.errors(resolve_request(request), MapSet.new(), watermarks)
     |> Enum.filter(&(&1.severity == :error))
   end
 
@@ -233,41 +240,47 @@ defmodule ImagePipe.Plan.Presets do
   end
 
   # The request defaults belong to the URL's first group that writes any
-  # option, so they merge in before a group holding only unsets is dropped. A
+  # option, so they apply before a group holding only unsets is dropped. A
   # group with no options at all is skipped, as the parser skips a group of
   # only request options.
   defp compose_groups(explicit, request, selected, defaults) do
     layered =
-      Map.new(explicit, fn {index, options} ->
-        {index,
-         for({^index, _name, preset} <- selected, do: Map.fetch!(preset.groups, 0)) ++ [options]}
+      explicit
+      |> Enum.sort()
+      |> Enum.map(fn {index, options} ->
+        preset_layers =
+          for {^index, _name, preset} <- selected,
+              layer <- Map.fetch!(preset.groups, 0),
+              do: layer
+
+        {index, layers(preset_layers ++ [options])}
       end)
-
-    merged =
-      layered |> Enum.sort() |> Enum.map(fn {index, layers} -> {index, merge_layers(layers)} end)
-
-    merged = merge_defaults(merged, layered, defaults)
+      |> put_defaults(defaults)
 
     %{
       groups:
-        merged |> Enum.with_index() |> Map.new(fn {{_origin, options}, i} -> {i, options} end),
+        layered |> Enum.with_index() |> Map.new(fn {{_origin, layers}, i} -> {i, layers} end),
       request: compose_request(request, selected, defaults),
       origins:
-        merged |> Enum.with_index() |> Map.new(fn {{origin, _options}, i} -> {i, origin} end)
+        layered |> Enum.with_index() |> Map.new(fn {{origin, _layers}, i} -> {i, origin} end)
     }
   end
 
-  defp merge_defaults(merged, _layered, nil), do: merged
+  defp put_defaults(layered, nil), do: layered
 
-  defp merge_defaults(merged, layered, %{groups: %{0 => default}}) do
+  defp put_defaults(layered, %{groups: %{0 => default}}) do
     first =
-      case Enum.find(merged, fn {_index, options} -> options != %{} end) do
-        {index, _options} -> index
-        nil -> merged |> hd() |> elem(0)
+      case Enum.find(layered, fn {_index, layers} -> layers != [] end) do
+        {index, _layers} -> index
+        nil -> layered |> hd() |> elem(0)
       end
 
-    layers = [default | Map.fetch!(layered, first)]
-    List.keyreplace(merged, first, 0, {first, merge_layers(layers)})
+    List.keyreplace(
+      layered,
+      first,
+      0,
+      {first, layers([default | elem(List.keyfind(layered, first, 0), 1)])}
+    )
   end
 
   defp compose_pipeline({index, name, pipeline}, explicit, request, selected, defaults) do
@@ -275,7 +288,7 @@ defmodule ImagePipe.Plan.Presets do
 
     other =
       Enum.find(selected, fn {_index, other, preset} ->
-        other != name and Enum.any?(preset.groups, fn {_i, options} -> options != %{} end)
+        other != name and Enum.any?(preset.groups, fn {_i, layers} -> layers != [] end)
       end)
 
     cond do
@@ -293,7 +306,7 @@ defmodule ImagePipe.Plan.Presets do
               pipeline.groups
 
             %{groups: %{0 => default}} ->
-              Map.update!(pipeline.groups, 0, &merge_layers([default, &1]))
+              Map.update!(pipeline.groups, 0, &layers([default | &1]))
           end
 
         {:ok,
@@ -306,78 +319,146 @@ defmodule ImagePipe.Plan.Presets do
   end
 
   defp compose_request(request, selected, defaults) do
-    layers = for {_index, _name, preset} <- selected, do: preset.request
-    layers = if defaults, do: [defaults.request | layers], else: layers
-    Enum.reduce(layers ++ [request], %{}, &merge_request/2)
+    preset_layers = for {_index, _name, preset} <- selected, layer <- preset.request, do: layer
+    default_layers = if defaults, do: [defaults.request], else: []
+    layers(default_layers ++ preset_layers ++ [request])
   end
 
-  defp merge_layers(layers) do
-    Enum.reduce(layers, %{}, fn next, previous -> merge_group(next, previous) end)
-  end
+  defp layers(maps), do: Enum.reject(maps, &(&1 == %{}))
 
   defp pipeline?(preset), do: map_size(preset.groups) > 1
 
-  defp merge_group(next, previous) do
-    previous
-    |> prune_override_families(next)
-    |> prune_region_dependents(next)
-    |> Map.merge(next)
-    |> prune_unset_dependents(previous, next)
+  # A group's options from its layers, lowest first.
+  defp resolve_group(layers) do
+    layers |> Enum.reduce([], &clear_group_unsets/2) |> override_group()
   end
 
-  defp merge_request(next, previous) do
-    previous
-    |> prune_families(next, @request_override_families)
-    |> prune_format_qualities(next)
-    |> Map.merge(next, &merge_request_value/3)
-  end
+  defp clear_group_unsets(next, lower) do
+    case for({key, :unset} <- next, do: key) do
+      [] ->
+        lower ++ [next]
 
-  # `q` sets every format, so a layer's `q` replaces lower layers' per-format
-  # qualities. Within one layer, `format-q` wins for the formats it lists.
-  defp prune_format_qualities(previous, %{quality: quality}) when quality != :unset,
-    do: Map.delete(previous, :format_qualities)
-
-  defp prune_format_qualities(previous, _next), do: previous
-
-  # Options holding several values merge field by field, so a layer changes
-  # only the fields it names. `{:unset, value}` clears lower layers before
-  # applying `value`, and keeps clearing when merged into a compiled preset.
-  defp merge_request_value(key, previous, next) when key in @field_merged_options do
-    case {previous, next} do
-      {_previous, :unset} -> :unset
-      {_previous, {:unset, _value}} -> next
-      {:unset, next} -> {:unset, next}
-      {{:unset, previous}, next} -> {:unset, merge_fields(previous, next)}
-      {previous, next} -> merge_fields(previous, next)
+      unsets ->
+        cleared = Enum.map(lower, &Map.drop(&1, group_cleared_keys(unsets)))
+        written = Map.reject(next, fn {_key, value} -> value == :unset end)
+        stale = lower |> override_group() |> Validation.inert_keys()
+        drop_unset_dependents(cleared, written, Map.keys(next), stale) ++ [written]
     end
   end
 
-  defp merge_request_value(_key, _previous, next), do: next
+  defp group_cleared_keys(unsets),
+    do: Enum.flat_map(unsets, &family_of(&1, @group_override_families))
 
-  defp merge_fields(%module{} = previous, next), do: module.merge(previous, next)
-  defp merge_fields(previous, next), do: Map.merge(previous, next)
+  # The keys an unset of `key` clears: its family for a principal, else itself.
+  defp family_of(key, families) do
+    case Enum.find(families, fn {_family, principals} -> key in principals end) do
+      {family, _principals} -> family
+      nil -> [key]
+    end
+  end
 
   # Inherited options made inert by this layer's unsets are cleared with them.
   # Options that were already inert, or that this layer sets, stay so that
   # validation reports them.
-  defp prune_unset_dependents(merged, previous, next) do
-    case Enum.any?(next, &match?({_key, :unset}, &1)) do
-      true ->
-        stale = Validation.inert_keys(drop_unset(previous))
+  defp drop_unset_dependents(lower, written, next_keys, stale) do
+    (lower ++ [written])
+    |> override_group()
+    |> Validation.inert_keys()
+    |> Enum.reject(&(&1 in next_keys or MapSet.member?(stale, &1)))
+    |> case do
+      [] ->
+        lower
 
-        merged
-        |> drop_unset()
-        |> Validation.inert_keys()
-        |> Enum.reject(&(Map.has_key?(next, &1) or MapSet.member?(stale, &1)))
-        |> case do
-          [] -> merged
-          inert -> prune_unset_dependents(Map.drop(merged, inert), previous, next)
-        end
-
-      false ->
-        merged
+      inert ->
+        drop_unset_dependents(Enum.map(lower, &Map.drop(&1, inert)), written, next_keys, stale)
     end
   end
+
+  # Unset-free layers, top down: an option no higher layer replaced clears
+  # what it overrides below it.
+  defp override_group(layers) do
+    cover? = layers |> Enum.reduce(%{}, &Map.merge(&2, &1)) |> cover_resize_consumer?()
+
+    layers
+    |> Enum.reverse()
+    |> Enum.map_reduce(MapSet.new(), fn layer, replaced ->
+      effective = Map.drop(layer, MapSet.to_list(replaced))
+      overridden = Map.keys(effective) ++ group_overrides(effective, cover?)
+      {effective, MapSet.union(replaced, MapSet.new(overridden))}
+    end)
+    |> elem(0)
+    |> Enum.reduce(%{}, &Map.merge/2)
+  end
+
+  defp group_overrides(options, cover?) do
+    families =
+      for {family, principals} <- @group_override_families,
+          Enum.any?(principals, &Map.has_key?(options, &1)),
+          key <- family,
+          do: key
+
+    region =
+      cond do
+        not Map.has_key?(options, :region) -> []
+        cover? -> @crop_modifiers
+        true -> @crop_modifiers ++ @guide_family
+      end
+
+    families ++ region
+  end
+
+  # The request options from their layers, lowest first.
+  defp resolve_request(layers) do
+    layers |> Enum.reduce([], &clear_request_unsets/2) |> override_request()
+  end
+
+  defp clear_request_unsets(next, lower) do
+    cleared =
+      Enum.reduce(next, lower, fn
+        {key, :unset}, lower ->
+          Enum.map(lower, &Map.drop(&1, family_of(key, @request_override_families)))
+
+        {key, {:unset, _value}}, lower ->
+          Enum.map(lower, &Map.delete(&1, key))
+
+        _option, lower ->
+          lower
+      end)
+
+    cleared ++ [drop_unset(next)]
+  end
+
+  # `q` sets every format, so a layer's `q` replaces lower layers' per-format
+  # qualities. Within one layer, `format-q` wins for the formats it lists.
+  # Options holding several values merge field by field, so a layer changes
+  # only the fields it names.
+  defp override_request(layers) do
+    layers
+    |> Enum.reverse()
+    |> Enum.map_reduce(MapSet.new(), fn layer, replaced ->
+      effective = Map.drop(layer, MapSet.to_list(replaced))
+      {effective, MapSet.union(replaced, MapSet.new(request_overrides(effective)))}
+    end)
+    |> elem(0)
+    |> Enum.reverse()
+    |> Enum.reduce(%{}, fn layer, merged ->
+      Map.merge(merged, layer, fn _key, previous, next -> merge_fields(previous, next) end)
+    end)
+  end
+
+  defp request_overrides(options) do
+    families =
+      for {family, principals} <- @request_override_families,
+          Enum.any?(principals, &Map.has_key?(options, &1)),
+          key <- family,
+          do: key
+
+    quality = if Map.has_key?(options, :quality), do: [:format_qualities], else: []
+    (Map.keys(options) -- @field_merged_options) ++ families ++ quality
+  end
+
+  defp merge_fields(%module{} = previous, next), do: module.merge(previous, next)
+  defp merge_fields(previous, next), do: Map.merge(previous, next)
 
   # Removes `:unset` values and the reset marker of `{:unset, value}`, leaving
   # the options a request carries once its layers are merged.
@@ -390,29 +471,6 @@ defmodule ImagePipe.Plan.Presets do
       end
     end
   end
-
-  defp prune_override_families(previous, next) do
-    prune_families(previous, next, @group_override_families)
-  end
-
-  defp prune_families(previous, next, families) do
-    Enum.reduce(families, previous, fn {family, principals}, acc ->
-      case Enum.any?(principals, &Map.has_key?(next, &1)) do
-        true -> Map.drop(acc, family)
-        false -> acc
-      end
-    end)
-  end
-
-  defp prune_region_dependents(previous, %{:region => region} = next) when region != :unset do
-    previous = Map.drop(previous, @crop_modifiers)
-
-    if cover_resize_consumer?(Map.merge(previous, next)),
-      do: previous,
-      else: Map.drop(previous, @guide_family)
-  end
-
-  defp prune_region_dependents(previous, _next), do: previous
 
   defp cover_resize_consumer?(options) do
     resize_intent? =

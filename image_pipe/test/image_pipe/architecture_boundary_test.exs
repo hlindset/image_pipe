@@ -110,7 +110,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
   test "preset resolution runs before and apart from sources and caches" do
     presets = boundary_declaration(ImagePipe.Presets)
 
-    assert_boundary_deps(presets, [ImagePipe.API, ImagePipe.Telemetry])
+    assert_boundary_deps(presets, [ImagePipe.API, ImagePipe.Security, ImagePipe.Telemetry])
     assert_boundary_exports(presets, [])
   end
 

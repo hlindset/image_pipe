@@ -55,6 +55,10 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- The URL builder's validation against a server's presets resolves them
+  the way the server does: a value that a later layer unsets or replaces no
+  longer removes what it would have replaced, and a preset that names other
+  presets gives the same result as listing them.
 - `ImagePipe.URL.url/3` returns `{:error, :invalid_source}` for a source
   that is just `/` or holds a NUL byte, which the server refuses.
   `ImagePipe.URL.group/2` rejects such a `watermark_source:`.
