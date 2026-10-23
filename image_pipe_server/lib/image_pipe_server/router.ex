@@ -10,7 +10,9 @@ defmodule ImagePipeServer.Router do
 
   With `:auth_token_hash` (the SHA-256 of the auth token), requests other than
   the health checks and the stats endpoints must send
-  `Authorization: Bearer <token>`, or get a 401. With `:stats` (see
+  `Authorization: Bearer <token>`, or get a 401. The token is checked before
+  the mount path, so a request outside it without the token gets a 401, not
+  a 404. With `:stats` (see
   `ImagePipeServer.Stats`), `/stats` and `/metrics` answer with the cache
   stats, behind their own token.
 

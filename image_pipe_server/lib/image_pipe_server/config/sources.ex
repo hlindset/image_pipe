@@ -294,8 +294,8 @@ defmodule ImagePipeServer.Config.Sources do
 
   defp static_credentials_schema do
     [
-      access_key_id: [type: {:convert, &header_string/2, "string"}],
-      secret_access_key: [type: {:convert, &header_string/2, "string"}],
+      access_key_id: [type: {:convert, &header_string/2, "string"}, required: true],
+      secret_access_key: [type: {:convert, &header_string/2, "string"}, required: true],
       token: [type: {:convert, &header_string/2, "string"}]
     ]
   end
@@ -335,7 +335,7 @@ defmodule ImagePipeServer.Config.Sources do
     path = path ++ ["static"]
 
     with {:ok, static} <- Convert.options(static, static_credentials_schema(), path),
-         {:ok, static} <- Convert.require_keys(static, [:access_key_id, :secret_access_key], path),
+         {:ok, static} <- Convert.require_keys(static, static_credentials_schema(), path),
          do: {:ok, {:static, static}}
   end
 
@@ -362,10 +362,22 @@ defmodule ImagePipeServer.Config.Sources do
 
   # `plug` is a test hook for the metadata request.
   defp provider_schema(module) do
-    schema = Keyword.delete(module.options_schema(), :plug)
+    schema = module |> provider_options_schema() |> Keyword.delete(:plug)
 
     if Keyword.has_key?(schema, :base),
       do: Keyword.put(schema, :base, type: credentials_type()),
       else: schema
   end
+
+  # The server fills these from the AWS_ variables when the table leaves them
+  # out, so the table needn't set them.
+  defp provider_options_schema(WebIdentity) do
+    Enum.map(WebIdentity.options_schema(), fn {key, spec} ->
+      if Keyword.has_key?(@web_identity_variables, key),
+        do: {key, Keyword.delete(spec, :required)},
+        else: {key, spec}
+    end)
+  end
+
+  defp provider_options_schema(module), do: module.options_schema()
 end

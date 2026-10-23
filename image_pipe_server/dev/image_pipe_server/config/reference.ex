@@ -214,6 +214,7 @@ defmodule ImagePipeServer.Config.Reference do
     header <> body <> "\n" <> note
   end
 
+  defp default_cell(_name, :required), do: "required"
   defp default_cell(_name, default) when not is_nil(default), do: "`#{default}`"
   defp default_cell("address_policy.allow_" <> _category, nil), do: "`false`"
   defp default_cell(name, nil), do: Map.get(@computed_defaults, name, "")
@@ -229,7 +230,7 @@ defmodule ImagePipeServer.Config.Reference do
       default =
         case Keyword.fetch(spec, :default) do
           {:ok, default} -> default
-          :error -> stated_default(spec[:doc])
+          :error -> if spec[:required], do: :required, else: stated_default(spec[:doc])
         end
 
       rows_for(name, type, default)
@@ -322,6 +323,7 @@ defmodule ImagePipeServer.Config.Reference do
   end
 
   defp toml({:stated, literal}), do: literal
+  defp toml(:required), do: :required
   defp toml(value) when is_binary(value), do: inspect(value)
   defp toml(value) when is_number(value) or is_boolean(value), do: to_string(value)
   defp toml(nil), do: nil

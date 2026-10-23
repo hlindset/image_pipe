@@ -16,8 +16,9 @@ defmodule ImagePipeServer.Config do
       affect URL generation and are not accepted.
     * `[sources.<name>]` - named sources
       (see `ImagePipeServer.Config.Sources`).
-    * `[cache]` - the `output` file system cache, and
-      `vary_on` as `[{ header = "..." }, { cookie = "..." }]`.
+    * `[cache]` - the `output` file system cache,
+      `vary_on` as `[{ header = "..." }, { cookie = "..." }]`, and
+      `max_remembered_originals`.
     * `[processing]` - the processing options of `ImagePipe.config/1`,
       including `watermarks.<name>` asset tables, `presets.<name>` option
       fragments, `request_defaults`, and `detector_warmup`, the instance
@@ -26,8 +27,9 @@ defmodule ImagePipeServer.Config do
       defaults to the VM's online schedulers.
     * `[http]` - the delivery options of `ImagePipe.Plug.init/1`.
     * `[telemetry]` - `log_level` is the lowest level the server logs.
-      `log_requests` attaches the default Logger. `log_colors` colors
-      `text` lines by level. `trust_traceparent`
+      `log_requests` attaches the default Logger, and `log_stages` adds its
+      stage lines. `log_format` is `text` or a JSON format, and `log_colors`
+      colors `text` lines by level. `trust_traceparent`
       continues an inbound W3C `traceparent` when tracing is on, and
       `trust_request_id` keeps an inbound `x-request-id`.
     * `[stats]` - `enabled` turns on the cache stats endpoints (see
@@ -264,13 +266,15 @@ defmodule ImagePipeServer.Config do
 
   defp file_system(value, schema, path) do
     with {:ok, options} <- Convert.options(value, schema, path),
-         {:ok, options} <- Convert.require_keys(options, [:root, :max_size_bytes], path),
+         {:ok, options} <- Convert.require_keys(options, schema, path),
          do: {:ok, options}
   end
 
   defp store_schema do
     Store.options_schema()
-    |> Keyword.merge(root: [type: {:convert, &cache_root/2, "string (absolute path)"}])
+    |> Keyword.merge(
+      root: [type: {:convert, &cache_root/2, "string (absolute path)"}, required: true]
+    )
   end
 
   defp cache_root(value, path) do

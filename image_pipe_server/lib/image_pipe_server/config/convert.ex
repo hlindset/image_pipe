@@ -67,10 +67,12 @@ defmodule ImagePipeServer.Config.Convert do
 
   def options(_value, _schema, path), do: {:error, path, "expected a table"}
 
-  @doc "Checks that converted `options` hold each of `keys`."
-  @spec require_keys(keyword(), [atom()], path()) ::
+  @doc "Checks that converted `options` hold each key `schema` marks `required: true`."
+  @spec require_keys(keyword(), keyword(), path()) ::
           {:ok, keyword()} | {:error, path(), String.t()}
-  def require_keys(options, keys, path) do
+  def require_keys(options, schema, path) do
+    keys = for {key, spec} <- schema, spec[:required], do: key
+
     case Enum.find(keys, &(not Keyword.has_key?(options, &1))) do
       nil -> {:ok, options}
       key -> {:error, path ++ [Atom.to_string(key)], "required"}

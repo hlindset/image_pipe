@@ -59,6 +59,14 @@ defmodule ImagePipeServer.Config.ReferenceTest do
     assert reference =~ ~s(`provider = "assume_role"`)
   end
 
+  test "marks required settings", %{reference: reference} do
+    assert reference =~ ~s(| `adapter` | `"file"` or `"http"` or `"s3"` | required |)
+    assert reference =~ "| `endpoint` | string | required |"
+    assert reference =~ "| `output.root` | string (absolute path) | required |"
+    assert reference =~ "| `static.access_key_id` | string | required |"
+    assert reference =~ "| `token_file` | string |  |"
+  end
+
   test "names the settings only Elixir can set", %{reference: reference} do
     assert reference =~
              "Elixir only: `preset_lookup`, `telemetry_prefix`, `clock`"
