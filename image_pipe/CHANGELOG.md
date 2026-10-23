@@ -7,6 +7,9 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- A `[:source, :svg_parse]` span wraps parsing an SVG watermark, and names
+  the limit that rejected it, such as `:svg_bytes`. The default Logger logs
+  it with `stages: true`.
 - The `[:parse]` and `[:request]` stops and the request summary carry
   `:source_url`, the request's source as ImagePipe parsed it, decoded from
   `src64` or decrypted from `enc`, and `:watermark_source_urls`, each

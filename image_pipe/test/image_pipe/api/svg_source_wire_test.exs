@@ -280,6 +280,42 @@ defmodule ImagePipe.API.SVGSourceWireTest do
       assert status.(0.4) == 200
       assert status.(0.5) == 413
     end
+
+    test "report their parse in its own span", %{photo: photo} do
+      prefix = [:svg_watermark_parse_test]
+      handler = {__MODULE__, make_ref()}
+
+      :ok =
+        :telemetry.attach(
+          handler,
+          prefix ++ [:source, :svg_parse, :stop],
+          fn _event, _measurements, metadata, pid -> send(pid, {:svg_parse, metadata}) end,
+          self()
+        )
+
+      on_exit(fn -> :telemetry.detach(handler) end)
+
+      bodies = %{"/photo.png" => photo, "/logo.svg" => @logo}
+      watermarks = %{logo: [source: "logo.svg"]}
+      path = "/wm=logo/wm-scale=0.5/format=png/src/photo.png"
+
+      config = mount(bodies, watermarks: watermarks, telemetry_prefix: prefix)
+      assert ImagePipe.Plug.call(conn(:get, path), config).status == 200
+      assert_received {:svg_parse, %{result: :ok, asset: :watermark, intrinsic_dims: {4, 4}}}
+
+      config =
+        mount(bodies, watermarks: watermarks, telemetry_prefix: prefix, svg: [max_bytes: 10])
+
+      assert ImagePipe.Plug.call(conn(:get, path), config).status == 413
+
+      assert_received {:svg_parse,
+                       %{
+                         result: :processing_error,
+                         asset: :watermark,
+                         error: :input_limit,
+                         limit: :svg_bytes
+                       }}
+    end
   end
 
   describe "the svg_render span" do

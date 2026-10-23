@@ -448,6 +448,14 @@ defmodule ImagePipe.Telemetry.Logger do
     "image_pipe source svg_render: #{result(meta)} (#{Enum.join(notes, ", ")})"
   end
 
+  defp message([:source, :svg_parse | _], _m, %{intrinsic_dims: {width, height}} = meta),
+    do: "image_pipe source svg_parse: #{result(meta)} (#{meta[:asset]} #{width}x#{height})"
+
+  defp message([:source, :svg_parse | _], _m, meta) do
+    notes = Enum.reject([meta[:asset], error_category(meta), limit_note(meta)], &is_nil/1)
+    "image_pipe source svg_parse: #{result(meta)} (#{Enum.join(notes, ", ")})"
+  end
+
   defp message([:source, :fetch_decode | _], _m, meta) do
     notes =
       Enum.reject(

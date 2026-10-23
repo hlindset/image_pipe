@@ -208,4 +208,6 @@ size, and the size it rendered at:
 A rejected SVG names the limit, such as
 `svg_render: processing_error (original, input_limit, svg_render_work limit)`.
 The [`[:source, :svg_render]`](telemetry-events.md#source-svg_render) event
-lists every limit.
+lists every limit. A watermark SVG that is rejected before it renders logs
+[`[:source, :svg_parse]`](telemetry-events.md#source-svg_parse) instead, such as
+`svg_parse: processing_error (watermark, input_limit, svg_bytes limit)`.

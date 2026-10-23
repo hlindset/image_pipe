@@ -1167,6 +1167,28 @@ defmodule ImagePipe.Telemetry.LoggerTest do
              "source svg_render: processing_error (watermark, input_limit, svg_render_work limit)"
   end
 
+  test "renders an SVG parse's size, and a rejected parse's limit" do
+    Telemetry.attach_default_logger(level: :info, stages: true)
+
+    log =
+      capture_log(fn ->
+        :telemetry.execute(
+          [:image_pipe, :source, :svg_parse, :stop],
+          %{duration: System.convert_time_unit(1, :millisecond, :native)},
+          %{result: :ok, asset: :watermark, intrinsic_dims: {4, 4}}
+        )
+
+        :telemetry.execute(
+          [:image_pipe, :source, :svg_parse, :stop],
+          %{duration: System.convert_time_unit(1, :millisecond, :native)},
+          %{result: :processing_error, asset: :watermark, error: :input_limit, limit: :svg_bytes}
+        )
+      end)
+
+    assert log =~ "source svg_parse: ok (watermark 4x4)"
+    assert log =~ "source svg_parse: processing_error (watermark, input_limit, svg_bytes limit)"
+  end
+
   test "renders a skipped source on the fetch_decode span" do
     Telemetry.attach_default_logger(level: :info, stages: true)
 

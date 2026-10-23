@@ -428,12 +428,39 @@ size. The default Logger doesn't log it.
     one.
 - Stop metadata: `:result` (atom), `:ok` or `:processing_error`.
 
+### `[:source, :svg_parse]`
+
+Span. Wraps reading and parsing an SVG watermark, when the request's
+watermark images are decoded during
+[`[:transform, :execute]`](#transform-execute), or
+[`[:output, :terminal]`](#output-terminal) for an `output=info`,
+`blurhash`, or `lqip-css` request. The watermark then renders in a
+[`[:source, :svg_render]`](#source-svg_render) span of its own.
+
+- Start metadata: `:asset` (atom), `:watermark`.
+- Stop metadata on success:
+  - `:result` (atom): `:ok`.
+  - `:intrinsic_dims` (`{width, height}`): the SVG's own size in pixels.
+- Stop metadata on failure:
+  - `:result` (atom): `:processing_error`.
+  - `:error` (atom): `:decode` for an SVG that doesn't parse, or
+    `:input_limit`.
+  - `:limit` (atom): with `:input_limit`, the limit that rejected the SVG:
+    `:svg_bytes`, `:svg_elements`, `:svg_entities`, `:svg_text`,
+    `:svg_nesting`, or `:pixels` (an embedded image is over
+    `max_input_pixels`). [`[:source, :svg_render]`](#source-svg_render)
+    describes each one.
+
 ### `[:source, :svg_render]`
 
-Span. Wraps rendering an SVG: parsing it, estimating the rendering cost, and
-rendering it at the size the request needs. An SVG original renders during
-[`[:source, :fetch_decode]`](#source-fetch_decode), and an SVG watermark
-during [`[:transform, :execute]`](#transform-execute).
+Span. Wraps estimating an SVG's rendering cost and rendering it at the size
+the request needs. An SVG original renders during
+[`[:source, :fetch_decode]`](#source-fetch_decode), and its span also covers
+reading and parsing it. An SVG watermark renders during
+[`[:transform, :execute]`](#transform-execute), or
+[`[:output, :terminal]`](#output-terminal) for an `output=info`,
+`blurhash`, or `lqip-css` request, and is parsed earlier, in
+[`[:source, :svg_parse]`](#source-svg_parse).
 
 - Start metadata: `:asset` (atom), `:original` or `:watermark`.
 - Stop metadata on success:
@@ -459,12 +486,15 @@ during [`[:transform, :execute]`](#transform-execute).
     nested too deep), `:pixels` (an original's render, or an embedded image,
     is over `max_input_pixels`), `:svg_render_work`, `:svg_render_pixels`,
     or `:svg_render_extent` (drawn geometry reaches more than 32,767 pixels
-    from the canvas, which the renderer can't draw).
+    from the canvas, which the renderer can't draw). A watermark's render
+    reports only `:svg_render_work`, `:svg_render_pixels`, or
+    `:svg_render_extent`.
 
 ### `[:source, :watermark]`
 
 Span. Wraps getting one watermark image, in its own process while the main
-original is fetched. That image's source spans nest in it.
+original is fetched. That image's fetch spans nest in it. An SVG watermark's
+parse and render spans don't.
 
 - Start metadata: `:phase` (atom), `:prepare` when its identity is checked
   before the conditional check, or `:open` when its bytes are read after an

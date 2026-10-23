@@ -664,6 +664,22 @@ defmodule ImagePipe.Telemetry.Trace.HandlerTest do
     assert render.attributes[:peak] == 80_000
   end
 
+  test "records a watermark SVG parse with its size and limit" do
+    Telemetry.span([], [:transform, :execute], %{}, fn ->
+      Telemetry.span([], [:source, :svg_parse], %{asset: :watermark}, fn ->
+        {{:error, :limit}, %{result: :processing_error, error: :input_limit, limit: :svg_bytes}}
+      end)
+
+      {:ok, %{result: :ok}}
+    end)
+
+    assert_receive {:span, %Span{name: "image_pipe.source.svg_parse"} = parse}
+    assert_receive {:span, %Span{name: "image_pipe.transform.execute"} = execute}
+    assert parse.parent_span_id == execute.span_id
+    assert parse.attributes[:asset] == "watermark"
+    assert parse.attributes[:limit] == "svg_bytes"
+  end
+
   test "nests the ssimulacra2 probe cost legs (encode/decode/metric) under the probe span" do
     Telemetry.span([], [:encode, :search, :probe], %{quality: 62, phase: :objective}, fn ->
       Telemetry.span([], [:encode, :search, :probe, :encode], %{quality: 62}, fn ->
