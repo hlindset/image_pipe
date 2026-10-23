@@ -5,6 +5,8 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-23
+
 ### Added
 
 - With `:validate_against`, `ImagePipe.URL.validate/1` warns about a `crop`
@@ -27,13 +29,16 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Errors from parsing a URL state the accepted range for sizes, offsets,
   `pad`, `wm-gap`, `dpr`, `zoom`, `crop-ratio`, `detect`, `blur`,
   `progressive-blur`, `sharpen`, `pixelate`, `contrast`, `saturation`, and
-  the `trim` tolerance, and show which `gradient` values are optional. An invalid value given to the URL builder now appears in its
-  error, with the accepted range for numbers, as in `invalid value for :dpr
-  option: expected a number above 0, at most 2147483647, got: 0`. An invalid
-  source isn't repeated in its error.
-- `ImagePipe.URL.config/1` raises an `ArgumentError` that names `:presets`
-  when the `:presets` in `:validate_against` isn't a map with string keys,
-  instead of a `Protocol.UndefinedError`.
+  the `trim` tolerance, and show which `gradient` values are optional.
+- An invalid value given to the URL builder appears in its error, with the
+  accepted range for numbers, as in `invalid value for :dpr option:
+  expected a number above 0, at most 2147483647, got: 0`. An invalid source
+  isn't repeated in its error.
+- **Breaking:** The `:presets` in `:validate_against` must be a map with
+  string keys. Change a list of `{name, fragment}` pairs to a map such as
+  `%{"card" => "w=400"}`. `ImagePipe.URL.config/1` raises an
+  `ArgumentError` that names `:presets` for any other value, instead of a
+  `Protocol.UndefinedError`.
 - A `region` whose x or y is `0pct` gives the same plan as one written with
   `0`.
 - `detect=all:3`, one weight for every class, gives the same plan as
@@ -138,7 +143,8 @@ First release of the ImagePipe URL builder.
 - Generate URLs in applications that use an external image service, without
   libvips, NIFs, or image processing dependencies.
 
-[Unreleased]: https://github.com/hlindset/image_pipe/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/hlindset/image_pipe/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/hlindset/image_pipe/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/hlindset/image_pipe/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/hlindset/image_pipe/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/hlindset/image_pipe/releases/tag/v0.1.0

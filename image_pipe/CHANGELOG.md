@@ -5,6 +5,8 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-23
+
 ### Added
 
 - A `[:source, :svg_parse]` span wraps parsing an SVG watermark, and names
@@ -46,11 +48,11 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   encode in one request, 100,000,000 by default. A search stops early when
   the next quality would pass it. On a 40-megapixel AVIF or WebP result it
   tries two qualities, plus up to two encodes to deliver one, where a search
-  with both options could encode 11 times or more and take 45 seconds.
-  `:infinity` turns the limit off. See
+  with both options could encode up to 11 times and take up to 45 seconds.
+  `:infinity` turns the limit off. The `[:encode, :search]` stop event
+  carries `:pixel_limited`, and its `:limiting_factor` can be
+  `:search_pixels`. See
   [Limiting quality search work](docs/deployment.md#limiting-quality-search-work).
-  The `[:encode, :search]` stop event carries `:pixel_limited`, and its
-  `:limiting_factor` can be `:search_pixels`.
 
 ### Changed
 
@@ -69,16 +71,14 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `:allow` in the source's `:address_policy`.
 - The HTTP source allows an IPv4 origin reached through a NAT64 gateway
   from an IPv6-only network, at an address such as `64:ff9b::93.184.216.34`,
-  when the IPv4 address is public. Every such address was refused. An IPv4
-  range in `:allow` also matches the NAT64 form of its addresses.
+  when the IPv4 address is public. Before, every such address was refused.
+  An IPv4 range in `:allow` also matches the NAT64 form of its addresses.
 - **Breaking:** `ImagePipe.Source.Path` has only a `segments` field. Its
   `scheme` field was always `nil` in a path an adapter receives, so remove
   `scheme:` from any pattern that matches the struct.
 - **Breaking:** `storage_inputs` is now `vary_on`, and the
   `ImagePipe.run/4` option `request_inputs` is now `vary_values`. Rename
   them in your configuration and calls.
-- Images from an origin are cached under new keys, so after the upgrade
-  each original is downloaded and each processed copy is made once more.
 - **Breaking:** An `ImagePipe.Plug` mount without `:keys` raises
   `ArgumentError` on every request unless its configuration sets
   `allow_unsigned: true`. Serve public traffic with signed URLs, and set
@@ -105,13 +105,12 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   your handler.
 - A request with `crop=100pct,100pct` and no `crop-ratio`, or with
   `region=0,0,100pct,100pct`, is processed as the same request without them,
-  since they keep the whole image, and gets its cache key and ETag. Cached
-  copies of such requests miss once after an upgrade. The
+  since they keep the whole image, and gets its cache key and ETag. The
   `[:request, :ignored_options]` event, and with `debug` the
   `X-ImagePipe-Ignored-Options` header, list the crop or region and the
   options only it made useful, such as `anchor`.
-- Requests that use `autoquality` or `max-bytes` have new cache keys and
-  ETags, so their cached copies miss once after upgrading.
+- Requests that use `autoquality` or `max-bytes` have new ETags, so
+  clients and CDNs download them again once after the upgrade.
 - A filesystem cache misses once after upgrading for every image it stored
   before, and its startup sweep deletes those entries.
 - A filesystem cache's startup sweep reads its metadata files only when the
@@ -127,10 +126,10 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   smaller sigma than before (up to 624 on a 10-megapixel image). A
   progressive blur counts (2 × sigma² + 50,000), so it allows a smaller
   sigma (up to 418 on a 10-megapixel image), and the default limit refuses
-  any progressive blur on a 100-megapixel image. A request
-  over the limit fails with `422` and the message "blur and sharpen work
-  exceeds the limit". Raise the limit if your requests chain large blurs, or
-  set it to `:infinity` to turn it off. See
+  any progressive blur on a 100-megapixel image. A request over the limit
+  fails with `422` and the message "blur and sharpen work exceeds the
+  limit". Raise the limit if your requests chain large blurs, or set it to
+  `:infinity` to turn it off. See
   [Limiting blur and sharpen work](docs/deployment.md#limiting-blur-and-sharpen-work).
 - When a cache with `max_size_bytes` is full, it keeps images made from
   progressive JPEGs longer, since they cost more to render again than
@@ -145,11 +144,14 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Concurrent requests for one new original share its download in more
   configurations, and no longer wait for a download they would repeat. See
   [request coalescing](docs/caching-and-freshness.md#request-coalescing).
-  - Requests for the same processed image download the original once,
-    with or without a cache. Before, without an originals cache, each one
-    waited for the first download and then downloaded it again.
+  - Requests for an original from an HTTP or S3 source download it once,
+    whatever size or format they ask for, with or without a cache, while
+    up to 4,096 originals are being fetched at once. Before, without an
+    originals cache, requests for the same processed image waited for the
+    first download and then downloaded it again, and requests for other
+    sizes each downloaded it themselves.
   - Requests for an original from a source with caching turned off
-    download it at the same time.
+    download it at the same time instead of one after another.
   - When the original may not be stored, waiting requests start their own
     downloads as soon as the origin responds, instead of after the first
     download finishes.
@@ -164,6 +166,8 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   for an original from a source with `internal_cache: :disabled`, or for a
   local file from an immutable source. `:source` can report `:bypass` with
   `reason: :not_stored` when the original may not be stored.
+- **Breaking:** `:presets` must be a map. Change a list of
+  `{name, fragment}` pairs to a map such as `%{"card" => "w=400"}`.
 - **Breaking:** An `ImagePipe.Source.S3.CredentialProvider`'s
   `fetch_credentials/1` takes only the provider's options, without the
   bucket, and `ImagePipe.Source.S3.CredentialWarmup` has no `:scope`
@@ -183,12 +187,12 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   take far more disk than the cap. A cache whose entries now count past its
   cap evicts down to it at startup after the upgrade.
 - When a cache with `max_size_bytes` is full, a new processed image that
-  many requests want is kept sooner. The cache now counts
-  each request that misses it, including requests that wait for another
-  request's copy, instead of counting how often it's written.
+  many requests want is kept sooner. The cache now counts each request that
+  misses it, including requests that wait for another request's copy,
+  instead of counting how often it's written.
 - A cache with `max_size_bytes` uses less than half the memory to track
   its entries: about 175 bytes per stored image instead of over 400, which
-  saves at least 45 MB for a cache of 200 000 images.
+  saves at least 45 MB for a cache of 200,000 images.
 - The default Logger shows a coordination event's reason after its result,
   as in `bypass (deadline)`. It logs a `:bypass` with reason `:not_stored`
   at its base level.
@@ -205,10 +209,9 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   processed-image cache, for up to `max_remembered_originals` originals.
   They no longer take its space or get evicted with its images. After a
   restart, a local file is hashed again, and an image from an origin is
-  downloaded again, on its first request. Those already stored in a
-  cache are no longer read, and the cache evicts them in time like any image
-  it holds. Keeping these details takes none of the processed-image cache's
-  64 writes, so it never makes a processed image's write drop.
+  downloaded again, on its first request. Remembering them uses none of the
+  cache's 64 concurrent writes, so it never causes a processed image's
+  write to be dropped.
 - A cache with `max_size_bytes` deletes a rejected write without syncing it
   to disk. Once the popular images don't fit in the cache, that saves most
   of its write I/O. A write that waits more than 5 seconds to be kept or
@@ -233,8 +236,7 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   CPU that `max_blur_work` allows. A `rotate` by an angle other than a
   quarter turn is copied the same way before such a step.
 - A request for a cached image from a local file no longer opens the file
-  while its size and timestamps are unchanged. The file is opened only when
-  it's read.
+  while its size and timestamps are unchanged.
 - A cache with `max_size_bytes` keeps its counts of the requests that miss
   each image in 4 MB per 50 GB of `max_size_bytes`, allocated when it
   starts. Before, a busy 50 GB cache's counts grew to about 70 MB and slowed
@@ -273,15 +275,11 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   about 36 MB for a 1 GB cache, and at most about 90 MB unless
   `max_remembered_entries` sets the number of entries. See
   [Cache process and restarts](docs/cache.md#cache-process-and-restarts).
-
 - A second instance whose cache `root` another instance in the VM already
   uses raises `ArgumentError` naming the root when it starts. Before, its
   start failed with `{:already_started, pid}`.
 - The cache, downloads, and decoding no longer queue their file operations
   behind the Erlang VM's single file-server process.
-- Concurrent requests for different sizes or formats of an original from an
-  HTTP or S3 source share one download, with or without a cache. Before,
-  without an originals cache, each request downloaded the original itself.
 - An instance keeps the bytes of up to 64 recently used watermark images in
   memory, so a watermark from an origin is no longer downloaded for every
   processed image. See [What is stored](docs/cache.md#what-is-stored).
@@ -321,49 +319,41 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
-- `:counting?` in `ImagePipe.cache_stats/1` turns `false` once the startup
-  scan has counted the entries on disk, as documented. Before, it stayed
-  `true` until the startup sweep had also deleted leftover files.
 - A `debug` response from a configuration without a cache leaves out
   `X-ImagePipe-Cache-Key`, as documented. Before, it carried a key that
   nothing could be stored under.
-- Presets and request defaults: a value that a later preset or URL option
-  unsets or replaces no longer removes what it would have replaced. With
+- When a later preset or URL option unsets or replaces a value from a
+  preset or the request defaults, the value that one replaced still
+  applies. With
   request defaults of `format-q=avif:50` and a preset `q80` defined as
   `q=80`, `/preset=q80/q=unset` encodes AVIF at 50. A preset that names
   other presets gives the same result as listing them in the URL. Requests
   that hit these cases get new cache keys and ETags. See
   [clearing inherited values](docs/presets.md#clearing-inherited-values).
-- A request that uses a looked-up preset naming a watermark the
-  configuration doesn't define, or carrying a `wm-enc` token that no key in
-  `:source_encryption_keys` decrypts, answers `500`, and `ImagePipe.run/4`
-  returns `{:preset, :invalid_definition}`, like other invalid stored
-  presets. Before, it failed with `400` or `404`, as if the requester had
-  made a mistake.
+- A request that uses a preset your `:preset_lookup` returns, naming a
+  watermark the configuration doesn't define, or carrying a `wm-enc` token
+  that no key in `:source_encryption_keys` decrypts, answers `500`, and
+  `ImagePipe.run/4` returns `{:preset, :invalid_definition}`, like other
+  invalid stored presets. Before, it failed with `400` or `404`, as if the
+  requester had made a mistake.
 - The daily sweep of a filesystem cache's leftover files keeps running after
   one of the cache's processes restarts, and after a sweep fails. Before, it
   stopped until ImagePipe restarted.
 - The request summary and the default Logger's request line carry `:reason`
   for a `403` invalid signature, a `400` for a signed URL sent to a mount
-  without signing keys, a `410` expired URL, and a `404` concealed source that doesn't
-  decrypt. Before, these lines had no reason.
+  without signing keys, a `410` expired URL, and a `404` concealed source
+  that doesn't decrypt. Before, these lines had no reason.
 - A crash report from a streaming response, or from
   `ImagePipe.Source.S3.CredentialWarmup`, no longer prints the configured
   origin credentials, such as S3 keys and authorization headers.
-- **Breaking:** `ImagePipe.Source.S3.ContainerCredentials` rejects a
-  `base_url` that doesn't use `https`, a loopback host, or the ECS or EKS
-  credential endpoint, as it already did for `full_uri`. Before, a
-  `relative_uri` sent the authorization token to any `base_url`. The default
-  `base_url` is unaffected. Change any other `base_url` to use `https` or a
-  loopback host.
 - A request path with bytes that aren't valid UTF-8 no longer makes the
   telemetry path invalid UTF-8. They become `U+FFFD`.
 - `ImagePipe.config/1` raises a duplicate-option error for an option given
   more than once. Before, it raised an unknown-option error for it.
-- Request headers and cookies named in `vary_on` no longer select a separate
-  stored original. Every value shares one stored original. Only the
-  processed images differ. A new cachebuster still downloads the original
-  again.
+- Requests that differ only in the header or cookie values named in
+  `vary_on` share one download of their original and one remembered
+  original. Only the processed images differ. A new cachebuster still
+  downloads the original again.
 - A preset or `:request_defaults` with a `wm-enc` token that the
   `:source_encryption_keys` can't decrypt raises `ArgumentError` when
   ImagePipe starts. Before, the configuration was accepted and every request
@@ -376,10 +366,6 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - A cached image whose delivery failed after its headers were sent logs its
   request line at `error`, with status `200`. Before, the line had no status
   and logged at `warning`.
-- Requests for a new original, identical or for other sizes and formats,
-  share one download while up to 4,096 originals are being fetched at once.
-  Before, once 64 were being fetched, each request downloaded the original
-  itself.
 - A request that stopped waiting for another request's download of an
   original, just as that download finished, no longer keeps the original
   locked, even when the server takes more than 5 seconds to respond. Later
@@ -400,18 +386,11 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   decode had finished.
 - An image whose EXIF date fields aren't plain numbers (such as
   `2024:01:01 02+02:00:00`) or aren't stored as text no longer fails with
-  a 500 when metadata is stripped. All of its metadata is removed,
-  including the copyright and
-  artist that `keep_copyright` would keep.
+  a `500` when metadata is stripped. All of its metadata is removed,
+  including the copyright and artist that `keep_copyright` would keep.
 - A watermark with an opacity below `1` blends with the image at its exact
   faded alpha. Before, the faded alpha was rounded to a whole level first,
   so a watermark's edges or faint areas could be off by one level.
-- Redacting a request path for telemetry, and echoing it in a `400`
-  response, take time in proportion to the path's length. A path with many
-  `wm-src64=` segments took seconds to redact, and other crafted 10 KB
-  paths took tens of milliseconds. Telemetry redacts every request path
-  before its URL signature is checked, so an unsigned request could cause
-  this.
 - An S3 credential fetch from a provider that hangs fails after 30 seconds,
   and the next request fetches again. Before, a hung fetch held up every
   request for those credentials until the server restarted.
@@ -420,8 +399,8 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   instead of `:pool_timeout`. When the source's host resolves to several
   addresses, a fetch no longer tries the next one with less than 100 ms of
   `fetch_timeout` left.
-- A request with `format=webp` while WebP is lossless no longer fails with
-  `400` when it, a preset, or the request defaults set `autoquality` or
+- A request with `format=webp` and lossless `webp-options` no longer fails
+  with `400` when it, a preset, or the request defaults set `autoquality` or
   `max-bytes`. The options are ignored, as with `format=png`.
 - A preset group holding only `unset` options is kept when the preset is
   compiled, so a first group like that clears the request defaults, as the
@@ -431,11 +410,9 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   preset, so adding other options to it answers `400`.
 - A `:presets` option that isn't a map with string keys, such as a string
   or `nil`, raises an `ArgumentError` that names `:presets` instead of a
-  `Protocol.UndefinedError`. A list of `{name, fragment}` pairs is no
-  longer accepted.
+  `Protocol.UndefinedError`.
 - A `region` whose x or y is `0pct` gets the cache key and ETag of the same
-  region written with `0`. Cached copies of such requests miss once after an
-  upgrade.
+  region written with `0`.
 - A detector whose `warmup/1` raises no longer stops its `ImagePipe`
   instance. The warmup logs a warning and retries, as it does for
   `{:error, reason}`. A detector whose `available?/1` raises is skipped
@@ -444,38 +421,37 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   longer prints the detector's options.
 - `detect=all:3`, one weight for every class, gets the cache key and ETag of
   `detect=all`, since a weight that every class shares doesn't move the
-  crop. Cached copies of such requests miss once after an upgrade.
+  crop.
 - The request summary of a `HEAD` request that misses the cache no longer
   reports body bytes (`:bytes`, and the size in its log line), since none are
   sent.
-- A `src` URL with credentials that decodes to invalid UTF-8 no longer loses
-  its request summary log line.
-- A `crop` placed by an anchor, including the default centre, or by a focus
+- A request whose `src` URL holds a user name or password that isn't valid
+  UTF-8 once decoded keeps its request summary log line.
+- A `crop` placed by an anchor, including the default center, or by a focus
   point, followed by a resize, now lands where it would on a full-size
   decode. Before, a source decoded at a reduced size for the resize could
   place it up to one output pixel off.
 - Downscaling a 16-bit image or watermark without transparency, including
   the scale-down to fit the result limits or a format's size limit, no
-  longer darkens it slightly. Each value lost about 0.2%, so white came back as
-  65455 instead of 65535.
-- An image scaled down to fit `:max_result_width`, `:max_result_height`, or
-  `:max_result_pixels` keeps the exact colors of its semi-transparent pixels
-  and uses the request's `kernel`. Before, a semi-transparent pixel could
-  lose a level, so `[200, 120, 37, 100]` became `[200, 119, 37, 100]`, and a
-  `kernel=nearest` result was smoothed.
+  longer darkens it slightly. Each value lost about 0.1%, so white came
+  back as 65455 instead of 65535.
+- An image scaled down to fit `:max_result_width`, `:max_result_height`,
+  `:max_result_pixels`, or a format's size limit keeps the exact colors of
+  its semi-transparent pixels and uses the request's `kernel`. Before, a
+  semi-transparent pixel could lose a level, so `[200, 120, 37, 100]` became
+  `[200, 119, 37, 100]`, and a `kernel=nearest` result was smoothed.
 - When the first load of the face or object model failed, each detection
   request waiting for it tried the load again in turn, so the last one
   waited for every attempt. Those requests now fail with the first load's
   error at once: the crop falls back to attention, or the request fails with
   `500` when `detector_required` is set. The next request loads again.
 - `png-options=palette,bitdepth:16` multiplies 8-bit color by 257, as
-  `bitdepth:16` without `palette` does. Before, it multiplied by 256. A PNG
-  at 16 bits has no palette, so `q` doesn't apply to it.
+  `bitdepth:16` without `palette` does. Before, it multiplied by 256.
 - `png-options=bitdepth:1`, `2`, or `4` on a 16-bit color or gray-and-alpha
   result encodes at 8 bits, as on an 8-bit one. Before, it encoded at
   16 bits.
 - A `crop-ratio` far from the `crop` size's own ratio, such as `1:4000`
-  for a square crop, no longer fails with a 500. Each side of the crop
+  for a square crop, no longer fails with a `500`. Each side of the crop
   keeps at least one pixel.
 - A client error, such as a `404` for a missing source, on a URL with
   `expires` caps a host's `Cache-Control` at the URL's expiry, as an image
@@ -501,14 +477,12 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and its `unset` removes only that option. Before, `anchor-offset=5,5`
   dropped a preset's `anchor`. See
   [presets](docs/requesting-images.md#named-presets).
-- A `trim` tolerance with hundreds of digits no longer fails with a 500.
-  Tolerances above `2147483647` now fail with a 400.
-- A processed-image cache entry whose stored details about its original are
-  incomplete is now served. Before, a request that read it failed with a 500.
+- A `trim` tolerance with hundreds of digits no longer fails with a `500`.
+  Tolerances above `2147483647` now fail with a `400`.
 - Resizing a JPEG or WebP image only a few pixels high or wide, such as a
-  2000×3 image at `w=100`, no longer fails with a 415. Neither does shrinking
-  a WebP so far that its short side would be under one pixel, such as
-  `w=1/dpr=0.5`.
+  2000×3 image at `w=100`, no longer fails with a `415`. Neither does
+  shrinking a WebP so far that its short side would be under one pixel, such
+  as `w=1/dpr=0.5`.
 - S3 credentials that a provider returns with less than five minutes left
   are fetched again at half their remaining time, instead of every five
   seconds until the provider rotates them.
@@ -570,8 +544,20 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Security
 
-- Plain-text error responses, such as the 400 and the 405, now send
-  `X-Content-Type-Options: nosniff`. A 400 body quotes the request
+- **Breaking:** `ImagePipe.Source.S3.ContainerCredentials` rejects a
+  `base_url` that doesn't use `https`, a loopback host, or the ECS or EKS
+  credential endpoint, as it already did for `full_uri`. Before, a
+  `relative_uri` sent the authorization token to any `base_url`. The default
+  `base_url` is unaffected. Change any other `base_url` to use `https` or a
+  loopback host.
+- Redacting a request path for telemetry, and echoing it in a `400`
+  response, take time in proportion to the path's length. A path with many
+  `wm-src64=` segments took seconds to redact, and other crafted 10 KB
+  paths took tens of milliseconds. Telemetry redacts every request path
+  before its URL signature is checked, so an unsigned request could cause
+  this.
+- Plain-text error responses, such as the `400` and the `405`, now send
+  `X-Content-Type-Options: nosniff`. A `400` body quotes the request
   path, so a browser that sniffs content types could otherwise render it as
   HTML.
 - The default Logger and the span tracer cap how much of each error reason
@@ -1151,7 +1137,8 @@ First release of ImagePipe, with image processing powered by
   delivery, request safety limits, and processing concurrency. Observe requests
   through telemetry, logging, and tracing.
 
-[Unreleased]: https://github.com/hlindset/image_pipe/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/hlindset/image_pipe/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/hlindset/image_pipe/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/hlindset/image_pipe/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/hlindset/image_pipe/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/hlindset/image_pipe/releases/tag/v0.1.0
