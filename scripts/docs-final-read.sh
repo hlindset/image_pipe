@@ -13,11 +13,9 @@
 #   Links:  runs `mix docs` in image_pipe/ and fails on its warnings.
 #
 # Usage: docs-final-read.sh [--base REF] [--no-links] [FILE...]
-#        docs-final-read.sh --touches-docs FILE
 #
 # Without FILEs, checks every documentation file changed since the base,
-# committed or not. --touches-docs exits 0 when FILE is documentation with
-# lines added since the base, and prints nothing.
+# committed or not.
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -25,14 +23,12 @@ cd "$root"
 
 base=""
 links=true
-touches=false
 files=()
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --base) base="$2"; shift 2 ;;
     --no-links) links=false; shift ;;
-    --touches-docs) touches=true; shift ;;
     *) files+=("${1#"$root"/}"); shift ;;
   esac
 done
@@ -98,13 +94,6 @@ pass4() {
       if (text ~ /;|—/) print
     }'
 }
-
-if $touches; then
-  [ ${#files[@]} -eq 1 ] || { echo "--touches-docs takes one file" >&2; exit 2; }
-  doc_file "${files[0]}" && [ -f "${files[0]}" ] || exit 1
-  doc_added_lines "${files[0]}" | grep -q .
-  exit
-fi
 
 if [ ${#files[@]} -eq 0 ]; then
   while IFS= read -r file; do
