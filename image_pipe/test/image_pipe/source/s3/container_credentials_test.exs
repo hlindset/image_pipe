@@ -99,6 +99,20 @@ defmodule ImagePipe.Source.S3.ContainerCredentialsTest do
     assert {:error, _message} = ContainerCredentials.validate_options(bogus: 1)
   end
 
+  test "validate_options applies the same guard to the base_url a relative_uri joins" do
+    assert {:error, _message} =
+             ContainerCredentials.validate_options(
+               base_url: "http://evil.example",
+               relative_uri: "/creds"
+             )
+
+    for base_url <- ["https://creds.example", "http://127.0.0.1:8080", "http://169.254.170.2"] do
+      assert :ok =
+               ContainerCredentials.validate_options(base_url: base_url, relative_uri: "/creds"),
+             base_url
+    end
+  end
+
   test "validate_options rejects an auth_token with a line break or NUL without quoting it" do
     for token <- ["SECRET\r\nX: y", "SECRET\n", "SECRET" <> <<0>>] do
       assert {:error, message} =

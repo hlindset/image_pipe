@@ -545,15 +545,25 @@ defmodule ImagePipe.Config do
   # schema's own unknown-option error would leave them out of the valid list.
   defp known_options!(options) do
     known = @url_keys ++ Keyword.keys(@schema.schema)
+    keys = Keyword.keys(options)
 
-    case Keyword.keys(options) -- known do
+    case keys |> Enum.reject(&(&1 in known)) |> Enum.uniq() do
       [] ->
         :ok
 
       unknown ->
         raise ArgumentError,
-              "invalid ImagePipe configuration: unknown options #{inspect(Enum.uniq(unknown))}, " <>
+              "invalid ImagePipe configuration: unknown options #{inspect(unknown)}, " <>
                 "valid options are: #{inspect(known)}"
+    end
+
+    case Enum.uniq(keys -- Enum.uniq(keys)) do
+      [] ->
+        :ok
+
+      duplicates ->
+        raise ArgumentError,
+              "invalid ImagePipe configuration: duplicate options #{inspect(duplicates)}"
     end
   end
 
