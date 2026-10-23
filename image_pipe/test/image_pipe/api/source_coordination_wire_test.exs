@@ -126,7 +126,7 @@ defmodule ImagePipe.API.SourceCoordinationWireTest do
     assert_receive {:fetch, ["original"], _}
     assert_receive {:streaming, leader}
     second = async(context, fn -> request(mount, 12) end)
-    assert_receive {:coordination, %{operation: :download, result: :waiting}}
+    await_source_waiter(second.pid)
     send(leader, :continue)
 
     original = Task.await(first)
@@ -149,7 +149,7 @@ defmodule ImagePipe.API.SourceCoordinationWireTest do
     assert_receive {:fetch, ["original"], _}
     assert_receive {:streaming, leader}
     second = async(context, fn -> request(mount, 12) end)
-    assert_receive {:coordination, %{operation: :download, result: :waiting}}
+    await_source_waiter(second.pid)
     send(leader, :continue)
 
     original = Task.await(first)
@@ -175,7 +175,7 @@ defmodule ImagePipe.API.SourceCoordinationWireTest do
     assert_receive {:fetch, ["original"], _}
     assert_receive {:streaming, leader}
     second = async(context, fn -> request(mount, 12) end)
-    assert_receive {:coordination, %{operation: :download, result: :waiting}}
+    await_source_waiter(second.pid)
     send(leader, :continue)
 
     original = Task.await(first)
@@ -237,68 +237,6 @@ defmodule ImagePipe.API.SourceCoordinationWireTest do
     assert Task.await(second).status == 200
   end
 
-  test "an identical request is released when the origin forbids storing the original",
-       context do
-    attach_summaries(context)
-
-    mount =
-      start(context,
-        cache: [root: Path.join(context.root, "output")],
-        origin: origin("no-store")
-      )
-
-    first = async(context, fn -> request(mount, 12, "blocked") end)
-    assert_receive {:fetch, ["blocked"], leader}
-    second = async(context, fn -> request(mount, 12, "blocked") end)
-    assert_receive {:coordination, %{pool: :download, operation: :download, result: :waiting}}
-    send(leader, :continue)
-    assert_receive {:streaming, ^leader}
-
-    assert_receive {:coordination, %{operation: :download, result: :bypass, reason: :not_stored}}
-
-    assert_receive {:fetch, ["blocked"], other}
-    send(other, :continue)
-    assert_receive {:streaming, ^other}
-
-    for worker <- [leader, other], do: send(worker, :continue)
-    assert Task.await(first).status == 200
-    assert Task.await(second).status == 200
-    assert Enum.count(summaries(2), &(&1[:download] == :bypass)) == 1
-  end
-
-  test "an identical request says when a watermark that may not be stored ends its wait",
-       context do
-    mark = Image.new!(8, 8, color: :blue) |> Image.write!(:memory, suffix: ".png")
-
-    marks = [
-      adapter: ProcessingSource,
-      match: [prefix: "marks"],
-      options: [test: self(), bytes: mark, copy?: true, origin: origin("no-store")]
-    ]
-
-    mount =
-      start(context,
-        cache: [root: Path.join(context.root, "output")],
-        sources: [marks: marks],
-        watermarks: %{logo: [source: "marks/mark"]}
-      )
-
-    path = "/w=12/wm=logo/format=png/src/original"
-    first = async(context, fn -> ImagePipe.Plug.call(conn(:get, path), mount) end)
-    assert_receive {:streaming, leader}
-    second = async(context, fn -> ImagePipe.Plug.call(conn(:get, path), mount) end)
-    assert_receive {:coordination, %{operation: :download, result: :waiting}}
-    send(leader, :continue)
-
-    assert_receive {:coordination,
-                    %{operation: :download, result: :bypass, reason: :watermark_not_stored}}
-
-    assert_receive {:streaming, other}
-    send(other, :continue)
-    assert Task.await(first).status == 200
-    assert Task.await(second).status == 200
-  end
-
   test "an identical request waits for the image once the first request makes it", context do
     test = self()
 
@@ -318,7 +256,7 @@ defmodule ImagePipe.API.SourceCoordinationWireTest do
     assert_receive {:fetch, ["original"], _}
     assert_receive {:streaming, leader}
     second = async(context, fn -> request(mount, 12) end)
-    assert_receive {:coordination, %{operation: :download, result: :waiting}}
+    await_source_waiter(second.pid)
     send(leader, :continue)
     assert_receive {:generating, generation}
     assert_receive {:coordination, %{operation: :output, result: :waiting}}
@@ -331,18 +269,17 @@ defmodule ImagePipe.API.SourceCoordinationWireTest do
   end
 
   for segment <- ["failing", "raising"] do
-    test "an identical request stops waiting when the first request's fetch is #{segment}",
+    test "an identical request fetches the original itself when the first request's fetch is #{segment}",
          context do
       mount = start(context, cache: [root: Path.join(context.root, "output")])
       path = "blocked/#{unquote(segment)}"
       first = held(context, fn -> rescued(fn -> request(mount, 12, path) end) end)
       assert_receive {:fetch, ["blocked", unquote(segment)], leader}
       second = async(context, fn -> rescued(fn -> request(mount, 12, path) end) end)
-      assert_receive {:coordination, %{operation: :download, result: :waiting}}
+      await_source_waiter(second.pid)
       send(leader, :continue)
 
-      assert_receive {:coordination, %{operation: :download, result: :bypass} = event}
-      refute Map.has_key?(event, :reason)
+      assert_receive {:coordination, %{operation: :source, result: :coalesced}}
       assert_receive {:fetch, ["blocked", unquote(segment)], other}
       send(other, :continue)
       assert_receive {:done, ^first, response}
@@ -350,7 +287,7 @@ defmodule ImagePipe.API.SourceCoordinationWireTest do
     end
   end
 
-  test "an identical request stops waiting a second after the source's fetch deadline",
+  test "an identical request answers 504 a second after the source's fetch deadline",
        context do
     mount =
       start(context, cache: [root: Path.join(context.root, "output")], fetch_timeout: 200)
@@ -358,36 +295,36 @@ defmodule ImagePipe.API.SourceCoordinationWireTest do
     first = async(context, fn -> request(mount, 12, "blocked") end)
     assert_receive {:fetch, ["blocked"], leader}
     second = async(context, fn -> request(mount, 12, "blocked") end)
-    assert_receive {:coordination, %{operation: :download, result: :waiting}}
-    refute_receive {:coordination, %{operation: :download, result: :bypass}}, 1_000
-    assert_receive {:coordination, %{operation: :download, result: :bypass}}, 5_000
     await_source_waiter(second.pid)
+    refute_receive {:coordination, %{operation: :source, result: :timeout}}, 1_000
+    assert_receive {:coordination, %{operation: :source, result: :timeout}}, 5_000
+    assert Task.await(second).status == 504
 
     send(leader, :continue)
     assert_receive {:streaming, ^leader}
     send(leader, :continue)
     assert Task.await(first).status == 200
-    assert Task.await(second).status == 200
     refute_received {:fetch, ["blocked"], _}
   end
 
-  test "a low-priority request waits for an identical normal one but never leads", context do
+  test "low-priority and normal requests share one download either way round", context do
     mount = start(context, cache: [root: Path.join(context.root, "output")])
     low = async(context, fn -> request(mount, "w=12/priority=low") end)
+    assert_receive {:fetch, ["original"], _}
     assert_receive {:streaming, low_worker}
     normal = async(context, fn -> request(mount, "w=12") end)
-    refute_receive {:coordination, %{operation: :download, result: :waiting}}
+    await_source_waiter(normal.pid)
     send(low_worker, :continue)
     assert Task.await(low).status == 200
     assert Task.await(normal).status == 200
+    refute_received {:fetch, ["original"], _}
 
     mount = start(context, cache: [root: Path.join(context.root, "second")])
-    flush_fetches()
     normal = async(context, fn -> request(mount, "w=12") end)
     assert_receive {:fetch, ["original"], _}
     assert_receive {:streaming, leader}
     low = async(context, fn -> request(mount, "w=12/priority=low") end)
-    assert_receive {:coordination, %{operation: :download, result: :waiting}}
+    await_source_waiter(low.pid)
     send(leader, :continue)
     assert Task.await(normal).status == 200
     assert Task.await(low).status == 200
@@ -420,23 +357,7 @@ defmodule ImagePipe.API.SourceCoordinationWireTest do
     refute_received {:streaming, _}
   end
 
-  test "the request summary says when a request used another's download", context do
-    attach_summaries(context)
-    mount = start(context, cache: [root: Path.join(context.root, "output")])
-    first = async(context, fn -> request(mount, 12) end)
-    assert_receive {:streaming, leader}
-    second = async(context, fn -> request(mount, 12) end)
-    assert_receive {:coordination, %{operation: :download, result: :waiting}}
-    send(leader, :continue)
-    Task.await(first)
-    Task.await(second)
-
-    summaries = summaries(2)
-    assert Enum.count(summaries, &(&1[:download] == :coalesced)) == 1
-    assert Enum.count(summaries, &(not Map.has_key?(&1, :download))) == 1
-  end
-
-  test "an identical request is released when the first answers 304", context do
+  test "an identical request shares the download of one that answers 304", context do
     probe = start(context, cache: [root: Path.join(context.root, "probe")])
     warm = async(context, fn -> request(probe, 12) end)
     assert_receive {:streaming, worker}
@@ -455,31 +376,26 @@ defmodule ImagePipe.API.SourceCoordinationWireTest do
 
     assert_receive {:streaming, leader}
     second = async(context, fn -> request(mount, 12) end)
-    assert_receive {:coordination, %{operation: :download, result: :waiting}}
+    await_source_waiter(second.pid)
     send(leader, :continue)
     assert_receive {:done, ^first, not_modified}
     assert not_modified.status == 304
-    assert_receive {:streaming, other}
-    send(other, :continue)
     assert Task.await(second).status == 200
+    refute_received {:streaming, _}
   end
 
   test "an identical request leads the download when the first request dies", context do
-    attach_summaries(context)
     mount = start(context, cache: [root: Path.join(context.root, "output")])
     first = async(context, fn -> request(mount, 12) end)
-    assert_receive {:coordination, %{operation: :download, result: :acquired}}
     assert_receive {:streaming, _leader}
     second = async(context, fn -> request(mount, 12) end)
-    assert_receive {:coordination, %{operation: :download, result: :waiting}}
+    await_source_waiter(second.pid)
     Process.exit(first.pid, :kill)
 
-    assert_receive {:coordination, %{operation: :download, result: :acquired}}
+    assert_receive {:coordination, %{operation: :source, result: :coalesced}}
     assert_receive {:streaming, other}
     send(other, :continue)
     assert Task.await(second).status == 200
-    assert [summary] = summaries(1)
-    refute Map.has_key?(summary, :download)
   end
 
   test "identical requests for a source with caching turned off download at once", context do
@@ -494,7 +410,7 @@ defmodule ImagePipe.API.SourceCoordinationWireTest do
     for worker <- [leader, other], do: send(worker, :continue)
     assert Task.await(first).status == 200
     assert Task.await(second).status == 200
-    refute_received {:coordination, %{operation: :download}}
+    refute_received {:coordination, %{operation: :source}}
   end
 
   # Each download sends its process once its first bytes are read, and holds
@@ -551,31 +467,6 @@ defmodule ImagePipe.API.SourceCoordinationWireTest do
   end
 
   defp async(context, fun), do: Task.Supervisor.async_nolink(context.tasks, fun)
-
-  # A request decides whether to collect its summary when it starts, so this
-  # runs before the mount does.
-  defp attach_summaries(context) do
-    test = self()
-
-    :telemetry.attach(
-      {context.test, :summary},
-      context.prefix ++ [:request, :summary],
-      fn _, _, summary, _ -> send(test, {:summary, summary}) end,
-      nil
-    )
-
-    on_exit(fn -> :telemetry.detach({context.test, :summary}) end)
-  end
-
-  defp summaries(count) do
-    for _ <- 1..count do
-      receive do
-        {:summary, summary} -> summary
-      after
-        1_000 -> flunk("missing a request summary")
-      end
-    end
-  end
 
   # Runs `fun` in a process that stays alive after it answers, as a
   # keep-alive connection's would, and sends `{:done, pid, result}`.

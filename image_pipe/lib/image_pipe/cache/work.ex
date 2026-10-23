@@ -3,8 +3,8 @@ defmodule ImagePipe.Cache.Work do
   @moduledoc false
   use GenServer
   alias ImagePipe.Telemetry
-  # A lock holds no CPU, only a map entry and a monitor, so the key cap
-  # matches the download flights' in `Cache.OutputWork`.
+  # A lock holds no CPU while it waits on the origin, only a map entry and a
+  # monitor, so it allows many more keys than `Cache.OutputWork` allows images.
   @max_keys 4096
   @max_waiters 1024
   @max_refreshes 16

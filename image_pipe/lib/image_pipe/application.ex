@@ -34,7 +34,6 @@ defmodule ImagePipe.Application do
       {Task.Supervisor, name: ImagePipe.Cache.RefreshTasks},
       ImagePipe.Cache.Work,
       OutputWork,
-      OutputWork.downloads_child_spec(),
       ImagePipe.Source.S3.RefreshCache,
       Staging.sweep_spec()
     ]

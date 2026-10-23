@@ -160,10 +160,6 @@ one line, and the tracer doesn't use it.
   - `:cache` (atom): the output cache's answer, as on
     [`[:cache, :lookup]`](#cache-lookup), or `:coalesced` when the response
     came from another request's work, or `:not_modified` for a `304`.
-  - `:download` (atom): for a request that waited for another request's
-    download of a new original, `:coalesced` when it waited until the other
-    request had the original, or `:bypass` when it stopped waiting for any
-    other reason (see [`[:cache, :coordination]`](#cache-coordination)).
   - `:staging` (`:memory`) and `:staging_reason` (atom): the original was
     held in memory instead of a temporary file, as on
     [`[:source, :stage]`](#source-stage).
@@ -565,13 +561,6 @@ Which requests emit it:
 - `:source`: none for a source with `internal_cache: :disabled`. For a
   local file, only a request that checks a file read earlier, when a
   processed-image cache is configured.
-- `:download`: only a request for an original that no cache has fetched yet,
-  or whose details were evicted, when a processed-image cache is configured
-  and caching is on for the source, and
-  [storage](caching-and-freshness.md#storage-permission) isn't denied for it
-  in its configuration. An immutable source with
-  `storage: :allow` doesn't emit it, nor does a low-priority request when no
-  other request is downloading the original.
 - `:refresh`: a request that serves a stale processed image and starts or
   joins its background check.
 - `:output`: none when no processed-image cache is configured, when the image
@@ -580,17 +569,15 @@ Which requests emit it:
   is making the image.
 
 The default Logger logs `:busy`, `:bypass`, and `:timeout` results at
-`:warning`, except a `:bypass` with reason `:not_stored` or
-`:watermark_not_stored`, and a `:download` `:busy`, which it logs at its base
-level. It shows the reason, when there is one, after the result, as in
-`bypass (deadline)`.
+`:warning`, except a `:bypass` with reason `:not_stored`, which it logs at
+its base level. It shows the reason, when there is one, after the result, as
+in `bypass (deadline)`.
 
 - Metadata:
   - `:operation` (atom): `:source` (fetching an original), `:refresh`
-    (a background refresh), `:download` (identical requests sharing a new
-    original's download), or `:output` (generating an image).
-  - `:pool` (atom): `:input` for `:source` and `:refresh`, `:download` for
-    `:download`, and `:output` for `:output`.
+    (a background refresh), or `:output` (generating an image).
+  - `:pool` (atom): `:input` for `:source` and `:refresh`, and `:output` for
+    `:output`.
   - `:result` (atom), by `:operation`:
     - `:source`: `:acquired` (this request fetches or checks the original),
       `:coalesced` (it waited for another request's download or check),
@@ -601,25 +588,14 @@ level. It shows the reason, when there is one, after the result, as in
       already running), `:backoff` (a refresh of the same image finished
       less than a second ago), or `:busy` (coordination is at capacity, or
       the coordinating process isn't running).
-    - `:download`: `:acquired` (this request downloads the original),
-      `:waiting` (it waits for an identical request's download), `:ready`
-      (the other request has the original, so this one waits for its image
-      instead of downloading), `:bypass` (it stops waiting for that request,
-      because the other request failed, the wait ran out, the coordinating
-      process isn't running, or for a `:reason` below, and then gets the
-      original as a request for another size would), or `:busy` (coordination is at capacity). A request that waited
-      can then emit `:output` events while it waits for the image.
     - `:output`: `:acquired` (this request generates), `:waiting` (it
       waits for another), `:ready` (it can check the cache again), `:bypass`
       (it generates on its own), or `:busy` (coordination is at capacity).
   - `:reason` (atom), on a `:bypass`:
     - `:deadline` (`:output`): the image wasn't stored within 2 seconds of
       being sent (see [coordination limits](cache.md#coordination-limits)).
-    - `:not_stored` (`:source` or `:download`): the original may not be
-      stored, so the waiting request downloads it itself.
-    - `:watermark_not_stored` (`:download`): a watermark asset may not be
-      stored, so the image may not be stored either. The waiting request
-      makes the image itself.
+    - `:not_stored` (`:source`): the original may not be stored, so the
+      waiting request downloads it itself.
 
 ### `[:cache, :sweep]`
 

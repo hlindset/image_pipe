@@ -1,68 +1,39 @@
 defmodule ImagePipe.Cache.OutputWork do
   # Single-flight leases for generating a processed image. The first request
   # for a key leads, and the others wait for it to complete the lease, or for
-  # it to stop. A follower (`follow/4`) waits on a flight but never leads one:
+  # it to stop. A follower (`follow/3`) waits on a flight but never leads one:
   # without a flight it gets `:none`, and it's never promoted when a leader
   # stops. A lease belongs to one process at a time: only the owner
   # completes it, so a request that handed its lease to a stream or a cache
   # writer can't complete it early. A lease handed off with a deadline
   # releases its waiters with `:bypass` when the deadline passes first.
-  #
-  # A second instance holds the flights of identical requests waiting for one
-  # original's download (`join_download/4`), so they don't take the image
-  # flights' slots, and report as the `:download` operation and pool. A
-  # download flight holds no CPU while it waits on the origin, so that
-  # instance allows many more flights.
   @moduledoc false
   use GenServer
 
   alias ImagePipe.Telemetry
 
   @max_flights 64
-  @max_download_flights 4096
   @max_waiters 1024
   @wait_timeout 60_000
 
-  @downloads ImagePipe.Cache.OutputWork.Downloads
-
   @type lease :: {GenServer.server(), reference()}
 
-  def start_link(opts),
-    do: GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))
+  def start_link(opts), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
 
-  def downloads_child_spec do
-    Supervisor.child_spec({__MODULE__, name: @downloads, max_flights: @max_download_flights},
-      id: @downloads
-    )
+  def join(cache, key, opts, timeout \\ @wait_timeout) do
+    result = call(__MODULE__, {:join, {cache, key}, timeout, true}, :infinity)
+    joined(result, opts)
   end
 
-  def join(cache, key, opts, timeout \\ @wait_timeout),
-    do: join_on({__MODULE__, :output}, cache, key, opts, timeout)
-
-  def follow(cache, key, opts),
-    do: follow_on({__MODULE__, :output}, cache, key, opts, @wait_timeout)
-
-  # `timeout` bounds the wait, `nil` for the default.
-  def join_download(cache, key, opts, timeout),
-    do: join_on({@downloads, :download}, cache, key, opts, timeout || @wait_timeout)
-
-  def follow_download(cache, key, opts, timeout),
-    do: follow_on({@downloads, :download}, cache, key, opts, timeout || @wait_timeout)
-
-  defp join_on({server, _operation} = flights, cache, key, opts, timeout) do
-    result = call(server, {:join, {cache, key}, timeout, true}, :infinity)
-    joined(result, flights, opts)
-  end
-
-  defp follow_on({server, _operation} = flights, cache, key, opts, timeout) do
-    case call(server, {:join, {cache, key}, timeout, false}, :infinity) do
+  def follow(cache, key, opts) do
+    case call(__MODULE__, {:join, {cache, key}, @wait_timeout, false}, :infinity) do
       :none -> :none
-      result -> joined(result, flights, opts)
+      result -> joined(result, opts)
     end
   end
 
-  defp joined({:waiting, {server, token}}, flights, opts) do
-    report(opts, flights, :waiting)
+  defp joined({:waiting, {server, token}}, opts) do
+    report(opts, :waiting)
     monitor = Process.monitor(server)
 
     result =
@@ -72,32 +43,26 @@ defmodule ImagePipe.Cache.OutputWork do
       end
 
     Process.demonitor(monitor, [:flush])
-    joined(result, flights, opts)
+    joined(result, opts)
   end
 
-  defp joined({:leader, _lease} = result, flights, opts) do
-    report(opts, flights, :acquired)
+  defp joined({:leader, _lease} = result, opts) do
+    report(opts, :acquired)
     result
   end
 
-  defp joined(:busy, flights, opts) do
-    report(opts, flights, :busy)
+  defp joined(:busy, opts) do
+    report(opts, :busy)
     :bypass
   end
 
-  # A leader may hand its waiters what it learned along with `:ready`.
-  defp joined({:ready, _value} = result, flights, opts) do
-    report(opts, flights, :ready)
+  defp joined({:bypass, reason} = result, opts) do
+    report(opts, :bypass, %{reason: reason})
     result
   end
 
-  defp joined({:bypass, reason} = result, flights, opts) do
-    report(opts, flights, :bypass, %{reason: reason})
-    result
-  end
-
-  defp joined(result, flights, opts) do
-    report(opts, flights, result)
+  defp joined(result, opts) do
+    report(opts, result)
     result
   end
 
@@ -118,10 +83,7 @@ defmodule ImagePipe.Cache.OutputWork do
   end
 
   @impl true
-  def init(opts) do
-    max_flights = Keyword.get(opts, :max_flights, @max_flights)
-    {:ok, %{flights: %{}, members: %{}, monitors: %{}, max_flights: max_flights}}
-  end
+  def init(_opts), do: {:ok, %{flights: %{}, members: %{}, monitors: %{}}}
 
   @impl true
   def handle_call({:join, key, timeout, lead?}, from, state) do
@@ -129,7 +91,7 @@ defmodule ImagePipe.Cache.OutputWork do
       not lead? and not Map.has_key?(state.flights, key) ->
         {:reply, :none, state}
 
-      not Map.has_key?(state.flights, key) and map_size(state.flights) >= state.max_flights ->
+      not Map.has_key?(state.flights, key) and map_size(state.flights) >= @max_flights ->
         {:reply, :busy, state}
 
       map_size(state.members) - map_size(state.flights) >= @max_waiters ->
@@ -288,12 +250,12 @@ defmodule ImagePipe.Cache.OutputWork do
 
   defp delete_flight(state, key), do: %{state | flights: Map.delete(state.flights, key)}
 
-  defp report(opts, {_server, operation}, result, extra \\ %{}) do
+  defp report(opts, result, extra \\ %{}) do
     Telemetry.execute(
       opts,
       [:cache, :coordination],
       %{},
-      Map.merge(%{pool: operation, operation: operation, result: result}, extra)
+      Map.merge(%{pool: :output, operation: :output, result: result}, extra)
     )
   end
 

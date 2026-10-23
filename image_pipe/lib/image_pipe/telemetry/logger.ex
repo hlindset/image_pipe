@@ -18,7 +18,6 @@ defmodule ImagePipe.Telemetry.Logger do
     :reason,
     :sig_key,
     :cache,
-    :download,
     :staging,
     :staging_reason,
     :source,
@@ -172,15 +171,9 @@ defmodule ImagePipe.Telemetry.Logger do
   # Steady drops mean the cache's storage can't keep up with its writes.
   defp level_for([:cache, :stage], %{cache: :stage_dropped}, _base), do: :warning
 
-  # Requests for an image that may not be stored each make it, as they would
-  # without coordination.
-  defp level_for([:cache, :coordination], %{result: :bypass, reason: reason}, base)
-       when reason in [:not_stored, :watermark_not_stored],
-       do: base
-
-  # A full download pool only means a request stops waiting for an identical
-  # one, and gets the original as a request for another size would.
-  defp level_for([:cache, :coordination], %{operation: :download, result: :busy}, base),
+  # Requests for an original that may not be stored each fetch it, as they
+  # would without coordination.
+  defp level_for([:cache, :coordination], %{result: :bypass, reason: :not_stored}, base),
     do: base
 
   defp level_for([:cache, :coordination], %{result: result}, _base)

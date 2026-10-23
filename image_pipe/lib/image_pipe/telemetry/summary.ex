@@ -220,14 +220,6 @@ defmodule ImagePipe.Telemetry.Summary do
   defp fields([:cache, :coordination], _duration, %{operation: :output, result: :waiting}),
     do: %{coalesced: true}
 
-  # A request that waited for another one's download either waited until that
-  # request had the original or stopped waiting before then.
-  defp fields([:cache, :coordination], _duration, %{operation: :download, result: :ready}),
-    do: %{download: :coalesced}
-
-  defp fields([:cache, :coordination], _duration, %{operation: :download, result: :bypass}),
-    do: %{download: :bypass}
-
   defp fields([:transform, :operation], _duration, %{result: :ok} = meta),
     do: Map.merge(%{ops: [meta.operation]}, take(meta, output_size: :dims))
 
