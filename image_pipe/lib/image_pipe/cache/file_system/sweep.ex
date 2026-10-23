@@ -107,18 +107,29 @@ defmodule ImagePipe.Cache.FileSystem.Sweep do
     end
   end
 
+  # A key's only body, with its meta beside it, is the body the meta names,
+  # as Admission's count assumes, so it needs no read. Only a key with
+  # several bodies, or a body without a meta, is checked.
   defp sweep_partition(dir, names, cutoff, counts) do
-    Enum.reduce(names, counts, fn name, counts -> sweep_file(dir, name, cutoff, counts) end)
-  end
+    classified = Enum.map(names, &{&1, classify(&1)})
+    present = MapSet.new(names)
 
-  defp sweep_file(dir, name, cutoff, counts) do
-    path = Path.join(dir, name)
+    bodies =
+      Enum.frequencies(for {_name, {:bodies, meta}} <- classified, do: meta)
 
-    case classify(name) do
-      :temps -> if older?(path, cutoff), do: remove(path, :temps, counts), else: counts
-      {:bodies, meta} -> sweep_body(path, Path.join(dir, meta), cutoff, counts)
-      _live_or_unrelated -> counts
-    end
+    Enum.reduce(classified, counts, fn
+      {name, :temps}, counts ->
+        path = Path.join(dir, name)
+        if older?(path, cutoff), do: remove(path, :temps, counts), else: counts
+
+      {name, {:bodies, meta}}, counts ->
+        if Map.fetch!(bodies, meta) == 1 and MapSet.member?(present, meta),
+          do: counts,
+          else: sweep_body(Path.join(dir, name), Path.join(dir, meta), cutoff, counts)
+
+      {_name, :unrelated}, counts ->
+        counts
+    end)
   end
 
   defp classify(name) do

@@ -85,6 +85,19 @@ defmodule ImagePipe.Cache.FileSystem.SweepTest do
     assert {:hit, _entry} = FileSystem.get(key, opts)
   end
 
+  # Commits and evictions never leave this. A key's only body is taken as the
+  # one its meta names, as Admission's count does, and isn't read to check.
+  test "keeps a key's only body beside its meta without reading the meta", %{root: root} do
+    {_key, paths} = entry!(root, "5")
+    [body] = Path.wildcard(Path.join(paths.dir, "*.body"))
+    lone = Path.join(paths.dir, body_name(String.duplicate("5", 64), String.duplicate("e", 64)))
+    File.rename!(body, lone)
+    age!(paths, @old)
+
+    assert %{bodies: 0} = Sweep.sweep_root(root)
+    assert File.exists?(lone)
+  end
+
   test "removes old metadata the cache can't read, with its body", %{root: root} do
     {readable_key, readable} = entry!(root, "1")
     {_key, unreadable} = entry!(root, "2")
