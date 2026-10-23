@@ -484,7 +484,7 @@ defmodule ImagePipe.Telemetry.Logger do
       "image_pipe preset lookup: #{outcome(meta)} (#{meta[:fetched]} fetched, #{meta[:batches]} batches)"
 
   defp message([:debug, :collect, :error | _], _m, meta),
-    do: "image_pipe debug collect: error (#{meta[:error]})"
+    do: "image_pipe debug collect: error (#{inspect(meta[:error])})"
 
   defp message(suffix, _m, meta) do
     "image_pipe #{label(suffix)}: #{outcome(meta)}"

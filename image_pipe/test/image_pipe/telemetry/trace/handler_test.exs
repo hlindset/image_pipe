@@ -564,7 +564,7 @@ defmodule ImagePipe.Telemetry.Trace.HandlerTest do
 
   test "adds the debug collect error marker as an event on the enclosing span" do
     Telemetry.span([], [:cache, :lookup], %{}, fn ->
-      Telemetry.execute([], [:debug, :collect, :error], %{}, %{error: :decode_failed})
+      Telemetry.execute([], [:debug, :collect, :error], %{}, %{error: RuntimeError})
       {:ok, %{result: :ok}}
     end)
 
@@ -574,7 +574,7 @@ defmodule ImagePipe.Telemetry.Trace.HandlerTest do
 
     event = Enum.find(span.events, &(&1.name == "image_pipe.debug.collect.error"))
     assert event
-    assert event.attributes[:error] == "decode_failed"
+    assert event.attributes[:error] == "Elixir.RuntimeError"
   end
 
   test "one-shot events keep the metadata the event reference documents" do

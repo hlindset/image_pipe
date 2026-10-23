@@ -669,7 +669,7 @@ defmodule ImagePipe.Decode do
         opts,
         [:debug, :collect, :error],
         %{},
-        %{error: Telemetry.error_tag(exception)}
+        %{error: exception.__struct__}
       )
 
       %{}

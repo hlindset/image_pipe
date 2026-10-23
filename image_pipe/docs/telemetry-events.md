@@ -1013,4 +1013,5 @@ One-shot. Emitted when reading the original's details for
 generation, whether or not the request has `debug`. The request continues
 without them.
 
-- Metadata: `:error` (atom), the error category.
+- Metadata: `:error` (atom), the module of the exception raised, such as
+  `RuntimeError`.

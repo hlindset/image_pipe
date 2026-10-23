@@ -973,12 +973,12 @@ defmodule ImagePipe.Telemetry.LoggerTest do
         :telemetry.execute(
           [:image_pipe, :debug, :collect, :error],
           %{},
-          %{error: :decode_failed}
+          %{error: RuntimeError}
         )
       end)
 
     assert log =~ "[warning]"
-    assert log =~ "debug collect: error (decode_failed)"
+    assert log =~ "debug collect: error (RuntimeError)"
   end
 
   test "logs a normal no-face detect fallback at the base level, not warning" do

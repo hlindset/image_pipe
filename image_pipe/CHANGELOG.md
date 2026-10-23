@@ -54,6 +54,10 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Breaking:** The `:error` metadata of `[:debug, :collect, :error]` is
+  the module of the raised exception, such as `RuntimeError`, instead of
+  always `:error`. Handlers that match on `error: :error` must match the
+  module.
 - **Breaking:** The HTTP source refuses origins in `192.0.0.0/24`,
   `192.88.99.0/24`, and `2001::/23`, which are reserved for protocol use
   (the last includes Teredo tunnel addresses). They were treated as
