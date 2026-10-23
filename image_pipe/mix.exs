@@ -182,6 +182,7 @@ defmodule ImagePipe.MixProject do
         "autoquality.bench": :test,
         "autoquality.corpus": :test,
         "autoquality.corpus.capture": :test,
+        "cache_scan.bench": :test,
         "fixtures.gen_sources": :test,
         "worktrees.clean": :test
       ]

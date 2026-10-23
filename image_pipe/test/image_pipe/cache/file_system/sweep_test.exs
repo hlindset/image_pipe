@@ -2,6 +2,7 @@ defmodule ImagePipe.Cache.FileSystem.SweepTest do
   use ExUnit.Case, async: true
 
   alias ImagePipe.Cache.FileSystem
+  alias ImagePipe.Cache.FileSystem.Store
   alias ImagePipe.Cache.FileSystem.Sweep
   alias ImagePipe.Test.Caches
 
@@ -85,10 +86,24 @@ defmodule ImagePipe.Cache.FileSystem.SweepTest do
     assert {:hit, _entry} = FileSystem.get(key, opts)
   end
 
+  # Commits and evictions never leave this. A key's only body is taken as the
+  # one its meta names, as Admission's count does, and isn't read to check.
+  test "keeps a key's only body beside its meta without reading the meta", %{root: root} do
+    {_key, paths} = entry!(root, "5")
+    [body] = Path.wildcard(Path.join(paths.dir, "*.body"))
+    lone = Path.join(paths.dir, body_name(String.duplicate("5", 64), String.duplicate("e", 64)))
+    File.rename!(body, lone)
+    age!(paths, @old)
+
+    assert %{bodies: 0} = Sweep.sweep_root(root)
+    assert File.exists?(lone)
+  end
+
   test "removes old metadata the cache can't read, with its body", %{root: root} do
     {readable_key, readable} = entry!(root, "1")
     {_key, unreadable} = entry!(root, "2")
     File.write!(unreadable.meta_path, "not a term")
+    unmark!(root)
     age!(readable, @old)
     age!(unreadable, @old)
 
@@ -106,6 +121,56 @@ defmodule ImagePipe.Cache.FileSystem.SweepTest do
     refute File.exists?(path)
     assert removed == []
   end
+
+  describe "metadata version marker" do
+    setup %{root: root} do
+      {_key, paths} = entry!(root, "6")
+      File.write!(paths.meta_path, "not a term")
+      age!(paths, @old)
+      unmark!(root)
+      %{meta_path: paths.meta_path, marker: Path.join(root, ".metadata-version")}
+    end
+
+    test "a cache swept at this version skips the decode check", ctx do
+      File.write!(ctx.marker, current_version())
+
+      assert %{unreadable: 0} = Sweep.sweep_root(ctx.root)
+      assert File.exists?(ctx.meta_path)
+    end
+
+    test "a cache without a marker is checked once, then marked", ctx do
+      assert %{unreadable: 1} = Sweep.sweep_root(ctx.root)
+      refute File.exists?(ctx.meta_path)
+      assert File.read!(ctx.marker) == current_version()
+    end
+
+    test "metadata too new to remove keeps the cache unmarked until it goes", ctx do
+      File.touch!(ctx.meta_path)
+
+      assert %{unreadable: 0} = Sweep.sweep_root(ctx.root)
+      assert File.exists?(ctx.meta_path)
+      refute File.exists?(ctx.marker)
+
+      File.touch!(ctx.meta_path, @old)
+      assert %{unreadable: 1} = Sweep.sweep_root(ctx.root)
+      assert File.read!(ctx.marker) == current_version()
+    end
+
+    test "a cache swept at another version is checked again", ctx do
+      File.write!(ctx.marker, "1")
+
+      assert %{unreadable: 1} = Sweep.sweep_root(ctx.root)
+      refute File.exists?(ctx.meta_path)
+      assert File.read!(ctx.marker) == current_version()
+    end
+  end
+
+  defp current_version, do: Integer.to_string(Store.metadata_version())
+
+  # Writing an entry starts a cache on the root, whose startup sweep marks it
+  # as checked. Metadata that stops decoding afterwards models a cache last
+  # swept at another version.
+  defp unmark!(root), do: File.rm!(Path.join(root, ".metadata-version"))
 
   test "keeps metadata it can't read for now, such as on a permission error", %{root: root} do
     {key, paths} = entry!(root, "4")
@@ -126,6 +191,7 @@ defmodule ImagePipe.Cache.FileSystem.SweepTest do
     File.rename!(Path.join(paths.dir, metadata.body_filename), Path.join(paths.dir, old_name))
     File.write!(paths.meta_path, :erlang.term_to_binary(%{metadata | body_filename: old_name}))
     age!(paths, @old)
+    unmark!(root)
 
     assert %{unreadable: 1, bodies: 1} = Sweep.sweep_root(root)
     assert File.ls!(paths.dir) == []

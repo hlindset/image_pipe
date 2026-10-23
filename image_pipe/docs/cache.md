@@ -267,15 +267,21 @@ A node that stops abruptly, for example after a crash or `kill -9`, can leave
 temporary entry files behind, and bodies that no metadata file names. A
 running node can leave them too, for example when a request is killed while
 its image is being written.
-Metadata files the cache can't parse, such as ones another ImagePipe version
-wrote, count as left behind too, and so do their bodies. ImagePipe deletes
-them in the background once they are more than an hour old:
+After a version change that changes the format of metadata files, the ones
+the cache can't parse count as left behind too, and so do their bodies.
+ImagePipe deletes leftover files in the background once they are more than
+an hour old:
 
 - In the cache's `root`, after its startup scan and every 24 hours while the
   instance runs.
 - In the `image_pipe` directory under the system temporary directory
   (`TMPDIR`, or `/tmp`), where originals are staged while they download,
   when the `:image_pipe` application starts and every 24 hours after.
+
+The cache records the metadata format it last checked in a
+`.metadata-version` file in `root`. It reads every metadata file only when
+that file is missing or names another format, as after an upgrade or a
+downgrade.
 
 The `[:cache, :sweep]` event reports what each cleanup removed (see
 [cache events](telemetry-events.md#cache-events)).
@@ -369,6 +375,10 @@ a [cache write](telemetry-events.md#cache-write) error with
   after it is an hour old deletes it, which can be up to a day later.
 - Two writes to the same key at once both store their body. The last one
   wins, and the other body is deleted.
+- A metadata file damaged after the cache last checked every metadata
+  file, for example by a disk fault, makes its entry a miss, but the
+  cleanup of [leftover files](#leftover-files) doesn't delete it. Its body
+  counts against `max_size_bytes` until eviction deletes the entry.
 - Entries an earlier ImagePipe version stored in another format aren't
   counted against `max_size_bytes`. A cleanup of
   [leftover files](#leftover-files) deletes them, which can be up to a day
