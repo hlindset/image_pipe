@@ -39,7 +39,7 @@ run = [
 ]
 
 [tasks.precommit]
-description = "Elixir checks for image_pipe_url and the library: format, compile (warnings as errors), credo, dialyzer, duplication, test"
+description = "Elixir checks for image_pipe_url and the library: format, compile (warnings as errors), credo, dialyzer, duplication, test, docs final read"
 depends = ["precommit:url"]
 dir = "image_pipe"
 run = [
@@ -55,6 +55,8 @@ run = [
   # from ImagePipe.MixProject.ex_dna_options/0.
   "mix image_pipe.ex_dna",
   "mix test",
+  # Mechanical writing-docs passes on changed docs: headings, `;` and `—`, links.
+  "../scripts/docs-final-read.sh",
 ]
 
 [tasks."release:hex"]
