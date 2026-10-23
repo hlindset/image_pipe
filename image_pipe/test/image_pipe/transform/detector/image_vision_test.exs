@@ -97,7 +97,7 @@ defmodule ImagePipe.Transform.Detector.ImageVisionTest do
 
     image = Image.open!("priv/static/images/woman.jpg")
     assert :ok = Face.warmup([])
-    assert {:ok, regions} = Face.detect(image, classes: ["face"])
+    assert {:ok, [_ | _] = regions} = Face.detect(image, classes: ["face"])
     assert Enum.all?(regions, &match?(%{label: "face", box: {_, _, _, _}}, &1))
   end
 
@@ -137,11 +137,11 @@ defmodule ImagePipe.Transform.Detector.ImageVisionTest do
       assert Enum.sort(Objects.supported_classes([])) == model_labels
     end
 
-    test "detect returns product-neutral regions on a synthetic image" do
+    test "detect returns product-neutral regions for the objects in a photo" do
       assert :ok = Objects.warmup([])
-      {:ok, image} = Image.new(320, 240, color: :black)
-      assert {:ok, regions} = Objects.detect(image, classes: :all)
-      assert is_list(regions)
+      image = Image.open!("priv/static/images/dog.jpg")
+      assert {:ok, [_ | _] = regions} = Objects.detect(image, classes: :all)
+      assert Enum.any?(regions, &(&1.label == "dog"))
 
       assert Enum.all?(
                regions,

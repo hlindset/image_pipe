@@ -266,7 +266,10 @@ defmodule ImagePipe.MixProject do
     #
     # The fiddle app owns real detection in its own deps. Here, the library pulls
     # these only into the opt-in `:test` lane (`IMAGE_VISION=1`) for its own
-    # detector test (`IMAGE_VISION=1 mix test --only image_vision`).
+    # detector test (`IMAGE_VISION=1 mix test --only image_vision`). No CI job
+    # runs that lane, since it needs Rust and the ONNX runtime, so run it by hand
+    # after changing the detector adapters. The vision server image's smoke test
+    # covers detection end to end.
     ml_test_deps =
       if System.get_env("IMAGE_VISION") in ["1", "true"] do
         [
