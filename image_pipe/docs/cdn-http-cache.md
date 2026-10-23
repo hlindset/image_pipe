@@ -192,11 +192,14 @@ A generated `ETag` is strong and looks like `"ipr1-<hash>"`. It is computed
 from the request before the original is fetched or processed. It changes
 when any of these change:
 
-- The original's version (see
+- The original's version, and each watermark image's version (see
   [originals and processed images](caching-and-freshness.md#originals-and-processed-images)).
 - The processing options. Two spellings of the same options give the same
   `ETag`.
 - The output format.
+- The configured output settings that apply to the image, such as the
+  default qualities, encoder options, and metadata stripping.
+- Where each watermark comes from and its configured opacity.
 - The content detector or model, when the crop uses detection. A `304` is
   never sent for an image made by a different detector.
 
