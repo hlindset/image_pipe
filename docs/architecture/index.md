@@ -20,7 +20,7 @@ are mapped to URL byte spans and messages by the parser.
 normalization. Both frontends share the resulting values with execution.
 URL parsing returns the decoded source separately from processing intent;
 both frontends resolve their source before handing it to shared execution.
-`Output.RequestPolicy` combines host defaults,
+`Output.Policy` combines host defaults,
 request overrides, and Accept negotiation. `Output.Resolved` selects the concrete
 encoding settings after source-format and final-image inspection.
 
@@ -42,7 +42,8 @@ Preserve these invariants:
 - EXIF, color/HDR, shrink-on-load, and per-operation materialization retain
   pixel tests. Sequential safety is proved with genuinely streamed input.
 - Delivery owns stream/resource cleanup on success and failure.
-- Telemetry changes update both the default Logger and trace Capture.
+- Telemetry changes update both the default Logger and the tracer
+  (`ImagePipe.Telemetry.Trace.Handler`).
 
 Selected imgproxy comparisons provide test references for shared behavior;
 ImagePipe semantics govern differences.

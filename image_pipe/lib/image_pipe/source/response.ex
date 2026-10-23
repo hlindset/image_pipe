@@ -5,7 +5,8 @@ defmodule ImagePipe.Source.Response do
   Exactly one of `stream` or `path` must be present. Streams are consumed
   lazily and must release their resources when enumeration halts. Adapters
   opening resources before enumeration also supply an idempotent `close`
-  function. `Source.with_fetched/3` closes it even when no body is consumed.
+  function. ImagePipe calls it once it is done with the response, even when
+  no body is consumed.
   """
 
   defstruct stream: nil, path: nil, origin: nil, close: nil
@@ -17,7 +18,7 @@ defmodule ImagePipe.Source.Response do
           close: (-> :ok) | nil
         }
 
-  @doc "Releases a response obtained directly through Source.fetch/3."
+  @doc "Releases the response's resources by calling its `close` function."
   def close(%__MODULE__{close: nil}), do: :ok
   def close(%__MODULE__{close: close}), do: close.()
 end

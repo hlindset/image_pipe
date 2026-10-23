@@ -51,7 +51,9 @@ Guides for deploying, connecting sources, caching, securing, and monitoring.
 - [Signing URLs and rotating keys](signing-urls.md): require signed URLs and replace keys safely.
 - [Defining presets](defining-presets.md): named sets of URL options.
 - [Enabling face and object detection](enabling-detection.md): install the detector and load its models.
+- [Serving SVG images](serving-svg-images.md): render SVG originals and watermarks at the size each request needs.
 - [Limiting concurrent processing](processing-controls.md): how many images are processed at once, queues, and deadlines.
+- [Choosing an automatic quality target](choosing-an-autoquality-target.md): pick the target that automatic quality encodes to.
 - [Monitoring with telemetry](telemetry.md): logging, metrics handlers, and request IDs.
 - [Exporting traces to Jaeger](cookbook/opentelemetry-jaeger.md): send traces to a local Jaeger.
 - [Serving and processing in one app](combined-usage.md): serve images and process them in code with one configuration.

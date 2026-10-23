@@ -35,10 +35,10 @@ headers and delivery.
 `ImagePipe.API.Parser` produces `ImagePipe.Plan.Spec` data. Presets expand
 before validation, and `-` separates explicitly ordered groups. Option order
 inside a group does not affect processing order. The
-[API contract](../../image_pipe/docs/api_contract.md) defines stages, coordinate frames,
+[API contract](api_contract.md) defines stages, coordinate frames,
 and the capability inventory.
 
-`ImagePipe.Transform.Executor.decode_request/2` plans shrink-on-load from the first
+`ImagePipe.Transform.Executor.decode_options/3` plans shrink-on-load from the first
 group. Decode opens sequentially and supplies both image state and source
 geometry. Only operations that need arbitrary pixel access materialize the
 image, through `ImagePipe.Transform.Materializer`.
@@ -63,9 +63,9 @@ transform operations. Source-dependent steps such as trim and cover resizing
 measure the resulting image before resolving the next stage. Runtime geometry,
 orientation, and decode scaling live in `Transform.State`.
 
-The executor calls `ImagePipe.Transform.run/3` for each operation. This shared
-runner handles telemetry, errors, and materialization before an operation needs
-random access. `Transform.State` carries the image, orientation, decode scaling,
+The executor runs each operation through
+`ImagePipe.Transform.Executor.Step.run/3`, which handles telemetry, errors, and
+materialization before an operation needs random access. `Transform.State` carries the image, orientation, decode scaling,
 materialization, and color state.
 
 Input color management and EXIF handling are fixed input conditioning.
