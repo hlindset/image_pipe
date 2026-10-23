@@ -114,6 +114,12 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   ETags, so their cached copies miss once after upgrading.
 - A filesystem cache misses once after upgrading for every image it stored
   before, and its startup sweep deletes those entries.
+- A filesystem cache's startup sweep reads its metadata files only when the
+  cache was last checked by an ImagePipe version with another metadata
+  format, so restarting a cache with many entries reads far less from disk.
+  The cache records the format it checked in `.metadata-version` in its
+  `root`. The first start after this upgrade still reads every metadata
+  file.
 - **Breaking:** `:max_blur_work` limits the total work of all `blur`,
   `progressive-blur`, and `sharpen` steps in a request, across all its
   groups, instead of each blur on its own. Each step counts the pixels of

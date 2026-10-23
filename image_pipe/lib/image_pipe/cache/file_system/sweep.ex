@@ -1,13 +1,16 @@
 defmodule ImagePipe.Cache.FileSystem.Sweep do
   # Removes files a VM that died left behind: temp files whose owner is gone,
-  # and bodies no metadata names. It also removes metadata files the
-  # cache can't decode, such as ones another ImagePipe version wrote, and
-  # their bodies then go as unnamed. A metadata file it can't read, as on a
-  # permission or I/O error, stays. A sweep returns the entries it removed,
-  # so Admission stops counting them. A file
-  # counts only once it is older than the grace period, so the sweep leaves
-  # alone what this node's requests are still writing. No request holds a
-  # temp file for anywhere near an hour.
+  # and bodies no metadata names. It also removes metadata files the cache
+  # can't decode, such as ones another ImagePipe version wrote, and their
+  # bodies then go as unnamed. That check reads every metadata file, so it
+  # runs only when `.metadata-version` at the root is missing or names
+  # another version than `Store.metadata_version/0`. A sweep that ran it and
+  # left no metadata it can't decode writes the current version there. A
+  # metadata file it can't read, as on a permission or I/O error, stays. A
+  # sweep returns the entries it removed, so Admission stops counting them.
+  # A file counts only once it is older than the grace period, so the sweep
+  # leaves alone what this node's requests are still writing. No request
+  # holds a temp file for anywhere near an hour.
   @moduledoc false
 
   alias ImagePipe.Cache.FileSystem.Store
@@ -15,6 +18,7 @@ defmodule ImagePipe.Cache.FileSystem.Sweep do
   alias ImagePipe.Telemetry
 
   @grace_ms 3_600_000
+  @marker ".metadata-version"
 
   @temp ~r/\A\.[0-9a-f]{64}\.[A-Za-z0-9_-]+\.tmp\z/
   # Bodies stored before their names carried size and cost end at the digest.
@@ -35,11 +39,11 @@ defmodule ImagePipe.Cache.FileSystem.Sweep do
   end
 
   @doc false
-  # Sweeps `listings`, the `{partition_dir, names}` of a pool's tree, so a
+  # Sweeps `listings`, the `{partition_dir, names}` of the tree at `root`, so a
   # caller that already listed the tree doesn't list it again. Returns the
   # removed entries, as `{key_hash, body_filename | :meta}`.
-  def run_listings(listings, pool, telemetry_opts),
-    do: span(pool, telemetry_opts, fn -> sweep_listings(listings) end)
+  def run_listings(root, listings, pool, telemetry_opts),
+    do: span(pool, telemetry_opts, fn -> sweep_listings(root, listings) end)
 
   defp span(pool, telemetry_opts, sweep) do
     Telemetry.span(telemetry_opts, [:cache, :sweep], %{pool: pool}, fn ->
@@ -51,32 +55,69 @@ defmodule ImagePipe.Cache.FileSystem.Sweep do
   @doc false
   def sweep_root(root) do
     sweep_listings(
+      root,
       for(dir <- partitions(root), partition <- partitions(dir), do: listing(partition))
     )
   end
 
-  defp sweep_listings(listings) do
+  defp sweep_listings(root, listings) do
     cutoff = cutoff()
     counts = %{temps: 0, bodies: 0, unreadable: 0, bytes: 0, removed: []}
+    check_decode? = marked_version(root) != Store.metadata_version()
 
-    Enum.reduce(listings, counts, fn {dir, names}, counts ->
-      {names, counts} = remove_unreadable(dir, names, cutoff, counts)
-      sweep_partition(dir, names, cutoff, counts)
-    end)
+    {counts, pending?} =
+      Enum.reduce(listings, {counts, false}, fn {dir, names}, {counts, pending?} ->
+        {names, counts, partition_pending?} =
+          if check_decode?,
+            do: remove_unreadable(dir, names, cutoff, counts),
+            else: {names, counts, false}
+
+        {sweep_partition(dir, names, cutoff, counts), pending? or partition_pending?}
+      end)
+
+    if check_decode? and not pending?, do: mark_version(root)
+    counts
+  end
+
+  defp marked_version(root) do
+    with {:ok, contents} <- RawFile.read(Path.join(root, @marker)),
+         {version, ""} <- Integer.parse(contents) do
+      version
+    else
+      _missing_or_invalid -> nil
+    end
+  end
+
+  # Written under a fixed second name and renamed, so a crash leaves the old
+  # marker or none, and the next write replaces what it left. A marker that
+  # can't be written only means the next sweep checks every metadata file
+  # again.
+  defp mark_version(root) do
+    marker = Path.join(root, @marker)
+    temp = marker <> ".new"
+
+    with :ok <- RawFile.write(temp, Integer.to_string(Store.metadata_version())),
+         do: RawFile.rename(temp, marker)
   end
 
   # Returns the names still present, so the leftover pass sees the removed
-  # metadata's bodies as unnamed. A rewrite moves the mtime, so the age check
-  # runs again just before the unlink.
+  # metadata's bodies as unnamed, and whether an unreadable metadata file was
+  # too new to remove, which keeps the version unmarked so the next sweep
+  # checks again. The age check runs after the read, since a rewrite moves
+  # the mtime.
   defp remove_unreadable(dir, names, cutoff, counts) do
-    Enum.reduce(names, {[], counts}, fn name, {kept, counts} ->
+    Enum.reduce(names, {[], counts, false}, fn name, {kept, counts, pending?} ->
       path = Path.join(dir, name)
 
-      if String.ends_with?(name, ".meta") and older?(path, cutoff) and unreadable?(path) and
-           older?(path, cutoff) do
-        {kept, remove(path, :unreadable, counts)}
-      else
-        {[name | kept], counts}
+      cond do
+        not String.ends_with?(name, ".meta") or not unreadable?(path) ->
+          {[name | kept], counts, pending?}
+
+        older?(path, cutoff) ->
+          {kept, remove(path, :unreadable, counts), pending?}
+
+        true ->
+          {[name | kept], counts, true}
       end
     end)
   end

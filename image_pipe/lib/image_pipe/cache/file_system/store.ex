@@ -14,9 +14,11 @@ defmodule ImagePipe.Cache.FileSystem.Store do
   alias ImagePipe.RawFile
   alias ImagePipe.SafePath
 
-  # Bump when the stored metadata changes shape, including the
-  # `ImagePipe.Debug.Info` it can hold. An entry stored under another version
-  # is a miss, and the sweep removes it.
+  # Bump for every change to the stored metadata's shape, including the
+  # `ImagePipe.Debug.Info` it can hold (see AGENTS.md). An entry stored under
+  # another version is a miss. The sweep checks that stored metadata decodes
+  # only when this differs from the version recorded at the cache root, so a
+  # shape change without a bump leaves entries it can't read in the cache.
   @metadata_version 2
   @commit_timeout 5_000
   @usage_timeout 1_000
@@ -681,6 +683,9 @@ defmodule ImagePipe.Cache.FileSystem.Store do
       :error -> {:error, {:path_outside_root, path}}
     end
   end
+
+  @doc false
+  def metadata_version, do: @metadata_version
 
   @doc false
   # A body's filename carries what Admission needs to count and score the

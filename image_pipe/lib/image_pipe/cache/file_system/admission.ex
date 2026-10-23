@@ -178,7 +178,7 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
     GenServer.call(admission_pid, :counted, :infinity)
 
     # Remove files a VM that died left behind.
-    removed = Sweep.run_listings(listings, state.pool, tel_opts(state))
+    removed = Sweep.run_listings(state.root, listings, state.pool, tel_opts(state))
     GenServer.cast(admission_pid, {:swept, removed})
 
     GenServer.call(admission_pid, :scan_complete, :infinity)
