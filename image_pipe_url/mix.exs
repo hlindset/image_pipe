@@ -2,7 +2,7 @@ defmodule ImagePipeURL.MixProject do
   use Mix.Project
 
   # Released in lockstep with image_pipe, which pins this package with `==`.
-  @version "0.3.0"
+  @version "0.4.0"
   @source_url "https://github.com/hlindset/image_pipe"
 
   def project do

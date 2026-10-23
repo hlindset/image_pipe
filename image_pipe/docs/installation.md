@@ -6,7 +6,7 @@ dependencies in `mix.exs`:
 ```elixir
 def deps do
   [
-    {:image_pipe, "~> 0.3.0"}
+    {:image_pipe, "~> 0.4.0"}
   ]
 end
 ```
@@ -50,7 +50,7 @@ An application that only generates URLs for a separate image service can depend
 on the pure Elixir URL builder alone:
 
 ```elixir
-{:image_pipe_url, "~> 0.3.0"}
+{:image_pipe_url, "~> 0.4.0"}
 ```
 
 It provides `ImagePipe.URL` with the same URL grammar, preset references,

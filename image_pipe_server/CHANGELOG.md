@@ -5,6 +5,8 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-23
+
 ### Added
 
 - `[cache] max_remembered_originals` sets how many originals the server
@@ -28,7 +30,8 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   endpoints report how many seconds ago it was read. A cache that doesn't
   answer within a second has `"available": false`. Turn them on with
   `[stats] enabled = true` and a `[stats] token` of at least 32 characters
-  that requests send as a bearer token. See [cache stats](docs/server-deployment.md#cache-stats).
+  that requests send as a bearer token. See
+  [cache stats](docs/server-deployment.md#cache-stats).
 - `[server] health_bind` sets the address the `health_port` listener binds
   to, such as an internal one. It defaults to `bind`. See
   [health and shutdown](docs/server-deployment.md#health-and-shutdown).
@@ -36,9 +39,27 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `[server] auth_token` logs its `401` at `warning`, and a request outside
   `mount_path` logs its `404` at `info`, each with the method, path, status,
   and duration. Before, the server logged neither.
+- `[processing] max_search_pixels` limits the pixels that `autoquality` and
+  `max-bytes` encode in one request, `100000000` by default, and
+  `"infinity"` turns it off. A search stops early when the next quality
+  would pass it, so a 40-megapixel AVIF or WebP result tries two qualities,
+  where it could encode up to 11 times. With `[telemetry] log_stages`, the
+  encode search's line says `pixel-limited` and logs at `warning` when the
+  limit stopped a search. See
+  [`[processing]`](docs/server-configuration.md#processing).
+- HTTP and S3 sources take `pool_size`, the maximum number of open
+  connections to each origin address or S3 endpoint. It defaults to `50`,
+  the limit that applied before. Over HTTP/1.1, raise it when more downloads
+  from one origin run at once, so they don't wait for a free connection and
+  fail with `504` after `pool_timeout`. See
+  [`[sources.<name>]`](docs/server-configuration.md#sources-name).
+- The `X-ImagePipe-Source-Progressive` debug header says whether a JPEG
+  original is progressive.
 
 ### Changed
 
+- Uses `image_pipe`
+  [0.4.0](https://github.com/hlindset/image_pipe/blob/v0.4.0/image_pipe/CHANGELOG.md).
 - **Breaking:** `[cache] storage_inputs` is now `[cache] vary_on`. Rename it
   in `config.toml`.
 - **Breaking:** Without `[url] keys`, the server doesn't start unless
@@ -49,11 +70,133 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Breaking:** `[server] auth_token` needs at least 32 characters, and the
   server doesn't start with a shorter one. Replace a shorter token, for
   example with the output of `openssl rand -hex 16`.
+- **Breaking:** `[processing] max_blur_work` limits the total work of all
+  `blur`, `progressive-blur`, and `sharpen` steps in a request, across all
+  its groups, instead of each blur on its own. Each step counts the pixels
+  of its image times (sigma² + 10,000), so a single blur may use a slightly
+  smaller sigma than before (up to 624 on a 10-megapixel image). A
+  progressive blur counts (2 × sigma² + 50,000), so it allows a smaller
+  sigma (up to 418 on a 10-megapixel image), and the default limit refuses
+  any progressive blur on a 100-megapixel image. A request over the limit
+  fails with `422` and the message "blur and sharpen work exceeds the
+  limit". Raise the limit if your requests chain large blurs, or set it to
+  `"infinity"` to turn it off. See
+  [`[processing]`](docs/server-configuration.md#processing).
+- **Breaking:** HTTP sources refuse origins in `192.0.0.0/24`,
+  `192.88.99.0/24`, and `2001::/23`, which are reserved for protocol use
+  (the last includes Teredo tunnel addresses). They were treated as public.
+  To reach one, set `address_policy.allow_reserved = true` or list its range
+  in `address_policy.allow`.
+- HTTP sources allow an IPv4 origin reached through a NAT64 gateway from an
+  IPv6-only network, at an address such as `64:ff9b::93.184.216.34`, when
+  the IPv4 address is public. Before, every such address was refused. An
+  IPv4 range in `address_policy.allow` also matches the NAT64 form of its
+  addresses.
+- **Breaking:** Request log lines, including the `401` and `404` lines,
+  end the path at the source: the first `src`, `src64`, or `enc` segment is
+  followed by `REDACTED`, as in `/w=200/src/REDACTED`, and each `wm-src64=`
+  value is `REDACTED`. The source follows as `source_url=`, decoded from
+  `src64` or decrypted from `enc`, and each watermark source as
+  `watermark_source_url=`. Every query value in them, such as an
+  `X-Amz-Signature`, and a URL's user name and password, are replaced with
+  `REDACTED`. Traces carry the same values. Before, the path was logged as
+  sent, with only the values of a fixed list of credential parameters
+  redacted, so values such as a `token` or `api_key` were logged.
+- **Breaking:** `enc` and `wm-enc=` sources are visible, decrypted, in logs
+  and traces. Source encryption hides a source from whoever requests the
+  image, not from whoever reads the server's logs. If logs or traces go
+  somewhere you don't want your source URLs, drop the `source_url` and
+  `watermark_source_url` fields there.
+- Every image stored in `[cache]` before the upgrade misses once, and the
+  startup sweep deletes those entries. Each original is downloaded once
+  more as its images are made again.
+- The `[cache]` startup sweep reads the cache's metadata files only after an
+  upgrade that changed their format, so restarting a cache with many entries
+  takes far less time. The cache records the format it checked in a
+  `.metadata-version` file in its root. The first start after this upgrade
+  still reads every metadata file.
+- A cache root the server can't create or write logs an `error` at startup
+  that names the root and the reason, such as `permission denied`, and says
+  images are served without being stored. Before, a `warning` said the
+  server "could not claim" the root.
+- `[cache.output] max_size_bytes` counts each entry's body rounded up to
+  whole 4 KiB blocks, plus one block for its metadata file, so many tiny
+  entries, such as BlurHash or LQIP responses, can't take far more disk than
+  the cap. A cache whose entries now count past its cap evicts down to it
+  after the upgrade.
+- A full `[cache]` keeps a new image that many requests want sooner, since
+  it counts each request that misses the image instead of each write. It
+  keeps images made from progressive JPEGs longer, since they cost more to
+  render again.
+- A `[cache]` uses less memory to track its entries, about 175 bytes per
+  stored image instead of over 400, and keeps its counts of the requests
+  that miss each image in 4 MB per 50 GB of `max_size_bytes`, allocated at
+  startup. Before, a busy 50 GB cache's counts grew to about 70 MB.
+- A full `[cache]` deletes a write it won't keep without syncing it to disk,
+  which saves most of its write I/O once the popular images don't fit. A
+  write that waits more than 5 seconds to be kept or rejected is dropped.
 - The hash of each local file and the cache headers of each origin image
   are kept in memory instead of in the `output` cache, so they no longer
   take its space. After a restart, a local file is hashed again, and an
   image from an origin is downloaded again, on its first request. See
   [`[cache]`](docs/server-configuration.md#cache).
+- A request for a cached image from a local file no longer opens the file
+  while its size and timestamps are unchanged.
+- A downloaded original is written to disk in 64 KiB batches, which takes
+  less CPU for a large original.
+- Concurrent requests for one new original share its download in more
+  cases:
+  - Requests for an original from an HTTP or S3 source download it once,
+    whatever size or format they ask for, while up to 4,096 originals are
+    being fetched at once. Before, without `[cache.input]`, requests for
+    the same processed image waited for the first download and then
+    downloaded it again, and requests for other sizes each downloaded it
+    themselves. With `[cache.input]`, requests stopped sharing once 64
+    originals were being fetched.
+  - Requests for an original from a source with caching turned off
+    download it at the same time instead of one after another.
+  - When the origin forbids storing the original, waiting requests start
+    their own downloads as soon as the origin responds. With
+    `[telemetry] log_stages`, their coordination line says
+    `bypass (not_stored)` at `info`.
+- `[pool] max_queue` defaults to `1024` instead of `64`, so a burst of quick
+  requests waits for a turn instead of answering `503`.
+- With `meta=strip`, a JPEG, WebP, or AVIF image at 72 dpi no longer carries
+  an EXIF block, so it's about 190 bytes smaller. An image at another
+  density, set by `dpi` or `[processing] stripped_dpi`, keeps an EXIF block
+  with only the density.
+- A source whose embedded RGB profile matches sRGB to within 1 level is
+  processed as sRGB without converting through the profile, which saves up
+  to about 220 ms on a large request. Some pixels can differ from before by
+  1 out of 255.
+- A WebP original scaled down a lot matches the same image as a JPEG or PNG
+  original. Like a JPEG, it's decoded at 1/2, 1/4, or 1/8 of its size, and
+  the resize does the rest. Before, a thumbnail under about 200 pixels wide
+  differed visibly from the JPEG or PNG one.
+- A `detect` or `anchor=smart-face` crop decodes a large image at a reduced
+  size when its crop box is small or when no detection will run, such as
+  when the detector isn't available for the requested classes or the image
+  already has the `fit=cover` target's aspect ratio. When the
+  crop falls back to attention cropping, its result can differ slightly.
+- `gradient` on an 8-bit image takes less time. A blended color can differ
+  from before by one level.
+- `autoquality` takes less time on an image with transparency, and with
+  `max-bytes` it scores only the quality it delivers.
+- With `format=jpeg`, `pad` and `extend` fill with white directly, which
+  takes less time to encode. The image is the same unless the result limits
+  then scale it down, when pixels next to the padding can differ.
+- A `blur`, `progressive-blur`, or `sharpen` result is copied to memory
+  before a later resize or a step that rereads pixels, so a request stays
+  within the CPU that `max_blur_work` allows.
+- A request with `crop=100pct,100pct` and no `crop-ratio`, or with
+  `region=0,0,100pct,100pct`, is processed as the same request without them.
+  With `debug`, `X-ImagePipe-Ignored-Options` lists the crop or region and
+  the options only it made useful, such as `anchor`.
+- An HTTP source whose host doesn't resolve logs `unresolved_host` instead
+  of `denied_address`. It still answers `404`.
+- With `anchor=smart-face` and `[processing] detector_required`, a crop that
+  falls back to attention because the face model isn't loaded yet, or isn't
+  available, logs a `warning`.
 - Cache hits are served faster. The Erlang VM's dirty I/O schedulers, which
   read cached files, again spin briefly before they sleep
   (`+sbwtdio very_short`), so a hit's reads rarely wait for a sleeping
@@ -61,9 +204,6 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `text` log lines are no longer colored when the container runs on a
   terminal, such as with `docker run -t`. Set `[telemetry] log_colors = true`
   to color them by level.
-- Concurrent requests for different sizes or formats of an image from an
-  HTTP or S3 source share one download. Before, without `[cache.input]`,
-  each request downloaded the original.
 - The server fetches S3 credentials from a provider at startup when an S3
   source allows any bucket. Before, it fetched them at startup only for
   buckets listed under `buckets`.
@@ -76,8 +216,7 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Breaking:** `[cache.input]`, the cache for originals, and the file
   source's `copy` setting. The server now refuses to start with either, so
   remove them from `config.toml`. It doesn't delete an existing
-  `[cache.input]` directory, so delete it yourself. `/stats` no longer has
-  an `input` entry.
+  `[cache.input]` directory, so delete it yourself.
 - **Breaking:** `[http] allow_debug_headers`. A request's `debug` option
   always adds the debug headers. Remove the setting from `config.toml`. With
   signed URLs, only your app can add `debug`.
@@ -117,11 +256,144 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   rendering the chain. The image is now copied to memory once six
   operations have run since its last copy, and libvips gets 8 MB of stack,
   up from 320 KB.
+- A request line's path includes `[server] mount_path`, as sent. Before, the
+  mount path was left out, so a URL from a CDN's log didn't match the
+  server's.
+- With `log_requests`, every `4xx` request line logs at `warning`. Before, a
+  `413`, `415`, or `422`, and a `400` for an invalid source, logged at
+  `error`. The request line for an invalid source or output gives
+  `reason="invalid source"` or `reason="invalid output"`.
+- The request line for a `403` invalid signature, a `400` signed URL sent to
+  a server without `[url] keys`, a `410` expired URL, and a `404` concealed
+  source that doesn't decrypt carries `reason=`.
+- A cached image whose delivery failed after its headers were sent logs its
+  request line at `error`, with status `200`. Before, the line had no
+  status and logged at `warning`.
+- A request path with bytes that aren't valid UTF-8 is logged and traced
+  with `U+FFFD` in their place.
+- The request line of a `HEAD` request that misses the cache no longer
+  shows a body size.
+- A request whose `src` URL holds a user name or password that isn't valid
+  UTF-8 once decoded keeps its request line.
+- A preset or request default in `[processing]` with a `wm-enc` token that
+  `[url] source_encryption_keys` can't decrypt stops the server at startup.
+  Before, the server started and every request using the token answered
+  `404`. A preset with `wm-enc=unset` no longer needs
+  `source_encryption_keys`.
+- When a later preset or URL option unsets or replaces a value from a
+  preset or the request defaults, the value that one replaced still
+  applies. With a
+  request default of `format-q=avif:50` and a preset `q80` defined as
+  `q=80`, `/preset=q80/q=unset` encodes AVIF at 50. A preset that names
+  other presets gives the same result as listing them in the URL.
+- The request defaults apply to a URL's or preset's first group even when
+  that group holds only `unset` options. Before, they moved to the next
+  group, so `w=unset/-/blur=2` with a default `w=200` was still resized to
+  200 pixels wide. A preset with such a group, in any position, can't take
+  other options in the URL. Adding one answers `400`.
+- A URL's `anchor-offset`, `extend-at`, or `extend-offset` no longer
+  replaces the crop target or canvas from a preset or the request defaults.
+  Before, `anchor-offset=5,5` dropped a preset's `anchor`.
+- A request with `format=webp` and lossless WebP (`webp-options=lossless` or
+  `[processing] webp_options.lossless`) no longer fails with `400` when it,
+  a preset, or the request defaults set `autoquality` or `max-bytes`.
+- A request that stopped waiting for another request's download of an
+  original, just as that download finished, no longer keeps the original
+  locked for later requests.
+- An image decoded while its original downloads no longer waits behind
+  newer requests for its encode. Before, it could fail with `503` after its
+  decode had finished.
+- With a `[pool]`, a request that waits for its turn while its original is
+  still downloading answers `503` once it has waited `queue_timeout`, and
+  answers a processing error, such as a `415`, without waiting for a second
+  turn. It no longer fails with `503` 60 seconds after its original
+  finished downloading when `queue_timeout` plus `processing_timeout`
+  allows longer.
+- An HTTP source fetch that runs out of `fetch_timeout` while waiting for a
+  pooled connection logs `receive_timeout` instead of `pool_timeout`. When
+  the host resolves to several addresses, a fetch no longer tries the next
+  one with less than 100 ms of `fetch_timeout` left.
+- When none of an HTTP source's addresses accepts a connection or answers
+  in time, the source keeps its cached DNS answer while it looks the host up
+  again. Before, other requests to that origin waited for a new lookup.
+- An S3 credential fetch from a provider that hangs fails after 30 seconds,
+  and the next request fetches again. Before, a hung fetch held up every
+  request for those credentials until the server restarted.
+- S3 credentials that a provider returns with less than five minutes left
+  are fetched again at half their remaining time, instead of every five
+  seconds.
+- S3 credentials whose access key, secret, or session token holds a line
+  break or NUL are rejected: static ones at startup, and ones from a
+  provider when they're fetched, which answers `500` and logs which field
+  was invalid. Before, every fetch with them failed with `502`.
+- When loading the face or object model fails at startup, image processing
+  keeps running, and the server logs a warning and retries the load.
+- When the first load of the face or object model fails, requests waiting
+  for it fail with that error at once instead of each trying the load again.
+- The daily sweep of the cache's leftover files keeps running after one of
+  the cache's processes restarts, and after a sweep fails.
+- A `debug` response from a server without a `[cache]` leaves out
+  `X-ImagePipe-Cache-Key`.
+- An image scaled down to fit `max_result_width`, `max_result_height`,
+  `max_result_pixels`, or a format's size limit keeps the exact colors of
+  its semi-transparent pixels and uses the request's `kernel`. Before, a
+  `kernel=nearest` result was smoothed.
+- Downscaling a 16-bit image or watermark without transparency no longer
+  darkens it slightly, and a 16-bit original delivered at 8 bits rounds each
+  value to the nearest level.
+- An `enlarge` or a `kernel=nearest` resize of an image with an EXIF
+  orientation, `rotate`, or `flip` gives the same pixels as rotating or
+  flipping first and then resizing.
+- A `crop` placed by an anchor or focus point, followed by a resize, lands
+  where it would on a full-size decode. A thin `crop` or `region` of a JPEG
+  or WebP image blends in far fewer pixels from just outside it.
+- Resizing a JPEG or WebP image only a few pixels high or wide, such as a
+  2000×3 image at `w=100`, no longer fails with `415`. Neither does
+  shrinking a WebP so far that its short side would be under one pixel,
+  such as `w=1/dpr=0.5`.
+- A watermark with an opacity below `1` blends at its exact faded alpha.
+- `png-options=palette` gives a palette PNG from a 16-bit result, such as
+  one with `hdr=preserve`. `png-options=bitdepth:1` on a grayscale result
+  turns values below 128 black and the rest white, and `bitdepth:1`, `2`, or
+  `4` on a 16-bit result encodes at 8 bits. `png-options=palette,bitdepth:16`
+  multiplies 8-bit color by 257, as `bitdepth:16` without `palette` does.
+- With `meta=keep` and a `profile` that converts the colors, the kept EXIF
+  no longer carries the original's white point and primaries, and its
+  `ColorSpace` tag matches the result. An image delivered in sRGB without a
+  color profile has `ColorSpace` sRGB when the original has the tag.
+  Before, the tag said Uncalibrated.
+- An image whose EXIF dates aren't plain numbers no longer fails with `500`
+  when metadata is stripped.
+- A `crop-ratio` far from the `crop` size's own ratio, such as `1:4000` for
+  a square crop, no longer fails with `500`. A `trim` tolerance with
+  hundreds of digits no longer fails with `500`, and tolerances above
+  `2147483647` fail with `400`.
+- `output=info` reports an exact `dpr` for a tall, narrow image that the
+  result limits scale down.
 
 ### Security
 
+- **Breaking:** An S3 `container_credentials` provider's `base_url` must use
+  `https`, a loopback host, or the ECS or EKS credential endpoint, as
+  `full_uri` already must. The server doesn't start with a plain-`http`
+  `base_url` on another host. Before, the credential token could be sent to
+  any `base_url`. The default `base_url` is unaffected.
 - `/health/live` and `/health/ready` responses send
   `X-Content-Type-Options: nosniff`.
+- Plain-text error responses, such as the `400` and the `405`, send
+  `X-Content-Type-Options: nosniff`. A `400` body quotes the request path,
+  so a browser that sniffs content types could otherwise render it as HTML.
+- When an HTTP source follows a redirect to another host, port, or scheme,
+  the request no longer carries the source's `request_headers` or
+  `bearer_token`. A redirect from `https` to `http`, or to a URL with a user
+  name or password, fails with `502`.
+- A crash report no longer prints the configured origin credentials, such
+  as S3 keys and authorization headers.
+- Redacting a request path for the logs, and echoing it in a `400`
+  response, take time in proportion to the path's length. Before, an
+  unsigned request with many `wm-src64=` segments could take seconds of CPU.
+- The log and traces cap how much of each error reason and value they
+  print, so a large value can't produce an unbounded log line or span.
 - The Docker image no longer trusts the `emSign ECC Root CA - G3`,
   `emSign Root CA - C1`, and `emSign ECC Root CA - C3` root certificates,
   which Mozilla removed after eMudhra issued intermediate certificates
@@ -574,7 +846,8 @@ First release of the standalone ImagePipe server.
 - Choose a base image or a vision image with bundled face and object detection
   models.
 
-[Unreleased]: https://github.com/hlindset/image_pipe/compare/image_pipe_server-v0.3.0...HEAD
+[Unreleased]: https://github.com/hlindset/image_pipe/compare/image_pipe_server-v0.4.0...HEAD
+[0.4.0]: https://github.com/hlindset/image_pipe/compare/image_pipe_server-v0.3.0...image_pipe_server-v0.4.0
 [0.3.0]: https://github.com/hlindset/image_pipe/compare/image_pipe_server-v0.2.0...image_pipe_server-v0.3.0
 [0.2.0]: https://github.com/hlindset/image_pipe/compare/image_pipe_server-v0.1.0...image_pipe_server-v0.2.0
 [0.1.0]: https://github.com/hlindset/image_pipe/releases/tag/image_pipe_server-v0.1.0

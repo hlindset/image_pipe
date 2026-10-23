@@ -15,7 +15,7 @@ Add `image_pipe_url` to your application's dependencies in `mix.exs`:
 
 ```elixir
 def deps do
-  [{:image_pipe_url, "~> 0.3.0"}]
+  [{:image_pipe_url, "~> 0.4.0"}]
 end
 ```
 
