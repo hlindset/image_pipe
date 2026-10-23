@@ -15,8 +15,9 @@ steps of the skill that leave a record:
     another. When the session never edited them, the review must come after
     they last changed on disk;
   - the closing summary (Audience, Pass 1-4, and Review lines, each filled in)
-    was written in message text after that review and after the files last
-    changed, so it covers the fixes.
+    was written in message text after that review and after the session last
+    edited those files, so it covers the fixes. A rebase that rewrites them
+    with the same content doesn't count as an edit.
 
 For a false positive, the agent can instead write a line
 `writing-docs exemption: <reason>` after those files changed. The command then
@@ -135,10 +136,11 @@ REFERENCES = ("style.md", "audiences.md")
 class Marks:
     """What the session did, from its transcript: when its own agent last wrote a
     summary, an exemption (with its reason), and started a review, which skill
-    references it read, and when the session first changed one of `files`."""
+    references it read, and when the session first and last changed one of
+    `files`. A rebase that leaves a file's content alone isn't a change."""
 
     def __init__(self):
-        self.summary = self.exemption = self.review = self.first_edit = None
+        self.summary = self.exemption = self.review = self.first_edit = self.last_edit = None
         self.read = set()
 
 
@@ -163,10 +165,11 @@ def last_marks(transcript, files=()):
                 entry = json.loads(line)
             except json.JSONDecodeError:
                 continue
-            if entry.get("type") == "user" and marks.first_edit is None:
+            if entry.get("type") == "user":
                 paths = changed_paths(entry.get("toolUseResult"))
                 if any(path.endswith("/" + f) for path in paths if path for f in files):
-                    marks.first_edit = datetime.fromisoformat(entry["timestamp"].replace("Z", "+00:00"))
+                    marks.last_edit = datetime.fromisoformat(entry["timestamp"].replace("Z", "+00:00"))
+                    marks.first_edit = marks.first_edit or marks.last_edit
             if entry.get("type") != "assistant" or entry.get("isSidechain"):
                 continue
             at = datetime.fromisoformat(entry["timestamp"].replace("Z", "+00:00"))
@@ -219,7 +222,10 @@ def main():
         return
 
     marks = last_marks(data.get("transcript_path", ""), files)
-    changed = max(
+    # The session's own last edit, so a rebase that rewrites the files with the
+    # same content doesn't count. A branch the session never edited falls back
+    # to when the files last changed on disk.
+    changed = marks.last_edit or max(
         (datetime.fromtimestamp(os.path.getmtime(f), timezone.utc) for f in files if os.path.exists(f)),
         default=None,
     )
