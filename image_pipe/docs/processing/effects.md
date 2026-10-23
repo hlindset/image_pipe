@@ -93,9 +93,10 @@ Accepts `sigma,direction,start,stop`. Only the sigma is required:
 Default: none. The image is sharp before `start`, and the blur grows to the full
 sigma at `stop`. Swapping `start` and `stop` reverses the ramp, and equal values
 switch from sharp to fully blurred in one step. The sigma is in output pixels,
-so `dpr` doesn't change it. A progressive blur is slower than `blur`.
-[`max_blur_work`](../deployment.md#limiting-blur-and-sharpen-work) limits it like a `blur` of
-its full sigma.
+so `dpr` doesn't change it. A progressive blur is slower than `blur`, so on a
+large image it exceeds the limit set in the server's configuration
+([`max_blur_work`](../deployment.md#limiting-blur-and-sharpen-work)) at a
+smaller sigma and fails with `422`.
 
 The values are positional, so you can't skip one: to set `start`, also write a
 direction, as in `progressive-blur=4,down,0.5`. An empty value, such as

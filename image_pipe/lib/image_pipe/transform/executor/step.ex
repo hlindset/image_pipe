@@ -134,13 +134,19 @@ defmodule ImagePipe.Transform.Executor.Step do
     do: %State{state | lazy_steps: state.lazy_steps + 1}
 
   # Checked before materializing, so a rejected convolution buffers nothing.
-  defp work_limit(%Blur{sigma: sigma}, state), do: convolution_limit(state, sigma)
-  defp work_limit(%ProgressiveBlur{sigma: sigma}, state), do: convolution_limit(state, sigma)
-  defp work_limit(%Sharpen{sigma: sigma}, state), do: convolution_limit(state, sigma)
+  defp work_limit(%Blur{sigma: sigma}, state),
+    do: blur_limit(WorkLimits.convolution(state, sigma))
+
+  defp work_limit(%ProgressiveBlur{sigma: sigma}, state),
+    do: blur_limit(WorkLimits.progressive_blur(state, sigma))
+
+  defp work_limit(%Sharpen{sigma: sigma}, state),
+    do: blur_limit(WorkLimits.convolution(state, sigma))
+
   defp work_limit(_operation, state), do: {:ok, state}
 
-  defp convolution_limit(state, sigma) do
-    case WorkLimits.convolution(state, sigma) do
+  defp blur_limit(result) do
+    case result do
       {:ok, state} -> {:ok, state}
       {:error, reason} -> {:error, {:transform, reason}}
     end

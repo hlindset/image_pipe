@@ -110,7 +110,10 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `progressive-blur`, and `sharpen` steps in a request, across all its
   groups, instead of each blur on its own. Each step counts the pixels of
   its image times (sigma² + 10,000), so a single blur may use a slightly
-  smaller sigma than before (up to 624 on a 10-megapixel image). A request
+  smaller sigma than before (up to 624 on a 10-megapixel image). A
+  progressive blur counts (2 × sigma² + 50,000), so it allows a smaller
+  sigma (up to 418 on a 10-megapixel image), and the default limit refuses
+  any progressive blur on a 100-megapixel image. A request
   over the limit fails with `422` and the message "blur and sharpen work
   exceeds the limit". Raise the limit if your requests chain large blurs, or
   set it to `:infinity` to turn it off. See

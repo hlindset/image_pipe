@@ -28,10 +28,19 @@ defmodule ImagePipe.Transform.WorkLimits do
   # against one limit, so repeating them in more groups doesn't multiply it.
   @convolution_base 10_000
 
-  def convolution(%State{image: image, max_blur_work: limit, blur_work: spent} = state, sigma) do
-    work =
-      spent +
-        round(Image.width(image) * Image.height(image) * (sigma * sigma + @convolution_base))
+  # A progressive blur blends each pixel's two nearest of eight blur levels,
+  # the larger up to the full sigma. Measured, it costs at most about twice a
+  # blur of its sigma, plus a fixed cost per pixel of about five small blurs.
+  @progressive_scale 2
+  @progressive_base 50_000
+
+  def convolution(state, sigma), do: charge(state, sigma * sigma + @convolution_base)
+
+  def progressive_blur(state, sigma),
+    do: charge(state, @progressive_scale * sigma * sigma + @progressive_base)
+
+  defp charge(%State{image: image, max_blur_work: limit, blur_work: spent} = state, per_pixel) do
+    work = spent + round(Image.width(image) * Image.height(image) * per_pixel)
 
     case within?(work, limit) do
       true -> {:ok, %State{state | blur_work: work}}

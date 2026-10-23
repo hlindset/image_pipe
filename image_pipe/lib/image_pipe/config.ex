@@ -179,10 +179,11 @@ defmodule ImagePipe.Config do
       doc: """
       Limit on the work of all `blur`, `progressive-blur`, and `sharpen` steps \
       in a request, across all its groups. Each step counts the pixels of the \
-      image it runs on, times (sigma² + 10,000). A request \
-      over the limit fails with `422`. The default allows any one blur on a \
-      2,000,000-pixel image, and a blur with a sigma up to 624 on a \
-      10,000,000-pixel image. `:infinity` turns the limit off.
+      image it runs on, times (sigma² + 10,000), or (2 × sigma² + 50,000) for \
+      a progressive blur. A request over the limit fails with `422`. The \
+      default allows any one `blur` on a 2,000,000-pixel image, and a `blur` \
+      with a sigma up to 624 on a 10,000,000-pixel image, or a progressive \
+      blur up to 418. `:infinity` turns the limit off.
       """
     ],
     max_search_pixels: [
