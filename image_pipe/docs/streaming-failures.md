@@ -97,8 +97,9 @@ treats it as a client disconnect and by default doesn't log it. ImagePipe's
 error trackers that capture exceptions from your Plug pipeline report it too.
 
 The work stops between chunks, not instantly. A libvips operation that is
-already running finishes first, and a stopped request gets one second to
-clean up before it is killed.
+already running finishes first. With a processing pool, the stopped request
+keeps its processing slot until it has cleaned up. Without one, it gets one
+second to clean up before it is killed.
 
 ## Processing deadline
 

@@ -64,8 +64,8 @@ sets.
 layer had set it, and takes the options that depended on it along.
 `/preset=card/w=unset` drops the width, and the inherited `fit` and
 `enlarge` go too unless `h` still uses them. Options written in the same
-URL are kept, so `/preset=card/w=unset/fit=cover` still fails when nothing
-else resizes. Because `unset` has this meaning, no watermark or detection
+URL are kept, so in `/preset=card/w=unset/fit=cover` the `fit` stays, and is
+[ignored](requesting-images.md#ignored-options) when nothing else resizes. Because `unset` has this meaning, no watermark or detection
 class can be named `unset`.
 
 A value that a later layer unsets or replaces counts as never written, so

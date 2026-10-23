@@ -93,7 +93,8 @@ In a later group, all of these measure the previous group's result.
 ## DPR and request-wide options
 
 [`dpr`](processing/resize.md#dpr) multiplies its group's output sizes and
-spacing (`w`, `h`, `pad`, and pixel offsets), not `crop`, `region`, or a
+spacing (`w`, `h`, `pad`, pixel offsets, a watermark's offset and gap, and
+its size without `wm-scale`), not `crop`, `region`, or a
 crop's `anchor-offset`. A later
 group doesn't inherit it, so `/w=400/dpr=2/-/pad=10/src/photos/beach.jpg`
 adds 10 pixels of padding to the 800-pixel image, not 20. The `dpr` that an
