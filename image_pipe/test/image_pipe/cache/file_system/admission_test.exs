@@ -153,10 +153,36 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
     tmp_dir: tmp_dir
   } do
     put_disk_entry(tmp_dir, hex_hash("c1"), "body")
+    prefix = pause_sweep()
+    opts = base_opts(registry: registry, tmp_dir: tmp_dir) ++ [telemetry_prefix: prefix]
+    pid = start_supervised!({Admission, opts})
+
+    assert_receive {:sweep_started, scan}
+    assert %{counting?: false, entries: 1} = Admission.usage(pid, 1_000)
+
+    send(scan, :continue)
+    :ok = Admission.await_scan(pid)
+  end
+
+  test "the startup scan stops when its Admission stops", %{
+    registry: registry,
+    tmp_dir: tmp_dir
+  } do
+    prefix = pause_sweep()
+    opts = base_opts(registry: registry, tmp_dir: tmp_dir) ++ [telemetry_prefix: prefix]
+    start_supervised!({Admission, opts})
+
+    assert_receive {:sweep_started, scan}
+    ref = Process.monitor(scan)
+    :ok = stop_supervised(Admission.child_spec(opts).id)
+    assert_receive {:DOWN, ^ref, :process, ^scan, _reason}
+  end
+
+  # The sweep starts from the scan process, which waits there for :continue.
+  defp pause_sweep do
     prefix = [:"admission_test_#{System.unique_integer([:positive])}"]
     test = self()
 
-    # The sweep starts from the scan process, which waits here until released.
     :telemetry.attach(
       {__MODULE__, prefix},
       prefix ++ [:cache, :sweep, :start],
@@ -171,15 +197,7 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
     )
 
     on_exit(fn -> :telemetry.detach({__MODULE__, prefix}) end)
-
-    opts = base_opts(registry: registry, tmp_dir: tmp_dir) ++ [telemetry_prefix: prefix]
-    pid = start_supervised!({Admission, opts})
-
-    assert_receive {:sweep_started, scan}
-    assert %{counting?: false, entries: 1} = Admission.usage(pid, 1_000)
-
-    send(scan, :continue)
-    :ok = Admission.await_scan(pid)
+    prefix
   end
 
   test "an entry the startup sweep removes is no longer counted", %{
@@ -535,21 +553,21 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
     pid = start_cache(ctx, cap)
     pool = [root: ctx.tmp_dir, max_size_bytes: cap]
     for seed <- ["a", "b", "c"], do: :ok = put_entry(pool, seed, 300, 1_000)
-    ref = make_ref()
+    scan = self()
 
     # As after the cap was lowered and the scan died before reconciling.
     :sys.replace_state(pid, fn state ->
       %{
         state
         | max_size_bytes: div(cap, 2),
-          scan_task_ref: ref,
+          scan_pid: scan,
           scan_complete?: false,
           scan_changes: :ets.new(:scan_changes, [:set, :private])
       }
     end)
 
     ExUnit.CaptureLog.capture_log(fn ->
-      send(pid, {:DOWN, ref, :process, self(), :boom})
+      send(pid, {:EXIT, scan, :boom})
       _ = :sys.get_state(pid)
     end)
 

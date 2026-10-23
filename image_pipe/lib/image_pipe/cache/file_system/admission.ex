@@ -62,8 +62,8 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
       # Keys dropped, deleted or committed while the startup scan runs, so a
       # stale scanned entry for them is skipped. nil after the scan.
       scan_changes: nil,
-      # Monitor the scan so a crash releases await_scan/2 callers.
-      scan_task_ref: nil,
+      # The linked startup scan, whose exit releases await_scan/2 callers.
+      scan_pid: nil,
       # The scan has counted the entries on disk. Its sweep may still run.
       counted?: false,
       scan_complete?: false,
@@ -137,11 +137,13 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
 
   @impl true
   def handle_continue(:scan, state) do
-    # An unlinked, monitored scan can fail without crashing Admission; its
-    # :DOWN releases await_scan waiters.
+    # The scan is linked, so it stops with Admission. Admission traps its
+    # exit, so a failed scan doesn't crash Admission, and the exit releases
+    # await_scan waiters.
+    Process.flag(:trap_exit, true)
     admission_pid = self()
-    {_pid, ref} = spawn_monitor(fn -> scan_directory(state, admission_pid) end)
-    {:noreply, %{state | scan_task_ref: ref}}
+    pid = spawn_link(fn -> scan_directory(state, admission_pid) end)
+    {:noreply, %{state | scan_pid: pid}}
   end
 
   @doc """
@@ -244,15 +246,14 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
   end
 
   # Release waiters if the scan dies before reporting completion.
-  def handle_info({:DOWN, ref, :process, _pid, reason}, %{scan_task_ref: ref} = state) do
+  def handle_info({:EXIT, pid, reason}, %{scan_pid: pid} = state) do
     if reason != :normal and not state.scan_complete? do
       require Logger
       Logger.warning("cache: directory scan crashed before completion: reason=#{inspect(reason)}")
 
-      {:noreply,
-       state |> Map.put(:scan_task_ref, nil) |> complete_scan() |> reconcile_if_over_cap()}
+      {:noreply, state |> Map.put(:scan_pid, nil) |> complete_scan() |> reconcile_if_over_cap()}
     else
-      {:noreply, %{state | scan_task_ref: nil}}
+      {:noreply, %{state | scan_pid: nil}}
     end
   end
 
