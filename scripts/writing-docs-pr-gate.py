@@ -257,7 +257,9 @@ def main():
         f"{branch} changes public docs ({', '.join(files)}). Remember to use the full "
         "/writing-docs process for public docs changes. Not done yet in this session: "
         + "; ".join(missing)
-        + ". Then run this command again. If these files aren't public docs, write a line "
+        + ". The summary counts only as visible text in a message you've already sent, "
+        "not in your reasoning, a tool call, or a file. Then run this command again. "
+        "If these files aren't public docs, write a line "
         "`writing-docs exemption: <reason>` instead. The operator sees that reason."
     )
 
