@@ -62,6 +62,7 @@
 
 - Label a pull request `perf` when it changes the work on the request path (decode, transforms, encode, source fetching or staging, caching, delivery) or the server image (system libraries, the release, `rel/env.sh`, VM flags), or when it claims a speed or memory gain. The `Performance` workflow then compares the server image built from it with one built from its base and posts the result as a comment. Docs-, test- and tooling-only changes don't need the label.
 - A change to a budget in `image_pipe/test/image_pipe/work_budget_test.exs` always gets the label, and its commit says why the request's work changed.
+- Label a pull request `perf-nightly` instead when its change may show only in a case the `perf` set leaves out, such as the `burst_same` and `burst_sizes` concurrency bursts or the decode of a format other than JPEG. The workflow then compares the `nightly` cases, which include the `perf` ones. Adding or removing either label starts a new comparison.
 - Before marking a `perf` pull request ready, read the comparison comment. A family marked as worse needs a fix or an explanation in the pull request description.
 - The comparison reports and doesn't fail, and its ratios move by up to about 10% between runs. Judge by families marked in every round, not by single cases. To compare locally, run `mix imgproxy.bench --compare IMAGE --against NAME=IMAGE` (see the README in `image_pipe/test/support/image_pipe/test/imgproxy_reference/`).
 

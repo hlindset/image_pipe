@@ -5,7 +5,8 @@ name: Performance
 # speed cancels out:
 #
 # - On a pull request labelled `perf`, the pull request against its base, on
-#   the curated `perf` cases, posted as a comment.
+#   the curated `perf` cases, posted as a comment. Labelled `perf-nightly`,
+#   with or without `perf`, the same on the `nightly` cases.
 # - Nightly, `main` against the `main` the previous scheduled run measured,
 #   the `main` of 30 days earlier, which shows drift too slow to notice night
 #   to night, and the latest release image, on the `nightly` cases: the `perf`
@@ -23,7 +24,7 @@ name: Performance
 # The comparison reports; it doesn't fail the job.
 on:
   pull_request:
-    types: [labeled, synchronize]
+    types: [labeled, unlabeled, synchronize]
   schedule:
     - cron: "17 3 * * *"
     # The weekly full run. "Choose the commits to compare" matches this string.
@@ -45,13 +46,25 @@ on:
 permissions:
   contents: read
 
+# A push to a pull request, or adding or removing its perf or perf-nightly
+# label, cancels the run in progress. Other label events get a group of their
+# own.
 concurrency:
-  group: performance-${{ github.event.pull_request.number || github.event.schedule || github.ref }}
+  group: >-
+    performance-${{ github.event_name != 'pull_request'
+    && (github.event.schedule || github.ref)
+    || (!contains(fromJSON('["labeled", "unlabeled"]'), github.event.action) || contains(fromJSON('["perf", "perf-nightly"]'), github.event.label.name))
+    && format('pr-{0}', github.event.pull_request.number) || github.run_id }}
   cancel-in-progress: true
 
 jobs:
   build:
-    if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'perf')
+    # Skipped on a pull request without either label and on events for other
+    # labels.
+    if: >-
+      github.event_name != 'pull_request'
+      || (contains(github.event.pull_request.labels.*.name, 'perf') || contains(github.event.pull_request.labels.*.name, 'perf-nightly'))
+      && (!contains(fromJSON('["labeled", "unlabeled"]'), github.event.action) || contains(fromJSON('["perf", "perf-nightly"]'), github.event.label.name))
     runs-on: ubuntu-26.04
     timeout-minutes: 60
     permissions:
@@ -80,6 +93,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           BASE_REF: ${{ github.event.pull_request.base.ref }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NIGHTLY: ${{ contains(github.event.pull_request.labels.*.name, 'perf-nightly') }}
           SCHEDULE: ${{ github.event.schedule }}
           CASES: ${{ inputs.cases }}
           AGAINST_REF: ${{ inputs.against }}
@@ -92,6 +106,7 @@ jobs:
           release=true
           if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
             release=false
+            [ "$PR_NIGHTLY" = true ] && only=nightly
             against=$(git rev-parse HEAD^1)
             name=base
             candidate_text="this pull request at \`${HEAD_SHA:0:7}\`, merged into \`$BASE_REF\`"
