@@ -539,6 +539,11 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `png-options=palette` gives a palette PNG from a 16-bit result, such as
   one with `hdr=preserve`. Without a `bitdepth`, the palette was dropped and
   the PNG stayed 16-bit.
+- With `meta=keep` and `profile=srgb`, `display-p3`, or `adobe-rgb`, the
+  kept EXIF no longer carries the original's white point and primaries, and
+  its ColorSpace tag is sRGB only for `profile=srgb` and Uncalibrated
+  otherwise. Before, a Display P3 result could keep ColorSpace sRGB from its
+  original.
 
 ## [0.3.0] - 2026-10-18
 

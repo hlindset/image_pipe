@@ -453,7 +453,9 @@ to `preserve`.
 Only JPEG can hold CMYK, so a CMYK original with `profile=preserve` keeps its
 profile in JPEG and becomes sRGB without a profile in other formats. `profile`
 works independently of `meta`: `meta=strip` doesn't remove a requested
-profile.
+profile. With `meta=keep`, a named profile removes the original's EXIF white
+point and primaries, and sets the EXIF ColorSpace to sRGB for `srgb` and to
+Uncalibrated for the others.
 
 A named profile produces 8-bit output, so it can't be combined with HDR
 preservation. A request for `srgb`, `display-p3`, or `adobe-rgb` that also

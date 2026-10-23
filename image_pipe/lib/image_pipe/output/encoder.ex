@@ -351,7 +351,7 @@ defmodule ImagePipe.Output.Encoder do
          source_color
        ) do
     with {:ok, image} <- convert_to_target(image, target, source_color) do
-      {:ok, strip_metadata(image, resolved)}
+      {:ok, image |> tag_exif_color(target) |> strip_metadata(resolved)}
     end
   end
 
@@ -369,6 +369,27 @@ defmodule ImagePipe.Output.Encoder do
          {:ok, image} <- maybe_drop_profile(image, keep?) do
       {:ok, strip_metadata(image, resolved)}
     end
+  end
+
+  # Kept EXIF still describes the source's colors. Its white point and
+  # primaries go, and ColorSpace is sRGB (1) only for an sRGB target, or
+  # Uncalibrated (65535), which tells readers to use the profile.
+  defp tag_exif_color(image, target) do
+    color_space? = header_value(image, "exif-ifd2-ColorSpace") != nil
+    color_space = if target == :srgb, do: "1", else: "65535"
+
+    {:ok, image} =
+      VixImage.mutate(image, fn mut ->
+        VixMutableImage.remove(mut, "exif-ifd0-WhitePoint")
+        VixMutableImage.remove(mut, "exif-ifd0-PrimaryChromaticities")
+
+        if color_space?,
+          do: VixMutableImage.set(mut, "exif-ifd2-ColorSpace", :gchararray, color_space)
+
+        :ok
+      end)
+
+    image
   end
 
   # Only JPEG can store CMYK pixels; other formats would convert an exported
