@@ -102,7 +102,9 @@ or CDN in front of it, and have it connect to the server with HTTP/1.1.
 - `[server] max_connections` (2048) caps concurrent connections. Beyond it,
   new connections wait up to five seconds for room, then are closed.
 - `[server] auth_token` requires `Authorization: Bearer <token>` on every
-  request except the health checks, answering `401` otherwise. The token
+  request except the health checks and the
+  [cache stats](#cache-stats), answering `401` otherwise. A request outside
+  the mount path also gets `401` without the token. The token
   needs at least 32 characters. Use `auth_token` when a trusted edge adds
   the header, for example with unsigned URLs. Pass it as a secret:
   `IPS_SERVER__AUTH_TOKEN_FILE=/run/secrets/auth_token`.
@@ -584,11 +586,18 @@ so the console can connect, and other containers on the same network can't.
 
 ## Without Docker
 
-Build a release from `image_pipe_server/`:
+Build a release from `image_pipe_server/` against the libraries published on
+Hex:
 
 ```bash
-MIX_ENV=prod mix release
+export IMAGE_PIPE_LIBS=hex MIX_ENV=prod
+mix deps.get --only prod
+mix release
 ```
+
+Without `IMAGE_PIPE_LIBS=hex`, the build uses the libraries in the same
+checkout and compiles the SVG renderer from source, which needs a
+[Rust toolchain](https://rustup.rs).
 
 By default the release uses the libvips that vix ships, which can't read
 JPEG XL. For JPEG XL sources, install libvips 8.18 with JPEG XL support and

@@ -11,8 +11,8 @@ listed in [shared URL settings](../../image_pipe/docs/shared-url-settings.md).
 
 1. The library's defaults.
 2. Standard `AWS_` variables, for the S3 credential options that
-   `container_credentials` and `web_identity` leave out (see
-   [S3 `credentials`](#s3-credentials)).
+   `container_credentials` and `web_identity` leave out (see S3 `credentials`
+   under [`[sources.<name>]`](#sources-name)).
 3. The TOML file named by `IPS_CONFIG`, or `/etc/image_pipe/config.toml`, or
    the file's contents in `IPS_CONFIG_TOML` on a platform that can't mount
    files. The default file is optional, so a deployment can use only
@@ -131,6 +131,15 @@ a key, credential, token, or the contents of a `_FILE`:
 ```text
 invalid configuration: url.source_encryption_keys[0]: expected a hex-encoded 32-byte key
 invalid configuration: processing.qualty: unknown setting
+```
+
+Errors from the library's own checks start with
+`invalid ImagePipe configuration:` or `invalid ImagePipe instance:` and name
+the setting without its table, such as `:max_result_width` for
+`processing.max_result_width`:
+
+```text
+invalid ImagePipe configuration: invalid value for :max_result_width option: expected positive integer, got: 0
 ```
 
 A file that isn't valid TOML is reported with its position and key, with the
