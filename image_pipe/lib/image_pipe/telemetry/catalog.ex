@@ -43,8 +43,11 @@ defmodule ImagePipe.Telemetry.Catalog do
     # Every libvips open of the original, nested in fetch_decode.
     {[:source, :decode_open], :span, :source, :trace_only},
     # Rendering an SVG original, nested in fetch_decode, or an SVG watermark,
-    # nested in transform execute.
+    # nested in transform execute or output terminal.
     {[:source, :svg_render], :span, :source},
+    # Parsing an SVG watermark, when its asset is decoded in transform execute
+    # or output terminal.
+    {[:source, :svg_parse], :span, :source},
     {[:source, :stage], :span, :source},
     {[:source, :watermark], :span, :source},
     {[:transform, :execute], :span, :transform},

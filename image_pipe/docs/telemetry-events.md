@@ -59,8 +59,9 @@ These keys mean the same on every event that carries them. A key whose value
 would be `nil` is left out of the metadata.
 
 - `:result` (atom): the outcome. See [result values](#result-values).
-- `:error` (atom): the error category from `ImagePipe.Error.tag/1`, on
-  failures.
+- `:error` (atom): the error category, on failures. On
+  [`[:debug, :collect, :error]`](#debug-collect-error) it is the module of
+  the exception raised instead.
 - `:status` (integer): the HTTP status, on events that know it.
 - `:cache` (atom): the cache outcome, on cache events.
 - `:pool` (atom): which pool emitted the event, such as `:input` or
@@ -427,12 +428,39 @@ size. The default Logger doesn't log it.
     one.
 - Stop metadata: `:result` (atom), `:ok` or `:processing_error`.
 
+### `[:source, :svg_parse]`
+
+Span. Wraps reading and parsing an SVG watermark, when the request's
+watermark images are decoded during
+[`[:transform, :execute]`](#transform-execute), or
+[`[:output, :terminal]`](#output-terminal) for an `output=info`,
+`blurhash`, or `lqip-css` request. The watermark then renders in a
+[`[:source, :svg_render]`](#source-svg_render) span of its own.
+
+- Start metadata: `:asset` (atom), `:watermark`.
+- Stop metadata on success:
+  - `:result` (atom): `:ok`.
+  - `:intrinsic_dims` (`{width, height}`): the SVG's own size in pixels.
+- Stop metadata on failure:
+  - `:result` (atom): `:processing_error`.
+  - `:error` (atom): `:decode` for an SVG that doesn't parse, or
+    `:input_limit`.
+  - `:limit` (atom): with `:input_limit`, the limit that rejected the SVG:
+    `:svg_bytes`, `:svg_elements`, `:svg_entities`, `:svg_text`,
+    `:svg_nesting`, or `:pixels` (an embedded image is over
+    `max_input_pixels`). [`[:source, :svg_render]`](#source-svg_render)
+    describes each one.
+
 ### `[:source, :svg_render]`
 
-Span. Wraps rendering an SVG: parsing it, estimating the rendering cost, and
-rendering it at the size the request needs. An SVG original renders during
-[`[:source, :fetch_decode]`](#source-fetch_decode), and an SVG watermark
-during [`[:transform, :execute]`](#transform-execute).
+Span. Wraps estimating an SVG's rendering cost and rendering it at the size
+the request needs. An SVG original renders during
+[`[:source, :fetch_decode]`](#source-fetch_decode), and its span also covers
+reading and parsing it. An SVG watermark renders during
+[`[:transform, :execute]`](#transform-execute), or
+[`[:output, :terminal]`](#output-terminal) for an `output=info`,
+`blurhash`, or `lqip-css` request, and is parsed earlier, in
+[`[:source, :svg_parse]`](#source-svg_parse).
 
 - Start metadata: `:asset` (atom), `:original` or `:watermark`.
 - Stop metadata on success:
@@ -458,12 +486,15 @@ during [`[:transform, :execute]`](#transform-execute).
     nested too deep), `:pixels` (an original's render, or an embedded image,
     is over `max_input_pixels`), `:svg_render_work`, `:svg_render_pixels`,
     or `:svg_render_extent` (drawn geometry reaches more than 32,767 pixels
-    from the canvas, which the renderer can't draw).
+    from the canvas, which the renderer can't draw). A watermark's render
+    reports only `:svg_render_work`, `:svg_render_pixels`, or
+    `:svg_render_extent`.
 
 ### `[:source, :watermark]`
 
 Span. Wraps getting one watermark image, in its own process while the main
-original is fetched. That image's source spans nest in it.
+original is fetched. That image's fetch spans nest in it. An SVG watermark's
+parse and render spans don't.
 
 - Start metadata: `:phase` (atom), `:prepare` when its identity is checked
   before the conditional check, or `:open` when its bytes are read after an
@@ -552,8 +583,8 @@ with or without `stages: true`.
     the write), or `:deadline` (a response's write was unfinished 30 seconds
     after it started).
   - `:error` (atom): the error category, for `:stage_error`.
-  - `:output_format` (atom), or `nil` for a body that isn't an image, such
-    as a BlurHash.
+  - `:output_format` (atom): the format of an image body. Left out for a
+    body that isn't an image, such as a BlurHash.
   - `:cache_key` (string): the hash of the entry's cache key.
 
 ### `[:cache, :coordination]`
@@ -731,8 +762,9 @@ computed at least once, at the latest just before encoding.
 
 - Start metadata: none.
 - Stop metadata:
-  - `:result` (atom): `:ok`, or `:materialize_error` when the copy failed
-    (the response is `415`).
+  - `:result` (atom): `:ok`, or `:materialize_error` when the copy failed.
+    The response is `422` when the image is larger than
+    `max_intermediate_pixels`, and `415` otherwise.
   - `:dims` (`{width, height}`): the size of the computed image, on success.
     After orientation, the size as displayed.
 
@@ -810,7 +842,8 @@ with the attention point. Coordinates are normalized to `0..1`.
 
 - Metadata:
   - `:attention` (`{x, y}`): the libvips attention point.
-  - `:face` (`{x, y}`): the area-weighted center of the faces.
+  - `:face` (`{x, y}`): the center of the faces, each weighted by the
+    square root of its area.
   - `:blended` (`{x, y}`): the point used, `(1 - weight) * attention +
     weight * face`.
   - `:weight` (float): the face weight.
@@ -1013,4 +1046,5 @@ One-shot. Emitted when reading the original's details for
 generation, whether or not the request has `debug`. The request continues
 without them.
 
-- Metadata: `:error` (atom), the error category.
+- Metadata: `:error` (atom), the module of the exception raised, such as
+  `RuntimeError`.

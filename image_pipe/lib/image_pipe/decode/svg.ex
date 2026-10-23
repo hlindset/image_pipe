@@ -100,12 +100,17 @@ if Code.ensure_loaded?(ImagePipe.SVG) do
     def watermark(data, opts) do
       config = Keyword.fetch!(opts, :svg)
 
-      with {:ok, data} <- read({:buffer, data}, config.max_bytes),
-           {:ok, document} <-
-             parse(data, fonts(config), Keyword.fetch!(opts, :max_input_pixels)) do
-        dims = {max(1, round(document.width)), max(1, round(document.height))}
-        {:ok, %{dims: dims, render: &render_watermark(document, dims, config, opts, &1, &2)}}
-      end
+      Telemetry.span(opts, [:source, :svg_parse], %{asset: :watermark}, fn ->
+        with {:ok, data} <- read({:buffer, data}, config.max_bytes),
+             {:ok, document} <-
+               parse(data, fonts(config), Keyword.fetch!(opts, :max_input_pixels)) do
+          dims = {max(1, round(document.width)), max(1, round(document.height))}
+          render = &render_watermark(document, dims, config, opts, &1, &2)
+          {{:ok, %{dims: dims, render: render}}, %{result: :ok, intrinsic_dims: dims}}
+        else
+          {:error, reason} = error -> {error, error_metadata(reason)}
+        end
+      end)
     end
 
     defp render_watermark(document, dims, config, opts, width, height) do

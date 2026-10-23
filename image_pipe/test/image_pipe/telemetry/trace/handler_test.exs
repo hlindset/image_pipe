@@ -579,7 +579,7 @@ defmodule ImagePipe.Telemetry.Trace.HandlerTest do
 
   test "adds the debug collect error marker as an event on the enclosing span" do
     Telemetry.span([], [:cache, :lookup], %{}, fn ->
-      Telemetry.execute([], [:debug, :collect, :error], %{}, %{error: :decode_failed})
+      Telemetry.execute([], [:debug, :collect, :error], %{}, %{error: RuntimeError})
       {:ok, %{result: :ok}}
     end)
 
@@ -589,7 +589,7 @@ defmodule ImagePipe.Telemetry.Trace.HandlerTest do
 
     event = Enum.find(span.events, &(&1.name == "image_pipe.debug.collect.error"))
     assert event
-    assert event.attributes[:error] == "decode_failed"
+    assert event.attributes[:error] == "Elixir.RuntimeError"
   end
 
   test "one-shot events keep the metadata the event reference documents" do
@@ -677,6 +677,22 @@ defmodule ImagePipe.Telemetry.Trace.HandlerTest do
     assert render.attributes[:rendered_dims] == "{400, 200}"
     assert render.attributes[:work] == 81_000
     assert render.attributes[:peak] == 80_000
+  end
+
+  test "records a watermark SVG parse with its size and limit" do
+    Telemetry.span([], [:transform, :execute], %{}, fn ->
+      Telemetry.span([], [:source, :svg_parse], %{asset: :watermark}, fn ->
+        {{:error, :limit}, %{result: :processing_error, error: :input_limit, limit: :svg_bytes}}
+      end)
+
+      {:ok, %{result: :ok}}
+    end)
+
+    assert_receive {:span, %Span{name: "image_pipe.source.svg_parse"} = parse}
+    assert_receive {:span, %Span{name: "image_pipe.transform.execute"} = execute}
+    assert parse.parent_span_id == execute.span_id
+    assert parse.attributes[:asset] == "watermark"
+    assert parse.attributes[:limit] == "svg_bytes"
   end
 
   test "nests the ssimulacra2 probe cost legs (encode/decode/metric) under the probe span" do
