@@ -451,7 +451,18 @@ defmodule ImagePipe.SVGTest do
 
       red = <<255, 0, 0, 255>>
 
-      for href <- [canary, "file://#{canary}", "canary.png", "http://127.0.0.1:1/x.png"] do
+      # A listener nobody should connect to: the render must not fetch from it.
+      {:ok, listener} = :gen_tcp.listen(0, [:binary, ip: {127, 0, 0, 1}, active: false])
+      {:ok, port} = :inet.port(listener)
+
+      hrefs = [
+        canary,
+        "file://#{canary}",
+        Path.relative_to_cwd(canary),
+        "http://127.0.0.1:#{port}/canary.png"
+      ]
+
+      for href <- hrefs do
         image = ~s(<image width="10" height="10" href="#{href}"/>)
         assert transparent?(render!(svg(image), fonts, 10, 10)), "rendered #{href}"
 
@@ -460,6 +471,8 @@ defmodule ImagePipe.SVGTest do
         assert :binary.match(render!(svg(css), fonts, 10, 10), red) == :nomatch,
                "drew the canary from url(#{href})"
       end
+
+      assert {:error, :timeout} = :gen_tcp.accept(listener, 0)
     end
   end
 
