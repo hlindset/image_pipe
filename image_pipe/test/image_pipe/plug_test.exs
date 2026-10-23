@@ -503,6 +503,25 @@ defmodule ImagePipe.PlugTest do
     refute_received :origin_fetched
   end
 
+  test "text error responses tell browsers not to sniff the content type" do
+    opts = [
+      root_url: "http://origin.test",
+      origin_req_options: [plug: TruncatedHeaderOnlyOriginImage]
+    ]
+
+    for {method, path, status} <- [
+          {:get, "/w=<script>/src/images/beach.jpg", 400},
+          {:post, "/format=jpeg/src/images/beach.jpg", 405},
+          {:get, "/w=100/src/images/beach.jpg", 415}
+        ] do
+      conn = method |> conn(path) |> call_image_pipe(opts)
+
+      assert conn.status == status
+      assert get_resp_header(conn, "content-type") == ["text/plain; charset=utf-8"]
+      assert get_resp_header(conn, "x-content-type-options") == ["nosniff"]
+    end
+  end
+
   test "streaming sends headers once and resumes for subsequent chunks" do
     conn = conn(:get, "/format=jpeg/src/images/beach.jpg")
     test_pid = self()

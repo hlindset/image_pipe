@@ -558,6 +558,13 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   otherwise. Before, a Display P3 result could keep ColorSpace sRGB from its
   original.
 
+### Security
+
+- Plain-text error responses, such as the 400 and the 405, now send
+  `X-Content-Type-Options: nosniff`. A 400 body quotes the request
+  path, so a browser that sniffs content types could otherwise render it as
+  HTML.
+
 ## [0.3.0] - 2026-10-18
 
 ### Added
