@@ -60,6 +60,7 @@ defmodule ImagePipeServer.Health do
 
     conn
     |> put_resp_content_type("text/plain")
+    |> put_resp_header("x-content-type-options", "nosniff")
     |> send_resp(status, body)
   end
 

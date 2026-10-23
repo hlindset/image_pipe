@@ -115,6 +115,8 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Security
 
+- `/health/live` and `/health/ready` responses send
+  `X-Content-Type-Options: nosniff`.
 - The Docker image no longer trusts the `emSign ECC Root CA - G3`,
   `emSign Root CA - C1`, and `emSign ECC Root CA - C3` root certificates,
   which Mozilla removed after eMudhra issued intermediate certificates

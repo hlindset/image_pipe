@@ -35,6 +35,7 @@ defmodule ImagePipeServer.RouterTest do
 
         assert conn.status == 200
         assert conn.resp_body == "ok"
+        assert Plug.Conn.get_resp_header(conn, "x-content-type-options") == ["nosniff"]
       end
     end
 

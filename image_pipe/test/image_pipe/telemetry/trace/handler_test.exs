@@ -410,6 +410,21 @@ defmodule ImagePipe.Telemetry.Trace.HandlerTest do
     assert Enum.any?(s.events, &(&1.name == "exception"))
   end
 
+  test "bounds the size of an inspected reason" do
+    reason = {:origin, List.duplicate(String.duplicate("x", 10_000), 100)}
+
+    assert_raise ErlangError, fn ->
+      Telemetry.span([], [:request], %{}, fn -> :erlang.error(reason) end)
+    end
+
+    assert_receive {:span, %Span{name: "image_pipe.request", status_message: message}}
+    assert byte_size(message) < 7_000
+
+    Telemetry.span([], [:request], %{}, fn -> {:ok, %{result: :ok, reason: reason}} end)
+    assert_receive {:span, %Span{name: "image_pipe.request", attributes: %{reason: attribute}}}
+    assert byte_size(attribute) < 7_000
+  end
+
   test "captures the encode-search span with its product-neutral start attributes" do
     Telemetry.span(
       [],

@@ -10,6 +10,10 @@ defmodule ImagePipe.Telemetry.Logger do
 
   @handler_id "image-pipe-default-logger"
 
+  # A reason can hold source-derived terms of any size, and a host may turn
+  # off Logger's truncation, so its inspected form is bounded.
+  @inspect_opts [limit: 25, printable_limit: 256]
+
   # The summary fields after the line's head, in the order they're written.
   @summary_keys [
     :source_url,
@@ -494,7 +498,7 @@ defmodule ImagePipe.Telemetry.Logger do
   defp cap(value), do: value
 
   defp exception_message(suffix, meta) do
-    "image_pipe #{label(suffix)}: exception (#{meta[:kind]} #{inspect(meta[:reason])})"
+    "image_pipe #{label(suffix)}: exception (#{meta[:kind]} #{inspect(meta[:reason], @inspect_opts)})"
   end
 
   defp outcome(meta) do
@@ -586,7 +590,7 @@ defmodule ImagePipe.Telemetry.Logger do
   defp summary_value({width, height}), do: "#{width}x#{height}"
 
   defp summary_value(value) when is_atom(value) or is_number(value), do: to_string(value)
-  defp summary_value(value), do: inspect(value)
+  defp summary_value(value), do: inspect(value, @inspect_opts)
 
   defp skip_reason(:no_detector), do: "no detector configured"
   defp skip_reason(:not_ready), do: "face model not loaded yet"

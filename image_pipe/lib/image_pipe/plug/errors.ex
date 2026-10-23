@@ -23,7 +23,7 @@ defmodule ImagePipe.Plug.Errors do
     Summary.put(%{reason: Enum.map_join(diagnostics, "; ", & &1.message)})
 
     conn
-    |> put_resp_content_type("text/plain")
+    |> put_text_content_type()
     |> send_resp(400, body)
   end
 
@@ -32,7 +32,7 @@ defmodule ImagePipe.Plug.Errors do
     Summary.put(%{reason: "invalid signature"})
 
     conn
-    |> put_resp_content_type("text/plain")
+    |> put_text_content_type()
     |> send_resp(403, "invalid signature")
   end
 
@@ -47,7 +47,7 @@ defmodule ImagePipe.Plug.Errors do
     Summary.put(%{reason: diagnostic.message})
 
     conn
-    |> put_resp_content_type("text/plain")
+    |> put_text_content_type()
     |> send_resp(400, body)
   end
 
@@ -55,7 +55,7 @@ defmodule ImagePipe.Plug.Errors do
     Summary.put(%{reason: "expired"})
 
     conn
-    |> put_resp_content_type("text/plain")
+    |> put_text_content_type()
     |> send_resp(410, "expired")
   end
 
@@ -63,7 +63,7 @@ defmodule ImagePipe.Plug.Errors do
     Summary.put(%{reason: "not found"})
 
     conn
-    |> put_resp_content_type("text/plain")
+    |> put_text_content_type()
     |> send_resp(404, "not found")
   end
 
@@ -71,7 +71,7 @@ defmodule ImagePipe.Plug.Errors do
     Summary.put(%{reason: "invalid source"})
 
     conn
-    |> put_resp_content_type("text/plain")
+    |> put_text_content_type()
     |> send_resp(400, "invalid source")
   end
 
@@ -79,7 +79,7 @@ defmodule ImagePipe.Plug.Errors do
     Summary.put(%{reason: "invalid output"})
 
     conn
-    |> put_resp_content_type("text/plain")
+    |> put_text_content_type()
     |> send_resp(400, "invalid output")
   end
 
@@ -89,7 +89,7 @@ defmodule ImagePipe.Plug.Errors do
 
     conn
     |> server_error_no_store(status)
-    |> put_resp_content_type("text/plain")
+    |> put_text_content_type()
     |> send_resp(status, message)
   end
 
@@ -100,6 +100,14 @@ defmodule ImagePipe.Plug.Errors do
     do: put_resp_header(conn, "cache-control", "no-store")
 
   defp server_error_no_store(conn, _status), do: conn
+
+  # A diagnostic body echoes the request path, so browsers must not sniff a
+  # text body into HTML.
+  defp put_text_content_type(conn) do
+    conn
+    |> put_resp_content_type("text/plain")
+    |> put_resp_header("x-content-type-options", "nosniff")
+  end
 
   defp diagnostic_path(conn), do: conn |> Request.mount_relative_path() |> Path.diagnostic_path()
 

@@ -34,6 +34,7 @@ defmodule ImagePipe.Response.Sender do
   def send_method_not_allowed(%Plug.Conn{} = conn) do
     conn
     |> put_resp_header("allow", "GET, HEAD")
+    |> put_resp_header("x-content-type-options", "nosniff")
     |> put_resp_content_type("text/plain")
     |> send_resp(405, "method not allowed")
   end
