@@ -315,8 +315,8 @@ defmodule ImagePipe do
       #=> %{
       #=>   output: %{bytes: 812_345_678, entries: 5120, max_bytes: 1_073_741_824,
       #=>             counting?: false, hits: 9120, misses: 1310, read_errors: 0,
-      #=>             remembered_entries: 3100, max_remembered_entries: 21_474,
-      #=>             available: true, refused: false},
+      #=>             write_errors: 0, remembered_entries: 3100,
+      #=>             max_remembered_entries: 21_474, available: true, refused: false},
       #=>   originals: %{entries: 4800, max_entries: 21_474}
       #=> }
 
@@ -330,7 +330,7 @@ defmodule ImagePipe do
 
   A cache whose process is restarting, or busy for more than a second, can't
   report its size. Its entry has `available: false`, `refused: false`,
-  `:max_bytes`, `:hits`, `:misses`, and `:read_errors`.
+  `:max_bytes`, `:hits`, `:misses`, `:read_errors`, and `:write_errors`.
 
   Every other entry has `available: true`, `refused: false`, and these:
 
@@ -345,6 +345,9 @@ defmodule ImagePipe do
       counts.
     * `:read_errors` - stored entries the cache couldn't read, also counted
       as misses.
+    * `:write_errors` - images the cache failed to store, for example
+      because `root` isn't writable or its disk is full. Each is still
+      served.
     * `:remembered_entries` and `:max_remembered_entries` - the entries the
       cache keeps in memory, and its `max_remembered_entries` (see
       [Cache process and restarts](cache.md#cache-process-and-restarts)).

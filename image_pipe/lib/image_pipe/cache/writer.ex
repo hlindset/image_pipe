@@ -17,6 +17,7 @@ defmodule ImagePipe.Cache.Writer do
 
   alias ImagePipe.Cache.FileSystem
   alias ImagePipe.Cache.FileSystem.Writers
+  alias ImagePipe.Cache.Lookups
   alias ImagePipe.Cache.OutputWork
   alias ImagePipe.Cache.Sink
   alias ImagePipe.Telemetry
@@ -79,6 +80,7 @@ defmodule ImagePipe.Cache.Writer do
         {:noreply, %{state | store: store}}
 
       {:error, reason} ->
+        Lookups.count(state.cache_opts, :write_error)
         Sink.open_failed(state, reason)
         {:stop, :normal, state}
     end
@@ -92,6 +94,7 @@ defmodule ImagePipe.Cache.Writer do
         {:noreply, %{state | store: store}}
 
       {:error, reason, store} ->
+        Lookups.count(state.cache_opts, :write_error)
         Sink.write_failed(state, reason)
         {:stop, :normal, %{state | store: store}}
     end
@@ -122,6 +125,7 @@ defmodule ImagePipe.Cache.Writer do
     Telemetry.span(state.telemetry_opts, [:cache, :write], start_metadata, fn ->
       Writers.hold(:atomics.get(state.counters, @reserved))
       result = FileSystem.commit_sink(state.store, state.cache_opts)
+      if match?({:error, _reason}, result), do: Lookups.count(state.cache_opts, :write_error)
       size = confirmed(state.counters)
       cost_us = state.metadata.cost_us
       {:ok, Sink.commit_metadata(result, state.key, state.output_format, size, cost_us)}

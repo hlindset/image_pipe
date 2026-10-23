@@ -12,6 +12,7 @@ defmodule ImagePipe.Cache.Sink do
   alias ImagePipe.Cache.FileSystem
   alias ImagePipe.Cache.FileSystem.Writers
   alias ImagePipe.Cache.Key
+  alias ImagePipe.Cache.Lookups
   alias ImagePipe.Cache.OutputWork
   alias ImagePipe.Cache.Writer
   alias ImagePipe.Format
@@ -138,6 +139,7 @@ defmodule ImagePipe.Cache.Sink do
 
     Telemetry.span(opts, [:cache, :write], start_metadata, fn ->
       result = store_body(key, metadata, body, cache_opts)
+      if match?({:error, _reason}, result), do: Lookups.count(cache_opts, :write_error)
       {result, commit_metadata(result, key, nil, byte_size(body), nil)}
     end)
   end

@@ -258,7 +258,8 @@ to 50 seconds, depending on when the waiting node checks, while another node
 waits for the `root`, as on a hung network mount.
 
 If the instance can't write the file, for example because `root` isn't
-writable, it logs a warning and uses the cache anyway.
+writable, it logs an error and uses the cache anyway. Each image it can't
+store then counts as a [write error](#usage-and-hit-rate).
 
 ### Leftover files
 
@@ -380,12 +381,14 @@ The admission and eviction telemetry events are listed in
 
 `ImagePipe.cache_stats/1` returns an `:output` entry for `cache`, with the
 cache's `:bytes`, `:entries`, and `:max_bytes`, and its `:hits`, `:misses`,
-and `:read_errors` since the VM started:
+`:read_errors`, and `:write_errors` since the VM started:
 
 - Each request counts once: a hit when the processed image is served from
   the cache, a miss when it's made.
 - A read error is a stored entry the cache couldn't read. The request
   treats it as a miss, so it counts as a read error and as a miss.
+- A write error is an image the cache failed to store, for example because
+  `root` isn't writable or its disk is full. The image is still served.
 - `:counting?` is `true` until the
   [startup scan](#eviction-and-startup-scan) has counted the entries on
   disk. Until then, `:bytes` and `:entries` leave out the ones it hasn't

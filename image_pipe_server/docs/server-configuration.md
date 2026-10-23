@@ -164,6 +164,15 @@ status 1:
 cannot start: can't listen on server.port 8080 at 0.0.0.0: address already in use
 ```
 
+A `root` in [`[cache.output]`](#cache) that the server can't create or
+write doesn't stop it. The server logs an error naming the directory,
+serves images without storing them, and counts each one in `write_errors`
+in the [cache stats](server-deployment.md#cache-stats):
+
+```text
+[error] cache: can't use cache root /var/cache/image_pipe/output: permission denied. Images are served without being stored until the root can be written.
+```
+
 ## Reference
 
 Every key the server accepts, generated from the loader's schemas. Types are

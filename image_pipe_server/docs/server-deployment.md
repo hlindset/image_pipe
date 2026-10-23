@@ -278,6 +278,7 @@ curl -H "Authorization: Bearer 3b9f6c1e8a2d4f7b0c5e9a1d6f2b8c4e" http://localhos
   "output": {
     "bytes": 812345678, "max_bytes": 1073741824, "entries": 5120,
     "counting": false, "hits": 9120, "misses": 1310, "read_errors": 0,
+    "write_errors": 0,
     "remembered_entries": 3100, "max_remembered_entries": 21474,
     "available": true, "refused": false,
     "disk_free_bytes": 40213000000, "disk_total_bytes": 107374182400,
@@ -290,6 +291,10 @@ curl -H "Authorization: Bearer 3b9f6c1e8a2d4f7b0c5e9a1d6f2b8c4e" http://localhos
 - `hits` and `misses` count this replica's requests since it started, each
   request once. `read_errors` are stored entries the cache couldn't read,
   also counted as misses.
+- `write_errors` are images the cache failed to store, for example because
+  its `root` isn't writable, the disk is full, or the cache is restarting
+  or too busy to take the image. Each is still served. In `/metrics` this
+  is `image_pipe_cache_write_errors_total`.
 - `remembered_entries` is how many recently served entries the cache keeps
   in memory, up to `max_remembered_entries`. A hit on one of them reads
   less from disk.
@@ -317,8 +322,8 @@ curl -H "Authorization: Bearer 3b9f6c1e8a2d4f7b0c5e9a1d6f2b8c4e" http://localhos
 - A cache that doesn't report its size within a second, such as while it
   restarts after a crash or is busy evicting entries, has
   `"available": false`. It has `max_bytes`, `hits`, `misses`,
-  `read_errors`, and the disk sizes, but no `bytes`, `entries`, or
-  `counting`. In `/metrics`, `image_pipe_cache_available` is `0` and
+  `read_errors`, `write_errors`, and the disk sizes, but no `bytes`,
+  `entries`, or `counting`. In `/metrics`, `image_pipe_cache_available` is `0` and
   `image_pipe_cache_bytes`, `image_pipe_cache_entries`, and
   `image_pipe_cache_counting` are missing for that cache. Every other cache
   that isn't refused has `"available": true`, and

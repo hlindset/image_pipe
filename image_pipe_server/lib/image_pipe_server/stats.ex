@@ -106,6 +106,11 @@ defmodule ImagePipeServer.Stats do
 
   @lookups [hit: :hits, miss: :misses]
 
+  @errors [
+    read_errors: "Stored entries the cache couldn't read since start, also counted as misses.",
+    write_errors: "Images the cache failed to store since start."
+  ]
+
   defp prometheus(snapshot) do
     {originals, caches} = Map.pop(snapshot, :originals)
     caches = Enum.sort(caches)
@@ -125,22 +130,24 @@ defmodule ImagePipeServer.Stats do
         [header(name, help, "gauge"), samples]
       end
 
-    read_errors = [
-      header(
-        "image_pipe_cache_read_errors_total",
-        "Stored entries the cache couldn't read since start, also counted as misses.",
-        "counter"
-      ),
-      for {cache, stats} <- counted do
+    errors =
+      for {field, help} <- @errors do
+        name = "image_pipe_cache_" <> Atom.to_string(field) <> "_total"
+
         [
-          ~s(image_pipe_cache_read_errors_total{cache="),
-          Atom.to_string(cache),
-          ~s("} ),
-          Integer.to_string(stats.read_errors),
-          ?\n
+          header(name, help, "counter"),
+          for {cache, stats} <- counted do
+            [
+              name,
+              ~s({cache="),
+              Atom.to_string(cache),
+              ~s("} ),
+              Integer.to_string(Map.fetch!(stats, field)),
+              ?\n
+            ]
+          end
         ]
       end
-    ]
 
     lookups = [
       header(
@@ -161,7 +168,7 @@ defmodule ImagePipeServer.Stats do
       end
     ]
 
-    IO.iodata_to_binary([gauges, lookups, read_errors, originals(originals)])
+    IO.iodata_to_binary([gauges, lookups, errors, originals(originals)])
   end
 
   defp originals(nil), do: []

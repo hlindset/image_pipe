@@ -66,6 +66,7 @@ defmodule ImagePipe.API.CacheStatsWireTest do
              hits: 1,
              misses: 2,
              read_errors: 0,
+             write_errors: 0,
              max_bytes: 50_000_000,
              counting?: false,
              available: true,
@@ -112,6 +113,41 @@ defmodule ImagePipe.API.CacheStatsWireTest do
 
     assert %{output: %{hits: 0, misses: 2, read_errors: 1}} =
              ImagePipe.cache_stats(Caches.instance(opts))
+  end
+
+  @tag :file_permissions
+  @tag capture_log: true
+  test "counts an image the cache can't store as a write error", %{opts: opts} do
+    root = Keyword.fetch!(opts[:cache], :root)
+    File.chmod!(root, 0o500)
+    on_exit(fn -> File.chmod(root, 0o700) end)
+
+    assert get("/w=12/format=png/src/https://origin.test/a.png", opts) == 200
+    assert get("/w=12/format=png/src/https://origin.test/a.png", opts) == 200
+
+    assert %{output: %{hits: 0, misses: 2, write_errors: 2}} =
+             ImagePipe.cache_stats(Caches.instance(opts))
+  end
+
+  @tag :file_permissions
+  test "logs an error when the cache root can't be created", %{opts: opts} do
+    parent = Path.dirname(Keyword.fetch!(opts[:cache], :root))
+    locked = Path.join(parent, "locked")
+    File.mkdir_p!(locked)
+    File.chmod!(locked, 0o500)
+    on_exit(fn -> File.chmod(locked, 0o700) end)
+    root = Path.join(locked, "cache")
+
+    log =
+      ExUnit.CaptureLog.capture_log(fn ->
+        Caches.start!(cache: [root: root, max_size_bytes: 1_000_000])
+      end)
+
+    assert log =~ "[error]"
+
+    assert log =~
+             "cache: can't use cache root #{root}: permission denied. " <>
+               "Images are served without being stored until the root can be written."
   end
 
   test "reports a cache whose process exits while it's asked as unavailable", %{opts: opts} do
@@ -161,7 +197,8 @@ defmodule ImagePipe.API.CacheStatsWireTest do
              max_bytes: 50_000_000,
              hits: 0,
              misses: 0,
-             read_errors: 0
+             read_errors: 0,
+             write_errors: 0
            }
   end
 
