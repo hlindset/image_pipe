@@ -104,7 +104,8 @@ working detector.
 
 A class the detector doesn't know, such as `detect=unicorn`, fails with
 `400` before the image is fetched, whether or not detection is required. A
-typo would otherwise look like a picture with nothing in it.
+typo would otherwise look like a picture with nothing in it. A server
+without a detector accepts any class and falls back to attention cropping.
 
 ## Cost of detection
 

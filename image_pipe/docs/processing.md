@@ -20,7 +20,7 @@ and the [value syntax](requesting-images.md#option-values) they use.
 | [Formats and quality](processing/output.md#formats) | `output`, `format`, `q`, `format-q`, `autoquality`, `max-bytes` |
 | [Encoders](processing/output.md#encoder-options) | `jpeg-options`, `png-options`, `webp-options`, `avif-options` |
 | [Metadata and color](processing/output.md#metadata-color-profiles-and-hdr) | `meta`, `dpi`, `profile`, `hdr` |
-| [Request controls](processing/request.md) | `filename`, `attachment`, `cb`, `expires`, `debug` |
+| [Request controls](processing/request.md) | `filename`, `attachment`, `cb`, `expires`, `priority`, `debug` |
 | [Requesting images](requesting-images.md) | `preset`, `-`, `sig`, `src`, `src64`, `enc` |
 
 ## Processing order

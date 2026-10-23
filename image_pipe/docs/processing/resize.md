@@ -201,9 +201,10 @@ pixels around it.
 - `mks2013` and `mks2021` blend with the 2013 or 2021 version of Magic
   Kernel Sharp.
 
-`kernel` applies to the resize of its own group. Rotation, `pixelate`,
-watermarks, [placeholder outputs](output.md#output), and the scale-down to the
-maximum output size keep their own resampling. `kernel` needs a number in `w`,
+`kernel` applies to the resize of its own group. The scale-down to the
+maximum output size uses the `kernel` of the last group that resizes.
+Rotation, `pixelate`, watermarks, and
+[placeholder outputs](output.md#output) keep their own resampling. `kernel` needs a number in `w`,
 `h`, `min-w`, or `min-h` in the same group, and is ignored without one.
 
 With `kernel=nearest` in the first group, a large JPEG or WebP source is
@@ -231,8 +232,9 @@ ImagePipe.URL.group(builder, resize: [width: 512, enlarge: true, kernel: :neares
 Accepts a positive number up to `2147483647`, the device pixel ratio. Default: `1`.
 
 Multiplies the sizes you request in pixels: `w`, `h`, `min-w`, `min-h`, the
-`extend` canvas, `pad`, `extend-offset`, and an `anchor-offset` on a cover
-resize. `/w=400/dpr=2` gives an 800-pixel-wide image, from a source at least
+`extend` canvas, `pad`, `extend-offset`, an `anchor-offset` on a cover
+resize, and a watermark's pixel `wm-offset` and `wm-gap`, and its size
+when there is no `wm-scale`. `/w=400/dpr=2` gives an 800-pixel-wide image, from a source at least
 that wide, for a 400-pixel slot on a high-density screen.
 
 `dpr` doesn't change percentages, or the sizes and offsets of a

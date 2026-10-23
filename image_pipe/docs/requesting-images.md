@@ -33,15 +33,14 @@ with no options, such as `https://img.example.com/src/photos/beach.jpg`, is
 valid too. ImagePipe then only chooses the [output format](#output-formats).
 
 ImagePipe rejects a URL with `400` when it has an unknown option, the same
-option twice in one group, options that conflict, or an option that has no
-effect, such as `fit=cover` without a width or height (`w`, `h`, `min-w`, or
-`min-h`). It also rejects:
+option twice in one group, or options that conflict. An option that has no
+effect is [ignored](#ignored-options) instead. ImagePipe also rejects:
 
 - A query string, such as `?v=2`. To get a fresh copy after an image
   changes, use the [`cb` option](processing/request.md) instead.
 - Percent escapes, such as `%20`, anywhere in the options.
 - Empty segments (`//`) and the segments `.` and `..` in the options.
-- More than 64 option segments.
+- More than 64 option segments before the source, counting each `-`.
 
 ## Image paths
 
