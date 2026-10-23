@@ -197,6 +197,38 @@ defmodule ImagePipeServer.ApplicationTest do
     end
   end
 
+  describe "[url] settings" do
+    test "sign the instance's URLs with url.keys" do
+      key = String.duplicate("ab", 32)
+
+      config =
+        Config.build!(
+          Config.options!(%{
+            "url" => %{"keys" => [key]},
+            "sources" => %{
+              "static" => %{
+                "adapter" => "file",
+                "match" => "path",
+                "root" => "test/support/images",
+                "root_id" => "static"
+              }
+            }
+          })
+        )
+
+      instance = :"signed_instance_#{System.unique_integer([:positive])}"
+      start_supervised!({ImagePipe, name: instance, config: config.image_pipe})
+      image_pipe = ImagePipe.Plug.init([instance: instance] ++ config.http)
+      path = "/w=4/format=png/src/pic.png"
+      sign = &ImagePipe.URL.sign_path(path, ImagePipe.URL.config(keys: [&1]))
+      call = &ImagePipe.Plug.call(Plug.Test.conn(:get, &1), image_pipe).status
+
+      assert call.(sign.(key)) == 200
+      assert call.(sign.(String.duplicate("cd", 32))) == 403
+      assert call.(path) == 403
+    end
+  end
+
   describe "log_formatter/2" do
     test "writes text without color escapes unless colors are on" do
       event = %{level: :warning, msg: {:string, "slow"}, meta: %{time: :logger.timestamp()}}
