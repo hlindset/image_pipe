@@ -264,13 +264,15 @@ defmodule ImagePipeServer.Config do
 
   defp file_system(value, schema, path) do
     with {:ok, options} <- Convert.options(value, schema, path),
-         {:ok, options} <- Convert.require_keys(options, [:root, :max_size_bytes], path),
+         {:ok, options} <- Convert.require_keys(options, schema, path),
          do: {:ok, options}
   end
 
   defp store_schema do
     Store.options_schema()
-    |> Keyword.merge(root: [type: {:convert, &cache_root/2, "string (absolute path)"}])
+    |> Keyword.merge(
+      root: [type: {:convert, &cache_root/2, "string (absolute path)"}, required: true]
+    )
   end
 
   defp cache_root(value, path) do
