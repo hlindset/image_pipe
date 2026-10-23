@@ -14,7 +14,10 @@ guide, the Phoenix guides, and the SvelteKit docs.
 ## Every docs change
 
 Any change to documentation text is docs writing: a new page, a restructure,
-or a one-sentence factual fix. Correct facts are necessary but not enough.
+or a one-sentence factual fix. That includes the documentation inside a code
+change: changelog entries, `@moduledoc` and `@doc` text, and rows of tables
+such as `docs/errors.md`. A `PostToolUse` hook reminds you when an edit
+touches documentation. Correct facts are necessary but not enough.
 A fix that is true but badly written still needs another pass. For every
 change, do all of these:
 
@@ -30,17 +33,26 @@ change, do all of these:
    section (or moduledoc) that states the current behavior. Don't silently
    document around it.
 3. Run the four final-read passes (see "Final read" below) on the text you
-   changed.
+   changed, starting with `scripts/docs-final-read.sh`.
 4. Get a fresh review (workflow step 6).
 5. End with a closing summary:
 
    ```text
    Audience: <audience>   Kind: <kind>
-   Final read: passes 1-4 done
+   Script: <scripts/docs-final-read.sh output, pasted: pass 1 headings,
+     pass 4 count, links>
+   Pass 1: <what the headings read like as a table of contents, or "no
+     headings changed">
+   Pass 2: <each setting, option, or term the change introduces, and where
+     it is explained or linked>
+   Pass 3: <each paragraph you shortened, or why none could be shorter>
    Review: <findings, and what you fixed>
    Left alone: <existing problems on the page outside your change>
    Filed: <beads issues for code problems found, or none>
    ```
+
+   Every line needs its evidence. "Done" without it means the pass didn't
+   happen, so run it before writing the summary.
 
 ## The four kinds
 
@@ -141,6 +153,11 @@ After drafting, read the page once as its intended reader and look for drift:
 
 Before finishing any change, do four quick passes over the text you changed.
 They check the most important rules in `references/style.md`.
+`scripts/docs-final-read.sh` does the mechanical part: it prints the
+headings of each page whose headings changed (pass 1), flags `;` and `—` in
+added prose (pass 4), and runs `mix docs` for broken links. It checks lines
+added since `origin/main`, in markdown and in `@moduledoc` and `@doc` text,
+and `mise run precommit` runs it too. Passes 2 and 3 need your reading.
 
 1. Read only the headings, in order. Each should name a topic, and together
    they should read like a sensible table of contents.
