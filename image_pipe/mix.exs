@@ -78,7 +78,6 @@ defmodule ImagePipe.MixProject do
     "docs/choosing-an-autoquality-target.md" => "Choosing a quality target"
   }
   @internal_doc_references [
-    "ImagePipe.Error.tag/1",
     "ImagePipe.Plug.Runner",
     "ImagePipe.Response.Sender",
     "ImagePipe.Security.verify/3",

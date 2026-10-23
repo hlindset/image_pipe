@@ -59,8 +59,9 @@ These keys mean the same on every event that carries them. A key whose value
 would be `nil` is left out of the metadata.
 
 - `:result` (atom): the outcome. See [result values](#result-values).
-- `:error` (atom): the error category from `ImagePipe.Error.tag/1`, on
-  failures.
+- `:error` (atom): the error category, on failures. On
+  [`[:debug, :collect, :error]`](#debug-collect-error) it is the module of
+  the exception raised instead.
 - `:status` (integer): the HTTP status, on events that know it.
 - `:cache` (atom): the cache outcome, on cache events.
 - `:pool` (atom): which pool emitted the event, such as `:input` or
@@ -552,8 +553,8 @@ with or without `stages: true`.
     the write), or `:deadline` (a response's write was unfinished 30 seconds
     after it started).
   - `:error` (atom): the error category, for `:stage_error`.
-  - `:output_format` (atom), or `nil` for a body that isn't an image, such
-    as a BlurHash.
+  - `:output_format` (atom): the format of an image body. Left out for a
+    body that isn't an image, such as a BlurHash.
   - `:cache_key` (string): the hash of the entry's cache key.
 
 ### `[:cache, :coordination]`
@@ -731,8 +732,9 @@ computed at least once, at the latest just before encoding.
 
 - Start metadata: none.
 - Stop metadata:
-  - `:result` (atom): `:ok`, or `:materialize_error` when the copy failed
-    (the response is `415`).
+  - `:result` (atom): `:ok`, or `:materialize_error` when the copy failed.
+    The response is `422` when the image is larger than
+    `max_intermediate_pixels`, and `415` otherwise.
   - `:dims` (`{width, height}`): the size of the computed image, on success.
     After orientation, the size as displayed.
 
@@ -810,7 +812,8 @@ with the attention point. Coordinates are normalized to `0..1`.
 
 - Metadata:
   - `:attention` (`{x, y}`): the libvips attention point.
-  - `:face` (`{x, y}`): the area-weighted center of the faces.
+  - `:face` (`{x, y}`): the center of the faces, each weighted by the
+    square root of its area.
   - `:blended` (`{x, y}`): the point used, `(1 - weight) * attention +
     weight * face`.
   - `:weight` (float): the face weight.
