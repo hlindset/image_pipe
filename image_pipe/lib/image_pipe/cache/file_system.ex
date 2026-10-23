@@ -32,7 +32,6 @@ defmodule ImagePipe.Cache.FileSystem do
   alias ImagePipe.Cache.File, as: CacheFile
   alias ImagePipe.Cache.FileSystem.Store
   alias ImagePipe.Debug.Info
-  @metadata_version 1
 
   @doc false
   defdelegate child_spec(opts), to: Store
@@ -112,7 +111,6 @@ defmodule ImagePipe.Cache.FileSystem do
   end
 
   defp validate_metadata(%{
-         metadata_version: @metadata_version,
          content_type: content_type,
          headers: headers,
          created_at: created_at,
@@ -138,21 +136,13 @@ defmodule ImagePipe.Cache.FileSystem do
          body_sha256: body_sha256,
          body_filename: body_filename,
          cost_us: cost_us,
-         debug: current_debug(debug),
+         debug: debug,
          representation: representation
        }}
     end
   end
 
-  defp validate_metadata(%{metadata_version: version}) when version != @metadata_version,
-    do: {:error, :version_mismatch}
-
   defp validate_metadata(_metadata), do: {:error, :invalid_shape}
-
-  # Debug details stored before `Info` gained a field lack it, so rendering
-  # them would raise. Rebuilding gives the field its default.
-  defp current_debug(nil), do: nil
-  defp current_debug(%Info{} = debug), do: struct(Info, Map.from_struct(debug))
 
   defp validate_metadata_debug(debug) when is_struct(debug, Info) or is_nil(debug), do: :ok
   defp validate_metadata_debug(_debug), do: {:error, :invalid_debug}
