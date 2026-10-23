@@ -1,6 +1,6 @@
 name: Audit
 
-# Checks every lockfile against the OSV advisory database. Runs weekly as well
+# Checks every lockfile against the OSV advisory database. Runs nightly as well
 # as on lockfile changes, because advisories appear without any change here.
 on:
   push:
@@ -15,7 +15,7 @@ on:
     branches: ["main"]
     paths: *audit_paths
   schedule:
-    - cron: "17 6 * * 1"
+    - cron: "17 6 * * *"
   workflow_dispatch:
 
 permissions:
