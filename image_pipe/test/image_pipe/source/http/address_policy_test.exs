@@ -21,6 +21,8 @@ defmodule ImagePipe.Source.HTTP.AddressPolicyTest do
       assert AddressPolicy.classify({255, 255, 255, 255}) == :broadcast
       assert AddressPolicy.classify({198, 18, 0, 1}) == :reserved
       assert AddressPolicy.classify({192, 0, 2, 5}) == :reserved
+      assert AddressPolicy.classify({192, 0, 0, 8}) == :reserved
+      assert AddressPolicy.classify({192, 88, 99, 1}) == :reserved
       assert AddressPolicy.classify({93, 184, 216, 34}) == :public
       assert AddressPolicy.classify({8, 8, 8, 8}) == :public
     end
@@ -43,14 +45,24 @@ defmodule ImagePipe.Source.HTTP.AddressPolicyTest do
       assert AddressPolicy.classify({0, 0, 0, 0, 0, 0xFFFF, 0x5DB8, 0xD822}) == :public
     end
 
-    test "blocks NAT64 and unwraps 6to4 by embedded v4" do
-      assert AddressPolicy.classify({0x64, 0xFF9B, 0, 0, 0, 0, 0x0A00, 0x0001}) == :reserved
+    test "unwraps NAT64 and 6to4 by embedded v4" do
+      assert AddressPolicy.classify({0x64, 0xFF9B, 0, 0, 0, 0, 0x0A00, 0x0001}) == :private
+      assert AddressPolicy.classify({0x64, 0xFF9B, 0, 0, 0, 0, 0x7F00, 0x0001}) == :loopback
+      assert AddressPolicy.classify({0x64, 0xFF9B, 0, 0, 0, 0, 0x5DB8, 0xD822}) == :public
       assert AddressPolicy.classify({0x2002, 0x7F00, 0x0001, 0, 0, 0, 0, 0}) == :loopback
       assert AddressPolicy.classify({0x2002, 0x5DB8, 0xD822, 0, 0, 0, 0, 0}) == :public
     end
 
     test "blocks the IPv6 documentation range 2001:db8::/32" do
       assert AddressPolicy.classify({0x2001, 0x0DB8, 0, 0, 0, 0, 0, 1}) == :reserved
+    end
+
+    test "blocks IETF protocol assignments 2001::/23, which include Teredo" do
+      assert AddressPolicy.classify({0x2001, 0, 0x4136, 0xE378, 0x8000, 0x63BF, 0x3FFF, 0xFDD2}) ==
+               :reserved
+
+      assert AddressPolicy.classify({0x2001, 0x01FF, 0, 0, 0, 0, 0, 1}) == :reserved
+      assert AddressPolicy.classify({0x2001, 0x0200, 0, 0, 0, 0, 0, 1}) == :public
     end
 
     test "unknown IPv6 never defaults to :public (deny-default)" do
@@ -109,6 +121,12 @@ defmodule ImagePipe.Source.HTTP.AddressPolicyTest do
 
       v6_pred = AddressPolicy.compile(allow: ["::ffff:10.0.5.0/120"])
       assert AddressPolicy.allow?(v6_pred, [{0, 0, 0, 0, 0, 0xFFFF, 0x0A00, 0x0507}])
+    end
+
+    test "CIDR allow matches NAT64 addresses like the embedded IPv4 address" do
+      pred = AddressPolicy.compile(allow: ["10.0.5.0/24"])
+      assert AddressPolicy.allow?(pred, [{0x64, 0xFF9B, 0, 0, 0, 0, 0x0A00, 0x0507}])
+      refute AddressPolicy.allow?(pred, [{0x64, 0xFF9B, 0, 0, 0, 0, 0x0A00, 0x0607}])
     end
 
     test "CIDR allow doesn't match 6to4 addresses that embed an allowed IPv4 address" do

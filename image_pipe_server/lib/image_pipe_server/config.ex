@@ -450,14 +450,20 @@ defmodule ImagePipeServer.Config do
     end
   end
 
-  defp mount_path!("/" <> _rest = path), do: path
+  # The router compares the setting with the request's path segments, which
+  # stay percent-encoded, so a segment needs no encoding to match.
+  @mount_path ~r"\A(/[A-Za-z0-9\-._~]*)+\z"
 
-  defp mount_path!(_path),
-    do:
-      raise(
-        ConfigError,
-        "invalid configuration: server.mount_path: expected a path starting with /"
-      )
+  defp mount_path!(path) do
+    if Regex.match?(@mount_path, path),
+      do: path,
+      else:
+        raise(
+          ConfigError,
+          "invalid configuration: server.mount_path: expected a path starting with / " <>
+            "and made only of letters, digits, and -._~ between slashes"
+        )
+  end
 
   defp signed!(url) do
     if Keyword.get(url, :keys, []) == [] and not Keyword.get(url, :allow_unsigned, false) do

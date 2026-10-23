@@ -177,7 +177,7 @@ Each node coordinates fetching originals, making processed images, and
 background checks (see
 [request coalescing](caching-and-freshness.md#request-coalescing)):
 
-- Up to 64 originals can be shared between requests at once, with up to
+- Up to 4,096 originals can be shared between requests at once, with up to
   1,024 requests waiting for them. Past either limit, a request fetches its
   original itself, without waiting. A request that waits while a request for
   another size or format downloads an HTTP or S3 original, or while another

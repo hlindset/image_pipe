@@ -228,13 +228,15 @@ defmodule ImagePipe.Source.HTTP do
     * `:allow_broadcast` - `255.255.255.255`.
     * `:allow_cgnat` - `100.64.0.0/10`.
     * `:allow_reserved` - other non-public ranges: benchmarking and
-      documentation ranges, `240.0.0.0/4`, NAT64 `64:ff9b::/96`, and IPv6
-      addresses outside `2000::/3`.
+      documentation ranges, IETF protocol assignments (`192.0.0.0/24` and
+      `2001::/23`, which includes Teredo), the 6to4 relay `192.88.99.0/24`,
+      `240.0.0.0/4`, and IPv6 addresses outside `2000::/3`.
 
-  Each category takes `true` or `false`. Categories treat IPv4-mapped and
-  6to4 IPv6 addresses as the IPv4 address they contain. An IPv4 range in
-  `:allow` also matches an address in IPv4-mapped form, such as
-  `::ffff:10.0.5.7`, but not in 6to4 form.
+  Each category takes `true` or `false`. Categories treat IPv4-mapped,
+  NAT64 (`64:ff9b::/96`), and 6to4 IPv6 addresses as the IPv4 address they
+  contain. An IPv4 range in `:allow` also matches an address in
+  IPv4-mapped or NAT64 form, such as `::ffff:10.0.5.7` or
+  `64:ff9b::10.0.5.7`, but not in 6to4 form.
 
   Or pass a function that receives each resolved address as a tuple and its
   category (`:public`, or one of the categories above without `allow_`) and

@@ -86,13 +86,16 @@ work of the [`blur`](processing/effects.md#blur),
 [`progressive-blur`](processing/effects.md#progressive-blur), and
 [`sharpen`](processing/effects.md#sharpen) steps in a request, across all its
 [processing groups](requesting-images.md#processing-groups). Each step counts
-the pixels of the image it runs on, times (sigma² + 10,000). A request over
-the limit fails with `422`.
+the pixels of the image it runs on, times (sigma² + 10,000), or
+(2 × sigma² + 50,000) for a progressive blur. A request over the limit fails
+with `422`.
 
 The default, 4,000,000,000,000, allows any one blur on a 2-megapixel image, a
 blur with a sigma up to 624 on a 10-megapixel image, and up to 173 on a
 100-megapixel image. A blur of 100 and a sharpen together on a 40-megapixel
-image use less than a third of it. Lower the limit to allow less, or set it to
+image use less than a third of it. A progressive blur may use a sigma up to
+987 on a 2-megapixel image and up to 418 on a 10-megapixel image, and fails
+on a 100-megapixel image at any sigma. Lower the limit to allow less, or set it to
 `:infinity` (`"infinity"` in the server's configuration) to turn it off:
 
 <!-- tabs-open -->

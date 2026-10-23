@@ -16,7 +16,10 @@ defmodule ImagePipeServer.Config.Reference do
 
   @intros [
     server:
-      "The HTTP listener. Times are in milliseconds. `read_timeout` closes connections " <>
+      "The HTTP listener. `mount_path` is the path that image URLs start with, such as " <>
+        "`/images`. It starts with `/` and holds only letters, digits, and `-._~` between " <>
+        "its slashes. The server refuses to start with any other character. " <>
+        "Times are in milliseconds. `read_timeout` closes connections " <>
         "that send nothing for that long, idle keep-alive connections included. " <>
         "With `auth_token`, requests other than the health checks, `/stats`, and `/metrics` " <>
         "must send " <>

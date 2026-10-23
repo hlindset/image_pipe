@@ -453,7 +453,9 @@ to `preserve`.
 Only JPEG can hold CMYK, so a CMYK original with `profile=preserve` keeps its
 profile in JPEG and becomes sRGB without a profile in other formats. `profile`
 works independently of `meta`: `meta=strip` doesn't remove a requested
-profile.
+profile. With `meta=keep`, a named profile removes the original's EXIF white
+point and primaries, and sets the EXIF ColorSpace to sRGB for `srgb` and to
+Uncalibrated for the others.
 
 A named profile produces 8-bit output, so it can't be combined with HDR
 preservation. A request for `srgb`, `display-p3`, or `adobe-rgb` that also
@@ -489,7 +491,7 @@ when the response is AVIF or PNG. JPEG and WebP output are always standard
 8-bit, even with `hdr=preserve`. An original other than JPEG or PNG, such as
 a TIFF, that becomes PNG because its result has transparency (see
 [`format`](#format)) gives an 8-bit PNG. Set `format=png` to keep high bit
-depth.
+depth. A palette PNG (see [`png-options`](#png-options)) is 8-bit too.
 
 <!-- tabs-open -->
 

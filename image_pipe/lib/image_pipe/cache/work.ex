@@ -3,7 +3,9 @@ defmodule ImagePipe.Cache.Work do
   @moduledoc false
   use GenServer
   alias ImagePipe.Telemetry
-  @max_keys 64
+  # A lock holds no CPU, only a map entry and a monitor, so the key cap
+  # matches the download flights' in `Cache.OutputWork`.
+  @max_keys 4096
   @max_waiters 1024
   @max_refreshes 16
   @refresh_timeout 60_000
@@ -147,8 +149,7 @@ defmodule ImagePipe.Cache.Work do
       not Map.has_key?(state.locks, key) and map_size(state.locks) >= @max_keys ->
         {:reply, :busy, state}
 
-      Enum.reduce(state.locks, 0, fn {_key, lock}, n -> n + length(lock.waiters) end) >=
-          @max_waiters ->
+      waiters(state) >= @max_waiters ->
         {:reply, :busy, state}
 
       true ->
@@ -247,6 +248,9 @@ defmodule ImagePipe.Cache.Work do
         {:reply, :started, %{state | jobs: Map.put(state.jobs, task.ref, job)}}
     end
   end
+
+  # Every lock's owner and every waiter holds a monitor in `refs`.
+  defp waiters(state), do: map_size(state.refs) - map_size(state.locks)
 
   defp enqueue(key, {pid, _tag} = from, context, state) do
     ref = Process.monitor(pid)

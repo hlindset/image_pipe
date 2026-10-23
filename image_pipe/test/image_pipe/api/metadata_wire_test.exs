@@ -62,6 +62,19 @@ defmodule ImagePipe.API.MetadataWireTest do
     assert "313/1000" <> _ = header(kept, "exif-ifd0-WhitePoint")
   end
 
+  test "a converted result with kept EXIF has the target's ColorSpace" do
+    srgb = mount(body: metadata_jpeg(%{"exif-ifd2-ColorSpace" => "1"}))
+    p3 = response("format=jpeg/meta=keep/profile=display-p3", srgb) |> decoded()
+    assert is_binary(header(p3, "icc-profile-data"))
+    assert "65535 (Uncalibrated" <> _ = header(p3, "exif-ifd2-ColorSpace")
+
+    wide = mount(body: wide_gamut_jpeg())
+    image = response("format=jpeg/meta=keep/profile=srgb", wide) |> decoded()
+    assert "1 (sRGB" <> _ = header(image, "exif-ifd2-ColorSpace")
+    assert header(image, "exif-ifd0-WhitePoint") == nil
+    assert header(image, "exif-ifd0-PrimaryChromaticities") == nil
+  end
+
   test "URL metadata policy overrides either host metadata policy" do
     host_keeps = mount(strip_metadata: false, keep_copyright: false)
     assert_metadata(response("format=jpeg", host_keeps), :keep)

@@ -54,6 +54,15 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Breaking:** The HTTP source refuses origins in `192.0.0.0/24`,
+  `192.88.99.0/24`, and `2001::/23`, which are reserved for protocol use
+  (the last includes Teredo tunnel addresses). They were treated as
+  public. To reach one, set `:allow_reserved` or list its range in
+  `:allow` in the source's `:address_policy`.
+- The HTTP source allows an IPv4 origin reached through a NAT64 gateway
+  from an IPv6-only network, at an address such as `64:ff9b::93.184.216.34`,
+  when the IPv4 address is public. Every such address was refused. An IPv4
+  range in `:allow` also matches the NAT64 form of its addresses.
 - **Breaking:** `ImagePipe.Source.Path` has only a `segments` field. Its
   `scheme` field was always `nil` in a path an adapter receives, so remove
   `scheme:` from any pattern that matches the struct.
@@ -101,7 +110,10 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `progressive-blur`, and `sharpen` steps in a request, across all its
   groups, instead of each blur on its own. Each step counts the pixels of
   its image times (sigma² + 10,000), so a single blur may use a slightly
-  smaller sigma than before (up to 624 on a 10-megapixel image). A request
+  smaller sigma than before (up to 624 on a 10-megapixel image). A
+  progressive blur counts (2 × sigma² + 50,000), so it allows a smaller
+  sigma (up to 418 on a 10-megapixel image), and the default limit refuses
+  any progressive blur on a 100-megapixel image. A request
   over the limit fails with `422` and the message "blur and sharpen work
   exceeds the limit". Raise the limit if your requests chain large blurs, or
   set it to `:infinity` to turn it off. See
@@ -341,9 +353,10 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - A cached image whose delivery failed after its headers were sent logs its
   request line at `error`, with status `200`. Before, the line had no status
   and logged at `warning`.
-- Identical requests for a new original share one download while up to
-  4,096 other downloads are in flight. Before, from the 64th slow download
-  on, each identical request downloaded the original itself.
+- Requests for a new original, identical or for other sizes and formats,
+  share one download while up to 4,096 originals are being fetched at once.
+  Before, once 64 were being fetched, each request downloaded the original
+  itself.
 - A request that stopped waiting for another request's download of an
   original, just as that download finished, no longer keeps the original
   locked, even when the server takes more than 5 seconds to respond. Later
@@ -523,6 +536,14 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   dozen groups, no longer crashes the Erlang VM. libvips ran out of stack
   rendering the chain. The image is now copied to memory once six
   operations have run since its last copy, which keeps the chain short.
+- `png-options=palette` gives a palette PNG from a 16-bit result, such as
+  one with `hdr=preserve`. Without a `bitdepth`, the palette was dropped and
+  the PNG stayed 16-bit.
+- With `meta=keep` and `profile=srgb`, `display-p3`, or `adobe-rgb`, the
+  kept EXIF no longer carries the original's white point and primaries, and
+  its ColorSpace tag is sRGB only for `profile=srgb` and Uncalibrated
+  otherwise. Before, a Display P3 result could keep ColorSpace sRGB from its
+  original.
 
 ## [0.3.0] - 2026-10-18
 

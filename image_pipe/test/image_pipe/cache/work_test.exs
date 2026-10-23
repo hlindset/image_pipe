@@ -34,6 +34,27 @@ defmodule ImagePipe.Cache.WorkTest do
              )
   end
 
+  test "a new original is coordinated while 64 others are" do
+    parent = self()
+
+    holders =
+      for _n <- 1..64 do
+        Task.async(fn ->
+          Work.run(make_ref(), fn _lease, outcome ->
+            send(parent, {:locked, outcome})
+            receive(do: (:finish -> :done))
+          end)
+        end)
+      end
+
+    for _holder <- holders, do: assert_receive({:locked, :acquired})
+
+    assert Work.run(make_ref(), fn _lease, outcome -> outcome end) == :acquired
+
+    for holder <- holders, do: send(holder.pid, :finish)
+    Task.await_many(holders)
+  end
+
   test "a waiter stops waiting after its wait limit and leaves the lock usable" do
     key = make_ref()
     parent = self()

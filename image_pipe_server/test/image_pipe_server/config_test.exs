@@ -259,6 +259,27 @@ defmodule ImagePipeServer.ConfigTest do
                  })
                )
              end) =~ "server.mount_path: expected a path starting with /"
+
+      for path <- ["/my images", "/bilder/æøå", "/a%20b"] do
+        assert error(fn ->
+                 Config.build!(
+                   Config.options!(%{
+                     "url" => %{"allow_unsigned" => true},
+                     "server" => %{"mount_path" => path}
+                   })
+                 )
+               end) =~ "server.mount_path: expected a path starting with /"
+      end
+
+      config =
+        Config.build!(
+          Config.options!(%{
+            "url" => %{"allow_unsigned" => true},
+            "server" => %{"mount_path" => "/img/v1.2_x~y-z/"}
+          })
+        )
+
+      assert config.server[:mount_path] == "/img/v1.2_x~y-z/"
     end
 
     test "passes [processing] watermarks to the library by name" do
