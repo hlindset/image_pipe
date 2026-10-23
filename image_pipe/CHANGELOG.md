@@ -317,6 +317,9 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- A `debug` response from a configuration without a cache leaves out
+  `X-ImagePipe-Cache-Key`, as documented. Before, it carried a key that
+  nothing could be stored under.
 - Presets and request defaults: a value that a later preset or URL option
   unsets or replaces no longer removes what it would have replaced. With
   request defaults of `format-q=avif:50` and a preset `q80` defined as

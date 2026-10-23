@@ -477,7 +477,7 @@ defmodule ImagePipe.Execution do
   defp coalesce(context, fetch) do
     case {Keyword.get(context.config, :cache), storable?(context)} do
       {nil, _} ->
-        make(context, fetch)
+        make(context, fetch, nil, false)
 
       {_, false} ->
         finish_download(context, {:bypass, unstored(context)})
