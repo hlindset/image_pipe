@@ -147,10 +147,23 @@ jobs:
       # Download the NIFs just released instead of building from source. The
       # setting comes from an environment variable, which Mix doesn't track,
       # so recompile before publishing.
+      - name: Download the released NIF
+        run: mise exec -- mix compile --force
+        env:
+          IMAGE_PIPE_SVG_PUBLISH: "1"
+      # Renders an SVG with the NIF this runner downloaded from the release
+      # (x86_64 Linux), so a NIF that doesn't load is never published.
+      - name: Load the released NIF
+        run: >-
+          mise exec -- mix run -e '
+          {:ok, fonts} = ImagePipe.SVG.load_fonts([]);
+          {:ok, doc} = ImagePipe.SVG.parse(~s(<svg xmlns="http://www.w3.org/2000/svg" width="4" height="4"/>), fonts);
+          {:ok, _rgba} = ImagePipe.SVG.render(doc, 4, 4);
+          IO.inspect(ImagePipe.SVG.versions())'
+        env:
+          IMAGE_PIPE_SVG_PUBLISH: "1"
       - name: Publish
-        run: |
-          mise exec -- mix compile --force
-          mise exec -- mix hex.publish --yes
+        run: mise exec -- mix hex.publish --yes
         env:
           HEX_API_KEY: ${{ secrets.HEX_API_KEY }}
           IMAGE_PIPE_SVG_PUBLISH: "1"
