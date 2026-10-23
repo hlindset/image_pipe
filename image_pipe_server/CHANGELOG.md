@@ -120,6 +120,11 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   removes them itself. Servers running an earlier image still trust them.
   The fallback list the OpenTelemetry exporter uses when the system has no
   CA certificates no longer includes them either.
+- Updated `plug_crypto` to 2.2.1, which fixes
+  [CVE-2026-105963](https://osv.dev/EEF-CVE-2026-105963): its key
+  derivation could write a secret key to the logs when given bad
+  arguments. The server uses `plug_crypto` only to compare tokens, so it
+  wasn't affected, but vulnerability scanners flag 2.2.0.
 
 ## [0.3.0] - 2026-10-18
 
