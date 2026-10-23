@@ -64,6 +64,8 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
       scan_changes: nil,
       # Monitor the scan so a crash releases await_scan/2 callers.
       scan_task_ref: nil,
+      # The scan has counted the entries on disk. Its sweep may still run.
+      counted?: false,
       scan_complete?: false,
       scan_waiters: [],
       reconciling?: false,
@@ -171,6 +173,7 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
     # Evict to the cap, in case it was lowered. No gate: these are cached
     # entries with no candidate to compare against.
     GenServer.call(admission_pid, :reconcile_to_cap, :infinity)
+    GenServer.call(admission_pid, :counted, :infinity)
 
     # Remove files a VM that died left behind.
     removed = Sweep.run_listings(listings, state.pool, tel_opts(state))
@@ -370,13 +373,15 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
       bytes: state.stored_bytes,
       entries: :ets.info(state.entries, :size),
       max_bytes: state.max_size_bytes,
-      counting?: not state.scan_complete?,
+      counting?: not state.counted?,
       remembered_entries: Memo.size(state.root),
       max_remembered_entries: Memo.limit(state.root)
     }
 
     {:reply, usage, state}
   end
+
+  def handle_call(:counted, _from, state), do: {:reply, :ok, %{state | counted?: true}}
 
   def handle_call(:scan_complete, _from, state), do: {:reply, :ok, complete_scan(state)}
 
@@ -420,7 +425,7 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
   defp complete_scan(state) do
     Enum.each(state.scan_waiters, &GenServer.reply(&1, :ok))
     :ets.delete(state.scan_changes)
-    %{state | scan_complete?: true, scan_waiters: [], scan_changes: nil}
+    %{state | counted?: true, scan_complete?: true, scan_waiters: [], scan_changes: nil}
   end
 
   # A write replacing its key's entry doesn't count the bytes it replaces. A

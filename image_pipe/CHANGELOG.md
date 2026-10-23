@@ -315,6 +315,9 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- `:counting?` in `ImagePipe.cache_stats/1` turns `false` once the startup
+  scan has counted the entries on disk, as documented. Before, it stayed
+  `true` until the startup sweep had also deleted leftover files.
 - A `debug` response from a configuration without a cache leaves out
   `X-ImagePipe-Cache-Key`, as documented. Before, it carried a key that
   nothing could be stored under.
