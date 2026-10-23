@@ -263,9 +263,9 @@ defmodule ImagePipe.Test.ImgproxyBench.CompareReport do
   defp burst_cell_markdown({text, nil}), do: text
 
   defp bursts_intro do
-    "Each case sends its requests at once: burst_same and burst_sizes for one new " <>
-      "original, which the origin sends slowly enough that they overlap its download, " <>
-      "and burst_grid and burst_overload for a new original each. Times are the median " <>
+    "Each case sends its requests at once: burst_same, burst_same_wide and burst_sizes " <>
+      "for one new original, which the origin sends slowly enough that they overlap its " <>
+      "download, and burst_grid and burst_overload for a new original each. Times are the median " <>
       "time to the last response; counts are a burst's downloads from the origin, images " <>
       "generated, cache writes dropped, and requests rejected with 503, as the " <>
       "lowest–highest over every burst. Rejected after is the median time a rejected " <>

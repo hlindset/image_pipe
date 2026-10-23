@@ -32,8 +32,8 @@ defmodule Mix.Tasks.Imgproxy.Bench do
       `cache`, `concurrency`), or `perf` for 34 reference cases that cover
       every family and kind of source. With `--compare`, `perf` adds the 13
       `ImagePipe.Test.Perf.Cases` every `perf` pull request times and the
-      `burst_grid` and two `burst_overload` cases, and `nightly` all 29 of
-      them and the 7 `concurrency` cases.
+      `burst_same_wide`, `burst_grid` and two `burst_overload` cases, and
+      `nightly` all 29 of them and the 8 `concurrency` cases.
     * `--cpus` - CPUs pinned to each server, default 4. Must leave at least
       one CPU for `oha`.
     * `--concurrency` - server worker count and the second load level,
@@ -75,9 +75,10 @@ defmodule Mix.Tasks.Imgproxy.Bench do
 
   The `concurrency` family isn't timed by oha. Its `nightly` cases send
   `--concurrency` requests at once for a new original, which the origin sends
-  at about 512 KiB/s, so they overlap its download. Its `burst_grid` and
-  `burst_overload` cases, in the `perf` set, send many requests at once, each
-  for a new original sent at full rate. The `burst_overload` cases send more
+  at about 512 KiB/s, so they overlap its download. In the `perf` set,
+  `burst_same_wide` does the same with 100 requests, and the `burst_grid` and
+  `burst_overload` cases send many requests at once, each for a new original
+  sent at full rate. The `burst_overload` cases send more
   than the pool takes, with the server's default queue settings, and accept
   `503`. It runs three such bursts per image and round, each in a container
   with the caches the case names, and records the time to the last

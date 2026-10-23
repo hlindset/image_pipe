@@ -157,10 +157,12 @@ defmodule ImagePipe.Test.Perf.Cases do
     * `burst_sizes`: a different width each, which should share one
       download.
 
-  And `burst_grid`, 100 requests for the same small output of 100 new
-  originals, in the `perf` set. It passes the cache's 64 writers, so it
-  shows writes the cache drops when its writers or the file server can't
-  keep up.
+  And, in the `perf` set, `burst_same_wide`, 100 identical requests for one
+  new original, which should share one download and one generation however
+  many requests wait for them, and `burst_grid`, 100 requests for the same
+  small output of 100 new originals. `burst_grid` passes the cache's 64
+  writers, so it shows writes the cache drops when its writers or the file
+  server can't keep up.
 
   The `burst_overload` cases send more work than the pool takes, with the
   server's default `max_queue` and `queue_timeout`, so some requests answer
@@ -173,6 +175,7 @@ defmodule ImagePipe.Test.Perf.Cases do
   def bursts(count) do
     same = List.duplicate("w=400/format=jpeg", count)
     sizes = for i <- 1..count, do: "w=#{100 + 100 * i}/format=jpeg"
+    wide = List.duplicate("w=400/format=jpeg", 100)
     grid = List.duplicate("w=80/h=120/fit=cover/format=avif", 100)
     thumbnails = List.duplicate("w=80/h=120/fit=cover/format=avif", 300)
     full_size = List.duplicate("format=avif", 40)
@@ -180,6 +183,7 @@ defmodule ImagePipe.Test.Perf.Cases do
     for {name, natives, originals, source, tier, caches} <- [
           {"burst_same", same, :one, "perf/photo2.jpg", :nightly, [:none, :output]},
           {"burst_sizes", sizes, :one, "perf/photo2.jpg", :nightly, [:none, :output]},
+          {"burst_same_wide", wide, :one, "perf/photo2.jpg", :pr, [:output]},
           {"burst_grid", grid, :each, "perf/photo2.jpg", :pr, [:output]},
           {"burst_overload_small", thumbnails, :each, "perf/photo2.jpg", :pr, [:overload]},
           {"burst_overload_large", full_size, :each, "perf/photo12.jpg", :pr, [:overload]}
