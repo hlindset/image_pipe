@@ -32,6 +32,14 @@ keeps the inputs it finds in `corpus/` and failing ones in `artifacts/`,
 both ignored by git. Add a minimized failing input to `seeds/` once it's
 fixed, so the next run starts from it.
 
+CI runs each seed once on stable Rust, without cargo-fuzz. The targets build
+with the `fuzzing` cfg that cargo-fuzz would set:
+
+```sh
+RUSTFLAGS="--cfg fuzzing" cargo build --release --bins
+target/release/render -runs=0 -timeout=10 seeds/render
+```
+
 A stack overflow on the 64 MB thread kills the target before libFuzzer can
 save the input. Set `FUZZ_LAST_INPUT` to a file path, and each target
 writes every input there before running it, so the file holds the culprit.

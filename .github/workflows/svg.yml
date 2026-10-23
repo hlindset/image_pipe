@@ -81,7 +81,8 @@ jobs:
             image_pipe_svg/deps
             image_pipe_svg/_build
             image_pipe_svg/native/image_pipe_svg_nif/target
-          key: svg-mix-${{ steps.runner.outputs.image }}-${{ matrix.toolchain.elixir }}-${{ matrix.toolchain.erlang }}-${{ hashFiles('image_pipe_svg/mix.lock', 'image_pipe_svg/native/image_pipe_svg_nif/Cargo.lock') }}
+            image_pipe_svg/native/image_pipe_svg_nif/fuzz/target
+          key: svg-mix-${{ steps.runner.outputs.image }}-${{ matrix.toolchain.elixir }}-${{ matrix.toolchain.erlang }}-${{ hashFiles('image_pipe_svg/mix.lock', 'image_pipe_svg/native/image_pipe_svg_nif/Cargo.lock', 'image_pipe_svg/native/image_pipe_svg_nif/fuzz/Cargo.lock') }}
           restore-keys: |
             svg-mix-${{ steps.runner.outputs.image }}-${{ matrix.toolchain.elixir }}-${{ matrix.toolchain.erlang }}-
       - name: Install dependencies
@@ -103,6 +104,19 @@ jobs:
         if: matrix.toolchain.lint
         working-directory: image_pipe_svg/native/image_pipe_svg_nif
         run: mise exec -- cargo test
+      # Builds the fuzz targets without cargo-fuzz, which needs nightly, and
+      # runs each seed once, so the targets keep compiling and the inputs
+      # earlier runs found stay fixed.
+      - name: Replay the fuzz seeds
+        if: matrix.toolchain.lint
+        working-directory: image_pipe_svg/native/image_pipe_svg_nif/fuzz
+        env:
+          RUSTFLAGS: --cfg fuzzing
+        run: |
+          mise exec -- cargo build --release --bins --locked
+          for target in render expansion templates; do
+            "target/release/$target" -runs=0 -timeout=10 -rss_limit_mb=1024 "seeds/$target"
+          done
       # Dialyzer rejects a PLT written by another Erlang, so the key names the
       # lint row's toolchain.
       - name: Cache PLTs

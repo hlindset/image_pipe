@@ -24,6 +24,7 @@ updates:
   - package-ecosystem: cargo
     directories:
       - "/image_pipe_svg/native/image_pipe_svg_nif"
+      - "/image_pipe_svg/native/image_pipe_svg_nif/fuzz"
     schedule:
       interval: weekly
     cooldown:

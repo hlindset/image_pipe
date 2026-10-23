@@ -161,3 +161,8 @@ jobs:
         run: mise exec -- pnpm -C fiddle/assets run test
       - name: Build fiddle assets and service worker
         run: mise exec -- pnpm -C fiddle/assets run build
+      # The fiddle's Elixir tests read the Vite manifest the build writes.
+      - name: Compile the fiddle
+        run: cd fiddle && mise exec -- mix compile --warnings-as-errors
+      - name: Fiddle Elixir tests
+        run: cd fiddle && mise exec -- mix test
