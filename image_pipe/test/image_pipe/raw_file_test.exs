@@ -28,7 +28,7 @@ defmodule ImagePipe.RawFileTest do
               file <- one_of([constant(nil), segment()]),
               wanted <- list_of(segment(), max_length: 4)
             ) do
-        for {root, mkdir_p} <- [{"raw", &RawFile.make_dir_p/1}, {"elixir", &File.mkdir_p/1}] do
+        for {root, mkdir_p} <- [{"raw", &RawFile.make_dir_p/1}, {"elixir", &elixir_mkdir_p/1}] do
           base = Path.join([dir, root, "#{System.unique_integer([:positive])}"])
           File.mkdir_p!(Path.join([base | existing]))
           if file && file != List.first(existing), do: File.write!(Path.join(base, file), "")
@@ -37,6 +37,15 @@ defmodule ImagePipe.RawFileTest do
         end
         |> then(fn [raw, elixir] -> assert raw == elixir end)
       end
+    end
+  end
+
+  # Elixir before 1.19 reports a file at the path itself as :eexist, and
+  # later versions as :enotdir, which RawFile returns.
+  defp elixir_mkdir_p(path) do
+    case File.mkdir_p(path) do
+      {:error, :eexist} -> {:error, :enotdir}
+      result -> result
     end
   end
 
