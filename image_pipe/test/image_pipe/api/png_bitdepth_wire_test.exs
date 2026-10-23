@@ -66,6 +66,26 @@ defmodule ImagePipe.API.PngBitdepthWireTest do
     end
   end
 
+  test "a palette from a 16-bit result narrows it to 8 bits" do
+    {:ok, source} =
+      Image.new(16, 16, color: Enum.map([128, 64, 200], &(&1 * 257)), format: {:u, 16})
+
+    {:ok, source} = Operation.copy(source, interpretation: :VIPS_INTERPRETATION_RGB16)
+    body = Image.write!(source, :memory, suffix: ".png")
+
+    for {options, depth} <- [{"palette", 8}, {"palette,bitdepth:4", 4}] do
+      response = response("hdr=preserve/format=png/png-options=#{options}", body)
+      assert response.status == 200, options
+
+      # IHDR's bit depth and color type, where 3 is a palette.
+      <<_signature::binary-8, _length::32, "IHDR", _size::binary-8, bit_depth, color_type,
+        _rest::binary>> = response.resp_body
+
+      assert {bit_depth, color_type} == {depth, 3}, options
+      assert Image.get_pixel!(Image.from_binary!(response.resp_body), 8, 8) == [128, 64, 200]
+    end
+  end
+
   test "a 16-bit source narrows to 8 bits by rounding" do
     for {color, interpretation} <- [
           {[65_400, 129, 65_400], :VIPS_INTERPRETATION_RGB16},

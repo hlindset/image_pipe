@@ -536,6 +536,9 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   dozen groups, no longer crashes the Erlang VM. libvips ran out of stack
   rendering the chain. The image is now copied to memory once six
   operations have run since its last copy, which keeps the chain short.
+- `png-options=palette` gives a palette PNG from a 16-bit result, such as
+  one with `hdr=preserve`. Without a `bitdepth`, the palette was dropped and
+  the PNG stayed 16-bit.
 
 ## [0.3.0] - 2026-10-18
 

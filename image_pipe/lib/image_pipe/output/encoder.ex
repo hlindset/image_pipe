@@ -221,15 +221,25 @@ defmodule ImagePipe.Output.Encoder do
     end
   end
 
-  # PNG stores gray+alpha and color at 8 or 16 bits only, so a bit depth below
-  # 8 applies to a one-band result and the rest encode at 8 bits, even from a
-  # 16-bit image. A palette PNG takes 1, 2, or 4 bits.
+  # A palette holds 8-bit colors. Without a bit depth, libvips saves a 16-bit
+  # image as 16-bit color and drops the palette, so it's narrowed first.
   defp fit_png_depth(
          image,
-         %Resolved{format: :png, encoder_options: %PngOptions{bitdepth: depth, palette: palette}} =
+         %Resolved{format: :png, encoder_options: %PngOptions{bitdepth: depth, palette: true}} =
            resolved
        )
-       when depth in [1, 2, 4] and palette != true do
+       when depth != 16 do
+    with {:ok, image} <- narrow_to_8_bits(image), do: {:ok, image, resolved}
+  end
+
+  # PNG stores gray+alpha and color at 8 or 16 bits only, so a bit depth below
+  # 8 applies to a one-band result and the rest encode at 8 bits, even from a
+  # 16-bit image.
+  defp fit_png_depth(
+         image,
+         %Resolved{format: :png, encoder_options: %PngOptions{bitdepth: depth}} = resolved
+       )
+       when depth in [1, 2, 4] do
     if Image.bands(image) == 1 do
       with {:ok, image} <- keep_gray_levels(image, depth), do: {:ok, image, resolved}
     else
