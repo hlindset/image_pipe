@@ -22,6 +22,9 @@ defmodule ImagePipe.API.ParserTest do
     %{segments: Enum.map(segments, &seg/1), source: {:src, source, {0, byte_size(source)}}}
   end
 
+  defp result_shape({:ok, spec}), do: {:ok, spec}
+  defp result_shape({:error, _diagnostics}), do: :error
+
   defp ignores_option?({:ok, %Spec{ignored: ignored}}),
     do: Enum.any?(ignored, &(&1.reason == :inert_option and &1.severity == :warning))
 
@@ -1654,6 +1657,75 @@ defmodule ImagePipe.API.ParserTest do
     test "unset is not a detect class" do
       assert {:error, {:invalid_request, [%Diagnostic{reason: :invalid_detect}]}} =
                parse(["w=800", "fit=cover", "detect=car,unset"])
+    end
+  end
+
+  describe "layer resolution [API §Presets]" do
+    test "an unset q restores the per-format qualities a preset's q replaced" do
+      config = [request_defaults: "format-q=avif:50", presets: %{"q80" => "q=80"}]
+
+      assert parse(["preset=q80", "q=unset", "w=800"], "images/cat.jpg", config) ==
+               parse(["w=800"], "images/cat.jpg", config)
+    end
+
+    test "a replaced region restores the guide it cleared" do
+      config = [
+        request_defaults: "crop=300,300/anchor=top",
+        presets: %{"r" => "region=0,0,50,50"}
+      ]
+
+      assert parse(["preset=r", "crop=50,50"], "images/cat.jpg", config) ==
+               parse(["crop=50,50", "anchor=top"])
+    end
+
+    test "a nested preset resolves like listing its parts" do
+      config = [
+        request_defaults: "format-q=avif:50",
+        presets: %{"a" => "q=80", "b" => "q=unset", "card" => "preset=a,b"}
+      ]
+
+      assert parse(["preset=card", "w=800"], "images/cat.jpg", config) ==
+               parse(["preset=a,b", "w=800"], "images/cat.jpg", config)
+
+      assert parse(["preset=card", "w=800"], "images/cat.jpg", config) ==
+               parse(["w=800"], "images/cat.jpg", config)
+    end
+
+    property "nesting any prefix of a preset list resolves like listing it" do
+      writes = ~w(q=80 q=unset format-q=avif:50 crop=100,100 region=0,0,50,50 region=unset
+                  anchor=top w=200 w=unset fit=cover)
+
+      check all defaults <-
+                  StreamData.list_of(
+                    StreamData.member_of(~w(format-q=webp:70 crop=200,200 anchor=bottom)),
+                    max_length: 3
+                  ),
+                layers <-
+                  StreamData.list_of(StreamData.member_of(writes), min_length: 2, max_length: 4),
+                split <- StreamData.integer(1..length(layers)),
+                max_runs: 1000 do
+        names = Enum.map(Enum.with_index(layers), fn {_write, i} -> "l#{i}" end)
+        {nested, rest} = Enum.split(names, split)
+
+        presets =
+          names
+          |> Enum.zip(layers)
+          |> Map.new()
+          |> Map.put("n", "preset=" <> Enum.join(nested, ","))
+
+        defaults = defaults |> Enum.uniq_by(&(&1 |> String.split("=") |> hd())) |> Enum.join("/")
+        defaults = if defaults == "", do: nil, else: defaults
+        config = [request_defaults: defaults, presets: presets]
+
+        if match?({:ok, _}, Presets.compile(presets, defaults)) do
+          listed = parse(["preset=" <> Enum.join(names, ","), "blur=1"], "images/cat.jpg", config)
+
+          via_nested =
+            parse(["preset=" <> Enum.join(["n" | rest], ","), "blur=1"], "images/cat.jpg", config)
+
+          assert result_shape(listed) == result_shape(via_nested)
+        end
+      end
     end
   end
 

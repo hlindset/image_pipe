@@ -305,6 +305,13 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Presets and request defaults: a value that a later preset or URL option
+  unsets or replaces no longer removes what it would have replaced. With
+  request defaults of `format-q=avif:50` and a preset `q80` defined as
+  `q=80`, `/preset=q80/q=unset` encodes AVIF at 50. A preset that names
+  other presets gives the same result as listing them in the URL. Requests
+  that hit these cases get new cache keys and ETags. See
+  [clearing inherited values](docs/presets.md#clearing-inherited-values).
 - A request that uses a looked-up preset naming a watermark the
   configuration doesn't define, or carrying a `wm-enc` token that no key in
   `:source_encryption_keys` decrypts, answers `500`, and `ImagePipe.run/4`

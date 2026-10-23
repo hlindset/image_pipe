@@ -297,7 +297,8 @@ win over the preset's options in the same group, so with a `card` preset of
 - `unset` removes a preset's value: `/preset=brand/wm=unset` removes the
   watermark. On an option that replaces a related set, `unset` removes the
   whole set, so `crop=unset` also removes a preset's `region`. `q=unset`
-  keeps the preset's `format-q`. Every option except `preset` accepts
+  keeps the preset's `format-q`, and brings back the server defaults'
+  `format-q` if the preset's `q` replaced it. Every option except `preset` accepts
   `unset`. In `format-q` and the encoder options, `unset` can come first:
   `jpeg-options=unset,progressive` drops the preset's JPEG settings, then
   turns on `progressive`.

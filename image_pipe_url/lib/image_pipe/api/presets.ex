@@ -87,7 +87,7 @@ defmodule ImagePipe.API.Presets do
   defp check_conflicts(presets, defaults, watermarks) do
     named = for {name, preset} <- Enum.sort(presets), do: {"preset #{inspect(name)}", preset}
 
-    Enum.find_value([{"request_defaults", defaults} | named], :ok, fn
+    Enum.find_value([{"request_defaults", single_layer(defaults)} | named], :ok, fn
       {_label, nil} ->
         nil
 
@@ -98,6 +98,11 @@ defmodule ImagePipe.API.Presets do
         end
     end)
   end
+
+  defp single_layer(nil), do: nil
+
+  defp single_layer(%{groups: groups, request: request}),
+    do: %{groups: Map.new(groups, fn {i, options} -> {i, [options]} end), request: [request]}
 
   defp parse_value(label, value) do
     with {:ok, fragment} <- fragment(label, value) do
