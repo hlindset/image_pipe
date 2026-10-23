@@ -471,8 +471,8 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - A client error, such as a `404` for a missing source, on a URL with
   `expires` caps a host's `Cache-Control` at the URL's expiry, as an image
   response does. Before, a host's `max-age=86400` kept the error cached
-  after the URL expired. Errors found while parsing the URL keep the host's
-  `Cache-Control` unchanged.
+  after the URL expired. Errors found while parsing the URL, and the `410`
+  for an expired URL, keep the host's `Cache-Control` unchanged.
 - A thin `crop` or `region` of a JPEG or WebP image blends in far fewer
   pixels from just outside it. A crop under 16 pixels on its short side,
   such as an 8-pixel strip, decodes at full size and takes in none.

@@ -156,6 +156,19 @@ defmodule ImagePipe.API.ExpiresCacheControlWireTest do
     end
   end
 
+  test "an expired URL's 410 keeps the host Cache-Control", %{clock: clock} = ctx do
+    config = mount(ctx, http_cache: :auto)
+    Agent.update(clock, fn _ -> @expires + 1 end)
+
+    response =
+      conn(:get, @path)
+      |> put_resp_header("cache-control", "public, max-age=86400")
+      |> ImagePipe.Plug.call(config)
+
+    assert response.status == 410
+    assert get_resp_header(response, "cache-control") == ["public, max-age=86400"]
+  end
+
   describe "a mutable origin" do
     setup %{clock: clock, tmp_dir: tmp_dir} do
       origin = start_supervised!({Agent, fn -> "public, max-age=86400" end}, id: :origin)

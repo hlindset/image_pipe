@@ -121,6 +121,8 @@ defmodule ImagePipe.Plug.Runner do
       serve_context(conn, context)
     end)
     |> case do
+      # An expired URL stays expired, so its 410 keeps the host's lifetime.
+      {:error, :expired} -> send_error(conn, :expired, config)
       {:error, reason} -> send_error(limit_error_to_expiry(conn, request, config), reason, config)
       {%Plug.Conn{}, _metadata} = sent -> sent
     end
