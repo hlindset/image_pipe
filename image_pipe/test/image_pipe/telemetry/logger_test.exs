@@ -872,6 +872,23 @@ defmodule ImagePipe.Telemetry.LoggerTest do
     assert log =~ "exception"
   end
 
+  test "bounds the size of an exception reason" do
+    Telemetry.attach_default_logger(level: :info, stages: true)
+    reason = {:origin, List.duplicate(String.duplicate("x", 10_000), 100)}
+
+    log =
+      capture_log(fn ->
+        :telemetry.execute(
+          [:image_pipe, :source, :fetch, :exception],
+          %{duration: 1000},
+          %{kind: :error, reason: reason, stacktrace: []}
+        )
+      end)
+
+    assert log =~ "exception (error {:origin"
+    assert byte_size(log) < 7_000
+  end
+
   test "escalates a configured-detector fallback (:unavailable) to warning" do
     Telemetry.attach_default_logger(level: :info, stages: true)
 

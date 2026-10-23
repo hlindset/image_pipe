@@ -18,6 +18,10 @@ defmodule ImagePipe.Telemetry.Trace.Handler do
 
   @handler_id {__MODULE__, :spans}
 
+  # Reasons and attribute values can hold source-derived terms of any size,
+  # so their inspected form is bounded.
+  @inspect_opts [limit: 25, printable_limit: 256]
+
   @oneshot_stages Catalog.oneshot_stages()
 
   # Keys safe to copy into span attributes (allowlist; everything else dropped).
@@ -253,7 +257,7 @@ defmodule ImagePipe.Telemetry.Trace.Handler do
   defp on_phase(:exception, _stage, measurements, meta) do
     finish(meta, measurements, fn span_ctx ->
       :otel_span.record_exception(span_ctx, meta.kind, meta.reason, meta.stacktrace, %{})
-      :otel_span.set_status(span_ctx, :error, inspect(meta.reason))
+      :otel_span.set_status(span_ctx, :error, inspect(meta.reason, @inspect_opts))
     end)
   end
 
@@ -334,9 +338,9 @@ defmodule ImagePipe.Telemetry.Trace.Handler do
     if Enum.all?(value, &(is_binary(&1) or is_atom(&1) or is_number(&1))) do
       Enum.map(value, &to_string/1)
     else
-      inspect(value)
+      inspect(value, @inspect_opts)
     end
   end
 
-  defp coerce(value), do: inspect(value)
+  defp coerce(value), do: inspect(value, @inspect_opts)
 end

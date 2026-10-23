@@ -564,6 +564,10 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `X-Content-Type-Options: nosniff`. A 400 body quotes the request
   path, so a browser that sniffs content types could otherwise render it as
   HTML.
+- The default Logger and the span tracer cap how much of each error reason
+  and attribute value they print, so a large term can't produce an
+  unbounded log line or span. Before, the Logger relied on Logger's own
+  truncation, which a host can turn off.
 
 ## [0.3.0] - 2026-10-18
 
