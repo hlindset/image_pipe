@@ -163,8 +163,13 @@ defmodule ImagePipeServer.StatsTest do
 
     assert %{"output" => output, "originals" => originals} = JSON.decode!(conn.resp_body)
 
-    assert %{"max_bytes" => 10_000_000, "hits" => 0, "misses" => 1, "read_errors" => 0} =
-             output
+    assert %{
+             "max_bytes" => 10_000_000,
+             "hits" => 0,
+             "misses" => 1,
+             "read_errors" => 0,
+             "write_errors" => 0
+           } = output
 
     assert %{"remembered_entries" => 0, "max_remembered_entries" => 1_000} = output
     assert %{"entries" => 1, "max_entries" => 10_000} = originals
@@ -182,6 +187,8 @@ defmodule ImagePipeServer.StatsTest do
     assert ["text/plain; version=0.0.4" <> _] = get_resp_header(conn, "content-type")
     assert conn.resp_body =~ ~s(# TYPE image_pipe_cache_lookups_total counter\n)
     assert conn.resp_body =~ ~s(image_pipe_cache_lookups_total{cache="output",result="hit"} 0\n)
+    assert conn.resp_body =~ ~s(# TYPE image_pipe_cache_write_errors_total counter\n)
+    assert conn.resp_body =~ ~s(image_pipe_cache_write_errors_total{cache="output"} 0\n)
     assert conn.resp_body =~ ~s(image_pipe_cache_max_bytes{cache="output"} 10000000\n)
     assert conn.resp_body =~ ~s(image_pipe_cache_refused{cache="output"} 0\n)
     assert conn.resp_body =~ ~s(image_pipe_cache_available{cache="output"} 1\n)

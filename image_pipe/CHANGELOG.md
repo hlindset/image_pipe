@@ -20,10 +20,11 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `image_pipe.parse` and `image_pipe.request` spans. See
   [`[:parse]`](docs/telemetry-events.md#parse).
 - `ImagePipe.cache_stats/1` reports the cache's stored bytes and entries,
-  its size cap, its hits and misses since start, and the entries it keeps
-  in memory, or `refused: true` when another node owns its root. It also
-  reports how many originals the instance remembers. A cache that doesn't report its
-  size within a second has `available: false`. See
+  its size cap, its hits, misses, and failed reads and writes since start,
+  and the entries it keeps in memory, or `refused: true` when another node
+  owns its root. It also reports how many originals the instance
+  remembers. A cache that doesn't report its size within a second has
+  `available: false`. See
   [Usage and hit rate](docs/cache.md#usage-and-hit-rate).
 - `max_remembered_originals` sets how many originals an instance remembers
   in memory: a local file's hash, or an origin image's cache headers. It
@@ -53,6 +54,10 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- A cache whose `root` can't be created or written logs an error at
+  startup that names the root and the reason, such as `permission denied`,
+  and says images are served without being stored. Before, it logged a
+  warning that it "could not claim" the root.
 - **Breaking:** The `:error` metadata of `[:debug, :collect, :error]` is
   the module of the raised exception, such as `RuntimeError`, instead of
   always `:error`. Handlers that match on `error: :error` must match the

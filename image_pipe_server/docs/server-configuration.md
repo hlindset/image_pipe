@@ -153,6 +153,26 @@ invalid TOML: unexpected newline in single-quoted string in /etc/image_pipe/conf
            ^
 ```
 
+A valid configuration can still fail to start when the server can't listen
+on `port` or `health_port` in [`[server]`](#server), for example because
+another process already uses the port. After the listener's own log line,
+the server prints the port setting and the address it tried, and exits with
+status 1:
+
+```text
+[error] Running ImagePipeServer.Router with Bandit 1.13.1 at http failed, port 8080 already in use
+cannot start: can't listen on server.port 8080 at 0.0.0.0: address already in use
+```
+
+A `root` in [`[cache.output]`](#cache) that the server can't create or
+write doesn't stop it. The server logs an error naming the directory,
+serves images without storing them, and counts each one in `write_errors`
+in the [cache stats](server-deployment.md#cache-stats):
+
+```text
+[error] cache: can't use cache root /var/cache/image_pipe/output: permission denied. Images are served without being stored until the root can be written.
+```
+
 ## Reference
 
 Every key the server accepts, generated from the loader's schemas. Types are

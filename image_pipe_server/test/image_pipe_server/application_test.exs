@@ -84,6 +84,48 @@ defmodule ImagePipeServer.ApplicationTest do
     end
   end
 
+  describe "booting on a port in use" do
+    for setting <- ["port", "health_port"] do
+      test "names server.#{setting} and exits with status 1", %{tmp_dir: dir} do
+        {:ok, socket} = :gen_tcp.listen(0, ip: {127, 0, 0, 1})
+        {:ok, taken} = :inet.port(socket)
+        ports = %{"port" => 0, "health_port" => 0} |> Map.put(unquote(setting), taken)
+
+        path = Path.join(dir, "config.toml")
+
+        File.write!(path, """
+        [server]
+        port = #{ports["port"]}
+        health_port = #{ports["health_port"]}
+        bind = "127.0.0.1"
+
+        [url]
+        allow_unsigned = true
+
+        [sources.static]
+        adapter = "file"
+        match = "path"
+        root = "test/support/images"
+        root_id = "static"
+        """)
+
+        {output, status} =
+          System.cmd("mix", ["run", "--no-compile", "--no-deps-check", "-e", ""],
+            env: [{"MIX_ENV", "test"}, {"IPS_CONFIG", path}, {"ERL_CRASH_DUMP", ""}],
+            stderr_to_stdout: true
+          )
+
+        assert status == 1
+
+        assert output =~
+                 ~r/^cannot start: can't listen on server.#{unquote(setting)} #{taken} at 127.0.0.1: address already in use$/m
+
+        refute output =~ "**"
+        refute output =~ "exited"
+      end
+    end
+  end
+
   describe "tracer_options/1" do
     test "ignores an inbound traceparent by default" do
       assert App.tracer_options(Config.build!(url: [allow_unsigned: true])) == [
@@ -141,7 +183,7 @@ defmodule ImagePipeServer.ApplicationTest do
       assert instance_opts[:config] == config.image_pipe
       assert instance_opts[:detector_warmup] == :all
       assert {ImagePipeServer.Warmup, _instance} = warmup
-      assert {Bandit, _opts} = http
+      assert %{id: :http, start: {Bandit, :start_link, _opts}} = http
       assert %{id: :serving} = serving
     end
 
@@ -181,7 +223,7 @@ defmodule ImagePipeServer.ApplicationTest do
                {ImagePipe.ProcessingPool, _pool},
                {ImagePipe, _instance},
                {ImagePipeServer.Warmup, _warmup},
-               {Bandit, _http},
+               %{id: :http, start: {Bandit, :start_link, _http}},
                %{id: :serving}
              ] = App.children(Config.build!(url: [allow_unsigned: true]), Health.new())
     end

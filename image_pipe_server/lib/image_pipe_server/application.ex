@@ -31,13 +31,39 @@ defmodule ImagePipeServer.Application do
 
     drain = Health.new()
 
-    with {:ok, pid} <-
-           Supervisor.start_link(children(config, drain),
-             strategy: :one_for_one,
-             name: ImagePipeServer.Supervisor
-           ),
-         do: {:ok, pid, {drain, Keyword.fetch!(config.server, :shutdown_delay)}}
+    case Supervisor.start_link(children(config, drain),
+           strategy: :one_for_one,
+           name: ImagePipeServer.Supervisor
+         ) do
+      {:ok, pid} -> {:ok, pid, {drain, Keyword.fetch!(config.server, :shutdown_delay)}}
+      {:error, reason} -> start_failed!(reason, config)
+    end
   end
+
+  @listen_settings %{
+    http: {"server.port", :port, :ip},
+    health: {"server.health_port", :health_port, :health_ip}
+  }
+
+  # A listener that can't open its port stops the node with one line naming
+  # the setting, like invalid configuration. Other failures keep their report.
+  defp start_failed!(
+         {:shutdown,
+          {:failed_to_start_child, listener,
+           {:shutdown, {:failed_to_start_child, :listener, reason}}}},
+         config
+       )
+       when is_map_key(@listen_settings, listener) do
+    {setting, port_key, ip_key} = Map.fetch!(@listen_settings, listener)
+    port = Keyword.fetch!(config.server, port_key)
+    ip = config.server |> Keyword.fetch!(ip_key) |> :inet.ntoa()
+    message = :inet.format_error(reason)
+
+    IO.puts(:stderr, "cannot start: can't listen on #{setting} #{port} at #{ip}: #{message}")
+    System.halt(1)
+  end
+
+  defp start_failed!(reason, _config), do: {:error, reason}
 
   # JSON formats replace the default handler's formatter. The request ID and
   # the request summary, which the default Logger puts under `:image_pipe`,
@@ -119,7 +145,9 @@ defmodule ImagePipeServer.Application do
   @doc false
   @spec children(Config.t(), Health.drain()) :: [Supervisor.child_spec() | {module(), term()}]
   def children(%Config{} = config, drain) do
-    List.wrap(health_child(config, drain)) ++
+    health = if child = health_child(config, drain), do: Supervisor.child_spec(child, id: :health)
+
+    List.wrap(health) ++
       [
         {ImagePipe.ProcessingPool, config.pool},
         {ImagePipe,
@@ -129,7 +157,10 @@ defmodule ImagePipeServer.Application do
       Enum.map(config.credential_warmups, &{ImagePipe.Source.S3.CredentialWarmup, &1}) ++
       [
         {Warmup, @instance},
-        http_child(config, {ImagePipeServer.Router, router_options(config, drain)}),
+        Supervisor.child_spec(
+          http_child(config, {ImagePipeServer.Router, router_options(config, drain)}),
+          id: :http
+        ),
         %{id: :serving, start: {__MODULE__, :serve, [drain]}, restart: :temporary}
       ]
   end

@@ -82,7 +82,12 @@ defmodule ImagePipe.Cache.FileSystem.Root do
       # doesn't turn the cache off.
       {:error, reason} ->
         Owner.accept(dir)
-        Logger.warning("cache: could not claim cache root #{dir}: reason=#{inspect(reason)}")
+
+        Logger.error(
+          "cache: can't use cache root #{dir}: #{:file.format_error(reason)}. " <>
+            "Images are served without being stored until the root can be written."
+        )
+
         start([cache(opts)])
     end
   end
