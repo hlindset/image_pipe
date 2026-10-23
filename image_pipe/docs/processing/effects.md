@@ -11,6 +11,12 @@ color accept a hex value or a CSS name, as described under
 their colors isn't a neutral gray. The default `monochrome` and `duotone`
 colors keep it gray.
 
+On an original with an embedded color profile, such as Display P3, `gray` and
+`bitonal` convert the image to sRGB first, and the other effects work in that
+profile. Colors you give in the URL come out exactly as given. Tones mixed
+from them, such as the middle tones of `duotone`, are mixed in the original's
+profile, so they can differ slightly from the same effect on an sRGB image.
+
 ## Effect order
 
 Effects run after resizing and cropping, in this order, whatever order the URL
