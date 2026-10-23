@@ -23,8 +23,11 @@ branch: before opening its pull request, and before pushing more
 documentation to a branch whose pull request is open. A hook in
 `.claude/settings.json` refuses `but pr new`, `but push`, `gh pr create`, and
 `git push` for a branch that changes documentation until this session has
-written the closing summary below after those files last changed. The
-summary stays in the session, not in the pull request. When the hook flags
+read `references/style.md` and `references/audiences.md`, run a fresh review
+under `references/review.md` after editing those files, and written the
+closing summary below after the review and the fixes it led to. Fixing what
+the review reports doesn't need a second review. The summary stays in the session,
+not in the pull request. When the hook flags
 files that aren't public docs, write a line `writing-docs exemption: <reason>`
 instead, then run the command again. The operator sees that reason.
 
