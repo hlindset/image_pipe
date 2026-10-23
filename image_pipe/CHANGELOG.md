@@ -54,6 +54,15 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Breaking:** The HTTP source refuses origins in `192.0.0.0/24`,
+  `192.88.99.0/24`, and `2001::/23`, which are reserved for protocol use
+  (the last includes Teredo tunnel addresses). They were treated as
+  public. To reach one, set `:allow_reserved` or list its range in
+  `:allow` in the source's `:address_policy`.
+- The HTTP source allows an IPv4 origin reached through a NAT64 gateway
+  from an IPv6-only network, at an address such as `64:ff9b::93.184.216.34`,
+  when the IPv4 address is public. Every such address was refused. An IPv4
+  range in `:allow` also matches the NAT64 form of its addresses.
 - **Breaking:** `ImagePipe.Source.Path` has only a `segments` field. Its
   `scheme` field was always `nil` in a path an adapter receives, so remove
   `scheme:` from any pattern that matches the struct.

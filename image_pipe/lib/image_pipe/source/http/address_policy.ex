@@ -32,9 +32,12 @@ defmodule ImagePipe.Source.HTTP.AddressPolicy do
   def parse_cidr(_value), do: :error
 
   # A 6to4 address reaches a relay, not the embedded IPv4 host, so only
-  # IPv4-mapped addresses also match IPv4 ranges.
+  # IPv4-mapped and NAT64 addresses also match IPv4 ranges.
   @spec in_cidr?(:inet.ip_address(), cidr()) :: boolean()
   def in_cidr?({0, 0, 0, 0, 0, 0xFFFF, g, h} = ip, cidr),
+    do: bits_in_cidr?(ip, cidr) or bits_in_cidr?(embed_v4(g, h), cidr)
+
+  def in_cidr?({0x64, 0xFF9B, 0, 0, 0, 0, g, h} = ip, cidr),
     do: bits_in_cidr?(ip, cidr) or bits_in_cidr?(embed_v4(g, h), cidr)
 
   def in_cidr?(ip, cidr), do: bits_in_cidr?(ip, cidr)
@@ -60,6 +63,8 @@ defmodule ImagePipe.Source.HTTP.AddressPolicy do
 
   # IPv4-mapped ::ffff:0:0/96
   defp canonicalize_v6({0, 0, 0, 0, 0, 0xFFFF, g, h}), do: {:v4, embed_v4(g, h)}
+  # NAT64 well-known prefix 64:ff9b::/96 reaches the embedded v4 host
+  defp canonicalize_v6({0x64, 0xFF9B, 0, 0, 0, 0, g, h}), do: {:v4, embed_v4(g, h)}
   # 6to4 2002::/16 embeds v4 in the next two groups
   defp canonicalize_v6({0x2002, g, h, _, _, _, _, _}), do: {:v4, embed_v4(g, h)}
   defp canonicalize_v6(v6), do: {:v6, v6}
@@ -72,8 +77,6 @@ defmodule ImagePipe.Source.HTTP.AddressPolicy do
 
   defp classify_v6({0, 0, 0, 0, 0, 0, 0, 0}), do: :unspecified
   defp classify_v6({0, 0, 0, 0, 0, 0, 0, 1}), do: :loopback
-  # NAT64 64:ff9b::/96 — treat as non-public (we did not embed-unwrap it)
-  defp classify_v6({0x64, 0xFF9B, 0, 0, 0, 0, _, _}), do: :reserved
   defp classify_v6({a, _, _, _, _, _, _, _}) when a >= 0xFE80 and a <= 0xFEBF, do: :link_local
   defp classify_v6({a, _, _, _, _, _, _, _}) when a >= 0xFC00 and a <= 0xFDFF, do: :unique_local
   defp classify_v6({a, _, _, _, _, _, _, _}) when a >= 0xFF00, do: :multicast
@@ -82,6 +85,8 @@ defmodule ImagePipe.Source.HTTP.AddressPolicy do
   defp classify_v6({0x3FFF, b, _, _, _, _, _, _}) when b < 0x1000, do: :reserved
   # 2001:db8::/32 documentation (RFC 3849)
   defp classify_v6({0x2001, 0x0DB8, _, _, _, _, _, _}), do: :reserved
+  # 2001::/23 IETF protocol assignments (RFC 2928), including Teredo 2001::/32
+  defp classify_v6({0x2001, b, _, _, _, _, _, _}) when b < 0x0200, do: :reserved
   # Global unicast 2000::/3 is the only public v6 space; everything else denies.
   defp classify_v6({a, _, _, _, _, _, _, _}) when a >= 0x2000 and a <= 0x3FFF, do: :public
   defp classify_v6(_), do: :reserved
@@ -92,6 +97,9 @@ defmodule ImagePipe.Source.HTTP.AddressPolicy do
   defp classify_v4(10, _, _, _), do: :private
   defp classify_v4(172, b, _, _) when b in 16..31, do: :private
   defp classify_v4(192, 168, _, _), do: :private
+  # IETF protocol assignments 192.0.0.0/24, 6to4 relay anycast 192.88.99.0/24
+  defp classify_v4(192, 0, 0, _), do: :reserved
+  defp classify_v4(192, 88, 99, _), do: :reserved
   defp classify_v4(100, b, _, _) when b in 64..127, do: :cgnat
   defp classify_v4(a, _, _, _) when a in 224..239, do: :multicast
   defp classify_v4(255, 255, 255, 255), do: :broadcast

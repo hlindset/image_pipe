@@ -32,7 +32,8 @@ multicast, and reserved ranges. The full list is in
 An address written in an unusual form is checked as the address it means.
 `2130706433`, `0x7f.1`, and `127.1` are all `127.0.0.1`, and an IPv6
 address that embeds an IPv4 address, such as `::ffff:10.0.0.5`, is checked
-as `10.0.0.5`. NAT64 addresses are treated as non-public.
+as `10.0.0.5`. So is `64:ff9b::10.0.0.5`, the address a NAT64 gateway gives
+an IPv4 host on an IPv6-only network.
 
 ## Connecting to the checked address
 
