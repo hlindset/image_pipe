@@ -87,6 +87,10 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- The server refuses to start when `[server] mount_path` has a character
+  other than letters, digits, and `-._~` between its slashes, such as a
+  space or `é`. Before, it started and answered every image request with
+  `404`.
 - A malformed request is no longer logged. Its `400` line quoted the raw
   request, so a request with a bad `Authorization` header put the token in
   the log.
