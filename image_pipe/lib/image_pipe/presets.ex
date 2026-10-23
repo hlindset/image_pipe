@@ -6,12 +6,17 @@ defmodule ImagePipe.Presets do
   # A requested name the lookup omits stays absent, so expansion reports it as
   # unknown (400). An unavailable backend is `:lookup_unavailable`
   # (503); a broken stored definition is `:invalid_definition` (500), the
-  # host's fault.
+  # host's fault. That includes a watermark the host doesn't configure and a
+  # `wm-enc` token its keys don't decrypt.
   @moduledoc false
 
-  use Boundary, top_level?: true, deps: [ImagePipe.API, ImagePipe.Telemetry], exports: []
+  use Boundary,
+    top_level?: true,
+    deps: [ImagePipe.API, ImagePipe.Security, ImagePipe.Telemetry],
+    exports: []
 
   alias ImagePipe.API.Presets
+  alias ImagePipe.Security
   alias ImagePipe.Telemetry
 
   @type error :: {:preset, :lookup_unavailable | :invalid_definition}
@@ -29,7 +34,7 @@ defmodule ImagePipe.Presets do
         {:ok, static}
 
       {{module, options}, pending} ->
-        lookup = %{module: module, options: options, static: static}
+        lookup = %{module: module, options: options, static: static, config: config}
 
         Telemetry.span(
           config,
@@ -45,7 +50,7 @@ defmodule ImagePipe.Presets do
   defp resolve(names, lookup) do
     {result, state} =
       case fetch_levels(names, %{asked: [], parsed: %{}, batches: 0}, lookup) do
-        {:ok, state} -> {compile(state.parsed, lookup.static), state}
+        {:ok, state} -> {compile(state.parsed, lookup), state}
         {:error, reason, state} -> {{:error, reason}, state}
       end
 
@@ -113,10 +118,24 @@ defmodule ImagePipe.Presets do
     end)
   end
 
-  defp compile(parsed, static) do
-    case Presets.compile_lookup(parsed, static) do
-      {:ok, compiled} -> {:ok, compiled}
-      :error -> {:error, {:preset, :invalid_definition}}
+  defp compile(parsed, lookup) do
+    watermarks = lookup.config |> Keyword.fetch!(:watermarks) |> Map.keys()
+
+    with {:ok, compiled} <- Presets.compile_lookup(parsed, lookup.static, watermarks),
+         true <- Enum.all?(Map.values(parsed), &decryptable?(&1, lookup.config)) do
+      {:ok, compiled}
+    else
+      _invalid -> {:error, {:preset, :invalid_definition}}
     end
+  end
+
+  defp decryptable?(%{groups: groups}, config) do
+    Enum.all?(groups, fn
+      {_index, %{watermark_token: token}} ->
+        match?({:ok, _source}, Security.decrypt_source(token, config))
+
+      {_index, _group} ->
+        true
+    end)
   end
 end

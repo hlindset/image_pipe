@@ -305,6 +305,12 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- A request that uses a looked-up preset naming a watermark the
+  configuration doesn't define, or carrying a `wm-enc` token that no key in
+  `:source_encryption_keys` decrypts, answers `500`, and `ImagePipe.run/4`
+  returns `{:preset, :invalid_definition}`, like other invalid stored
+  presets. Before, it failed with `400` or `404`, as if the requester had
+  made a mistake.
 - The daily sweep of a filesystem cache's leftover files keeps running after
   one of the cache's processes restarts, and after a sweep fails. Before, it
   stopped until ImagePipe restarted.

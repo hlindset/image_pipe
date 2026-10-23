@@ -40,11 +40,12 @@ defmodule ImagePipe.API.Presets do
   @spec references(map()) :: [String.t()]
   def references(%{groups: groups}), do: Presets.references(groups)
 
-  # Compiles looked-up presets over the static compiled map they may reference.
-  @spec compile_lookup(map(), map()) :: {:ok, map()} | :error
-  def compile_lookup(parsed, static) do
+  # Compiles looked-up presets over the static compiled map they may reference,
+  # checking them against the host's watermark names.
+  @spec compile_lookup(map(), map(), Presets.watermarks()) :: {:ok, map()} | :error
+  def compile_lookup(parsed, static, watermarks) do
     with {:ok, compiled} <- Presets.compile(parsed, static),
-         :ok <- check_conflicts(Map.take(compiled, Map.keys(parsed)), nil, nil) do
+         :ok <- check_conflicts(Map.take(compiled, Map.keys(parsed)), nil, watermarks) do
       {:ok, compiled}
     else
       {:error, _message} -> :error

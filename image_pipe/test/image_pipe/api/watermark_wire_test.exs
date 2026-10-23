@@ -419,20 +419,28 @@ defmodule ImagePipe.API.WatermarkWireTest do
       refute_received {:origin_fetch, _path}
     end
 
-    test "a concealed watermark from a looked-up preset on a mount without encryption keys is a 400",
-         %{origin: origin} do
+    test "a looked-up preset's wm-enc that the mount can't decrypt is a 500", %{origin: origin} do
       url = ImagePipe.URL.config(keys: [@signing_key], source_encryption_keys: [@source_key])
       {:ok, token} = ImagePipe.Security.encrypt_source("mark.png", url.options, [])
-      lookup = [presets: %{"wm" => "wm-enc=#{token}"}, test_pid: self()]
-      plain = mount(origin, preset_lookup: {ImagePipe.Test.PresetLookup, lookup})
-      response = conn(:get, "/preset=wm/format=png/src/image.png") |> ImagePipe.Plug.call(plain)
 
-      assert response.status == 400
+      lookup =
+        {ImagePipe.Test.PresetLookup, presets: %{"wm" => "wm-enc=#{token}"}, test_pid: self()}
 
-      assert response.resp_body =~
-               "wm-enc is not accepted: no source encryption keys are configured"
+      other_key = String.duplicate("3b", 32)
 
-      refute_received {:origin_fetch, _path}
+      path = "/preset=wm/format=png/src/image.png"
+      signed = ImagePipe.URL.sign_path(path, ImagePipe.URL.config(keys: [@signing_key]))
+
+      for {options, path} <- [
+            {[preset_lookup: lookup], path},
+            {[keys: [@signing_key], source_encryption_keys: [other_key], preset_lookup: lookup],
+             signed}
+          ] do
+        response = conn(:get, path) |> ImagePipe.Plug.call(mount(origin, options))
+
+        assert response.status == 500
+        refute_received {:origin_fetch, _path}
+      end
     end
 
     test "parse failures return before any source access", %{config: config} do
