@@ -1,13 +1,15 @@
 name: Server image
 
-# Library and server code is compiled and tested by Server CI on every change;
-# this builds the release images only when something that shapes them changes.
+# Builds the release images, which compile the sibling projects, whenever
+# their code, manifests, or the server's own files change.
 on:
   push:
     branches: ["main"]
     paths: &image_paths
+      - "image_pipe_url/lib/**"
       - "image_pipe_url/mix.exs"
       - "image_pipe_url/mix.lock"
+      - "image_pipe/lib/**"
       - "image_pipe/priv/icc/**"
       - "image_pipe/mix.exs"
       - "image_pipe/mix.lock"
