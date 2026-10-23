@@ -87,6 +87,10 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- A server that can't listen on `[server] port` or `health_port`, such as a
+  port another process uses, prints a line naming the setting and exits
+  with status 1. Before, it printed a crash report and a line for each
+  application it stopped.
 - The server refuses to start when `[server] mount_path` has a character
   other than letters, digits, and `-._~` between its slashes, such as a
   space or `é`. Before, it started and answered every image request with
