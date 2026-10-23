@@ -1055,12 +1055,8 @@ defmodule ImagePipe.API.CoordinatedCacheWireTest do
     assert_receive {:blocked, worker}
     assert_receive {:origin, _, []}
 
-    # The newer request would otherwise wait on the old one's download flight.
-    for coordinator <- [
-          ImagePipe.Cache.Work,
-          ImagePipe.Cache.OutputWork,
-          ImagePipe.Cache.OutputWork.Downloads
-        ] do
+    # The newer request would otherwise wait on the old one's download.
+    for coordinator <- [ImagePipe.Cache.Work, ImagePipe.Cache.OutputWork] do
       :ok = Supervisor.terminate_child(ImagePipe.Supervisor, coordinator)
       {:ok, _pid} = Supervisor.restart_child(ImagePipe.Supervisor, coordinator)
     end

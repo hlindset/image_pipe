@@ -179,18 +179,11 @@ background checks (see
 
 - Up to 4,096 originals can be shared between requests at once, with up to
   1,024 requests waiting for them. Past either limit, a request fetches its
-  original itself, without waiting. A request that waits while a request for
-  another size or format downloads an HTTP or S3 original, or while another
-  request checks an original with its origin, gives up after that source's
-  `fetch_timeout` (see `ImagePipe.Source.HTTP` and `ImagePipe.Source.S3`)
-  plus one second, and answers `504`. When a download finishes, every request
-  waiting for it uses the downloaded original.
-- Requests for the same processed image that wait for one new original's
-  download have separate limits: up to 4,096 downloads at once, with up to
-  1,024 requests waiting. A waiting request stops waiting after the source's
-  `fetch_timeout` plus one second (60 seconds for sources without one, such
-  as files). A request that stops waiting, or arrives past either limit,
-  then waits for the download like a request for another size.
+  original itself, without waiting. A request that waits while another
+  request downloads or checks an HTTP or S3 original gives up after that
+  source's `fetch_timeout` (see `ImagePipe.Source.HTTP` and
+  `ImagePipe.Source.S3`) plus one second, and answers `504`. When a download
+  finishes, every request waiting for it uses the downloaded original.
 - Up to 16 background checks run at once. Each has a 60-second deadline.
   After a background check for a processed image finishes, no other check
   for that image starts for one second. Checks for other sizes or formats of

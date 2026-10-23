@@ -36,10 +36,6 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The `X-ImagePipe-Source-Progressive` debug header says whether a JPEG
   original is progressive. See
   [Debug response headers](docs/debug_headers.md).
-- `[:request, :summary]` has a `:download` field for a request that waited
-  for another request's download of a new original: `:coalesced` when it
-  waited until the other request had the original, `:bypass` when it stopped
-  waiting for any other reason.
 - `ImagePipe.Source.HTTP` and `ImagePipe.Source.S3` take `pool_size`, the
   maximum number of open connections to each origin address or S3 endpoint.
   It defaults to `50`, the limit that applied before. Over HTTP/1.1, raise it
@@ -138,35 +134,25 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Concurrent requests for one new original share its download in more
   configurations, and no longer wait for a download they would repeat. See
   [request coalescing](docs/caching-and-freshness.md#request-coalescing).
-  - With a processed-image cache, requests for the same processed image
-    download the original once. Before, without an originals cache, each
-    one waited for the first download and then downloaded it again.
-  - Requests for the same processed image download the original at the
-    same time when caching is turned off for the source or its
-    configuration denies storage.
+  - Requests for the same processed image download the original once,
+    with or without a cache. Before, without an originals cache, each one
+    waited for the first download and then downloaded it again.
+  - Requests for an original from a source with caching turned off
+    download it at the same time.
   - When the original may not be stored, waiting requests start their own
     downloads as soon as the origin responds, instead of after the first
     download finishes.
-  - Requests for the same processed image that wait longer than the source's
-    `fetch_timeout` plus one second for a new original's download no longer
-    answer `504`. They then wait for the download like requests for other
-    sizes. For sources without a `fetch_timeout`, such as files, that first
-    wait lasts at most 60 seconds.
 - `gradient` on an 8-bit image takes less time, since it blends in one pass.
   A blended color can differ from before by one level.
 - `autoquality` on an image with transparency takes less time. Each quality
   it tries is scored against a dark and a light background at the same time
   instead of one after the other.
-- **Breaking:** `[:cache, :coordination]` has a `:download` operation and
-  pool for requests waiting for an identical request's download of a new
-  original, which reported as `:source` before. Handlers that match on
-  `:operation` or `:pool` must accept `:download`. `:source` events now come
-  only from requests that wait for or lead a shared download or check, so
-  none are emitted for a source with `internal_cache: :disabled`, and for a
-  local file only when a processed-image cache is configured. `:source` can
-  report `:bypass` with `reason: :not_stored`, and `:download` reports
-  `:bypass`, with `reason: :not_stored` or `reason: :watermark_not_stored`
-  when storage is the cause.
+- `[:cache, :coordination]` events for `:source` come only from requests
+  that download an original, check a remote original with its origin, read
+  a local file, or wait for another request doing so. No event is emitted
+  for an original from a source with `internal_cache: :disabled`, or for a
+  local file from an immutable source. `:source` can report `:bypass` with
+  `reason: :not_stored` when the original may not be stored.
 - **Breaking:** An `ImagePipe.Source.S3.CredentialProvider`'s
   `fetch_credentials/1` takes only the provider's options, without the
   bucket, and `ImagePipe.Source.S3.CredentialWarmup` has no `:scope`
@@ -194,7 +180,7 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   saves at least 45 MB for a cache of 200 000 images.
 - The default Logger shows a coordination event's reason after its result,
   as in `bypass (deadline)`. It logs a `:bypass` with reason `:not_stored`
-  or `:watermark_not_stored`, and a `:download` `:busy`, at its base level.
+  at its base level.
 - An HTTP source whose host doesn't resolve fails with
   `{:source, :unresolved_host}` in logs and telemetry instead of
   `{:source, :denied_address}`. It still answers `404`.

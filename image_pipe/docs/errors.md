@@ -52,7 +52,7 @@ All of these return before source resolution, fetch, or cache access.
 | `413` | The source body exceeds `max_body_bytes`. |
 | `500` | A local file or a cached original exists but can't be read, source credentials are unavailable, or a custom source adapter returns an invalid result. |
 | `502` | The origin is unreachable, answers any other error status, redirects badly, or sends a truncated or malformed response. |
-| `504` | The origin doesn't answer in time, no connection to it frees up within the source's `pool_timeout`, or a request runs out of time while a request for another size or format downloads the same original, or while another request checks it with the origin (see [coordination limits](cache.md#coordination-limits)). |
+| `504` | The origin doesn't answer in time, no connection to it frees up within the source's `pool_timeout`, or a request runs out of time while another request downloads the same original or checks it with the origin (see [coordination limits](cache.md#coordination-limits)). |
 
 ### Decode and processing
 
