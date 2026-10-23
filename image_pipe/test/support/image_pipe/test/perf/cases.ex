@@ -16,7 +16,8 @@ defmodule ImagePipe.Test.Perf.Cases do
       libvips' built-in CMYK profile, which the file embeds.
 
   A case's `tier` is `:pr` for the set every `perf` pull request runs, or
-  `:nightly` for the slower or rarer cases only the scheduled runs time.
+  `:nightly` for the slower or rarer cases only the scheduled runs and
+  `perf-nightly` pull requests time.
 
   A case's `config` is `:plain` for the bench's usual server, with no cache
   and a file source, or `:cached` for a server with an output cache that
