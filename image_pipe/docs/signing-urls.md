@@ -19,6 +19,10 @@ openssl rand -hex 32
 Store the result as a secret, for example in an environment variable named
 `IMAGE_PIPE_SIGNING_KEY`. Keep the key on your servers.
 
+Give each image service its own key. The hostname is outside the signature
+([what a signature covers](urls.md#what-a-signature-covers)), so services
+that share a key accept each other's URLs.
+
 ## Configure the server
 
 <!-- tabs-open -->

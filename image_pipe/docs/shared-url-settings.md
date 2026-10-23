@@ -55,6 +55,10 @@ The 32-byte keys, written as 64 hex digits, that encrypt the source into an
 encrypts with the first key. The server decrypts with any key in its list.
 See [source concealment](urls.md#source-concealment).
 
+Give each image service its own encryption keys, as with
+[signing keys](signing-urls.md#generate-a-key). Any service that holds a
+token's key can decrypt the token and read its source.
+
 <!-- tabs-open -->
 
 ### Elixir (URL builder)
