@@ -141,9 +141,10 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   it tries is scored against a dark and a light background at the same time
   instead of one after the other.
 - `[:cache, :coordination]` events for `:source` come only from requests
-  that wait for or lead a shared download or check, so none are emitted for
-  a source with `internal_cache: :disabled`, and for a local file only when
-  a processed-image cache is configured. `:source` can report `:bypass` with
+  that download an original, check a remote original with its origin, read
+  a local file, or wait for another request doing so. No event is emitted
+  for an original from a source with `internal_cache: :disabled`, or for a
+  local file from an immutable source. `:source` can report `:bypass` with
   `reason: :not_stored` when the original may not be stored.
 - **Breaking:** An `ImagePipe.Source.S3.CredentialProvider`'s
   `fetch_credentials/1` takes only the provider's options, without the

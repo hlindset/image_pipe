@@ -156,9 +156,7 @@ downloaded once, and the image is made once and sent to all of them. This
 needs a processed-image cache, and applies only to images that may be stored.
 Requests for different sizes or formats of an original from an HTTP or S3
 source share its download while it runs, with or without a cache, and so do
-requests that check a previously downloaded original with its origin. For a
-local file, requests share one check only when a processed-image cache is
-configured. When
+requests that check a previously downloaded original with its origin. When
 [caching is turned off](cache.md#source-cache-settings) for the source,
 nothing is shared.
 

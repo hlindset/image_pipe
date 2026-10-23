@@ -558,9 +558,12 @@ One-shot. Emitted when concurrent requests for the same original or image
 are coordinated (see [request coalescing](caching-and-freshness.md#request-coalescing)).
 Which requests emit it:
 
-- `:source`: none for a source with `internal_cache: :disabled`. For a
-  local file, only a request that checks a file read earlier, when a
-  processed-image cache is configured.
+- `:source`: a request that downloads an original, checks a remote
+  original with its origin, or reads a local file. A request waiting for
+  another one doing so also emits it. Watermark images count as originals.
+  No event is emitted for an original from a source with
+  `internal_cache: :disabled`, or for a local file from an
+  [immutable source](caching-and-freshness.md#immutable-sources).
 - `:refresh`: a request that serves a stale processed image and starts or
   joins its background check.
 - `:output`: none when no processed-image cache is configured, when the image
