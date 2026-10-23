@@ -47,7 +47,7 @@ def first_argument(words, takes_value=()):
             skip = True
         elif token in ("&&", ";", "|", "||"):
             break
-        elif not token.startswith("-"):
+        elif not token.startswith("-") and not re.search(r"[<>]", token):
             return token
     return None
 
@@ -57,6 +57,8 @@ def branch_of(command):
     try:
         words = shlex.split(command)
     except ValueError:
+        return ""
+    if {"-h", "--help"} & set(words):
         return ""
     for i, word in enumerate(words):
         if word == "but" and words[i + 1 : i + 2] == ["pr"]:
@@ -196,7 +198,8 @@ def main():
     stale = " Those files changed after this session's last summary." if summary else ""
     deny(
         f"{branch} changes public docs ({', '.join(files)}).{stale} Remember to use the full "
-        "/writing-docs process for public docs changes, ending with its closing summary, "
+        "/writing-docs process for public docs changes, ending with its closing summary "
+        "in your message text (a summary inside a tool call or a file doesn't count), "
         "then run this command again. If these files aren't public docs, write a line "
         "`writing-docs exemption: <reason>` instead. The operator sees that reason."
     )
