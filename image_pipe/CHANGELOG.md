@@ -350,9 +350,10 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - A cached image whose delivery failed after its headers were sent logs its
   request line at `error`, with status `200`. Before, the line had no status
   and logged at `warning`.
-- Identical requests for a new original share one download while up to
-  4,096 other downloads are in flight. Before, from the 64th slow download
-  on, each identical request downloaded the original itself.
+- Requests for a new original, identical or for other sizes and formats,
+  share one download while up to 4,096 originals are being fetched at once.
+  Before, once 64 were being fetched, each request downloaded the original
+  itself.
 - A request that stopped waiting for another request's download of an
   original, just as that download finished, no longer keeps the original
   locked, even when the server takes more than 5 seconds to respond. Later
