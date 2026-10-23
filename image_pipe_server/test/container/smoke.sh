@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Starts an image_pipe_server container with a read-only root filesystem and
-# checks the health checks, a PNG request, a JPEG XL source (which needs the
-# libvips the image builds from source), an SVG source (which needs the
-# image_pipe_svg NIF), the cache stats (which read disk space with df), and
-# draining on shutdown.
+# checks the health checks, each output format, a JPEG XL source (which needs
+# the libvips the image builds from source), an SVG source (which needs the
+# image_pipe_svg NIF), the cache stats (which read disk space with df),
+# draining on shutdown, and the start script's port, CPU, and allocator
+# settings.
 #
 #     test/container/smoke.sh IMAGE [vision]
 #
@@ -69,30 +70,48 @@ fi
 curl -fsS "http://127.0.0.1:${port}/health/live" | grep -qx ok
 curl -fsS "http://127.0.0.1:${port}/health/ready" | grep -qx ok
 
-if docker logs "$name" 2>&1 | grep -q 'WARNING'; then
+# The configuration serves unsigned URLs on purpose, which the server warns
+# about; any other warning or error fails the test.
+if docker logs "$name" 2>&1 | grep -E '\[(warning|error|critical|alert|emergency)\]' |
+  grep -v 'serves unsigned URLs' | grep -q .; then
   echo "the server logged a warning at startup" >&2
   docker logs "$name" >&2
   exit 1
 fi
 
-check_png() {
-  local source=$1
-  local content_type
-  content_type=$(curl -fsS -o "$work/out.png" -w '%{content_type}' \
-    "http://127.0.0.1:${port}/w=4/format=png/src/${source}")
-  [ "$content_type" = "image/png" ] || {
-    echo "${source}: unexpected content type: $content_type" >&2
+# Requests SOURCE as FORMAT and checks the content type and the file
+# signature in the first 12 bytes.
+check_output() {
+  local format=$1 source=$2
+  local content_type header signature
+  content_type=$(curl -fsS -o "$work/out" -w '%{content_type}' \
+    "http://127.0.0.1:${port}/w=4/format=${format}/src/${source}")
+  [ "$content_type" = "image/${format}" ] || {
+    echo "${source} as ${format}: unexpected content type: $content_type" >&2
     exit 1
   }
-  [ "$(head -c 8 "$work/out.png" | od -An -tx1 | tr -d ' \n')" = "89504e470d0a1a0a" ] || {
-    echo "${source}: response is not a PNG" >&2
+  header=$(head -c 12 "$work/out" | od -An -tx1 | tr -d ' \n')
+  case "$format" in
+    png) signature='89504e470d0a1a0a*' ;;
+    jpeg) signature='ffd8ff*' ;;
+    webp) signature='52494646????????57454250' ;;
+    avif) signature='????????6674797061766966' ;;
+  esac
+  # shellcheck disable=SC2053
+  [[ $header == $signature ]] || {
+    echo "${source} as ${format}: the response doesn't start like a ${format} file: $header" >&2
     exit 1
   }
 }
 
+check_png() { check_output png "$1"; }
+
 check_png pic.png
 check_png pic.jxl
 check_png pic.svg
+check_output jpeg pic.png
+check_output webp pic.png
+check_output avif pic.png
 
 stats_status=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:${port}/stats")
 [ "$stats_status" = "401" ] || {
@@ -100,17 +119,22 @@ stats_status=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:${port}/
   exit 1
 }
 stats=$(curl -fsS -H "Authorization: Bearer smoke-stats-token-0123456789abcdef" "http://127.0.0.1:${port}/stats")
-for expected in '"misses":3' '"disk_total_bytes":[0-9]'; do
+for expected in '"misses":6' '"disk_total_bytes":[0-9]'; do
   printf '%s' "$stats" | grep -q "$expected" || {
     echo "stats: the response lacks $expected: $stats" >&2
     exit 1
   }
 done
 
+# The environment the start script gave the VM in a container.
+beam_env() {
+  docker exec "$1" sh -c \
+    'for p in /proc/[0-9]*; do [ "$(cat $p/comm 2>/dev/null)" = beam.smp ] && tr "\0" "\n" < $p/environ; done; true'
+}
+
 # The server runs on jemalloc, whose background thread returns memory while
 # the server is idle.
-beam_env=$(docker exec "$name" sh -c \
-  'for p in /proc/[0-9]*; do [ "$(cat $p/comm 2>/dev/null)" = beam.smp ] && tr "\0" "\n" < $p/environ; done; true')
+beam_env=$(beam_env "$name")
 for expected in LD_PRELOAD=/usr/local/lib/libjemalloc.so.2 MALLOC_CONF=background_thread:true; do
   printf '%s\n' "$beam_env" | grep -qx "$expected" || {
     echo "allocator: the server's environment lacks $expected" >&2
@@ -152,9 +176,10 @@ echo "draining: container unhealthy $((SECONDS - stop_sent)) s after docker stop
 wait "$stopping"
 
 # With a JSON log format, every line is JSON, including the ones dependencies
-# log while they start.
+# log while they start. The server listens on another port, so the container
+# only turns healthy when the health check follows IPS_SERVER__PORT.
 docker run -d --name "$name-json" --read-only --tmpfs /tmp \
-  -e IPS_TELEMETRY__LOG_FORMAT=json \
+  -e IPS_TELEMETRY__LOG_FORMAT=json -e IPS_SERVER__PORT=9090 \
   -v "$work/config.toml:/etc/image_pipe/config.toml:ro" \
   -v "$work/images:/data/images:ro" \
   "$image" >/dev/null
@@ -192,8 +217,12 @@ set -e
 
 # With distribution on, the console works inside the container, and epmd and
 # the node listen on loopback only, so only the HTTP port is open beyond it.
-docker run -d --name "$name-dist" --read-only --tmpfs /tmp \
+# The same container checks the health check on a separate health port, and
+# the start script's settings for a CPU quota and for glibc's allocator.
+docker run -d --name "$name-dist" --read-only --tmpfs /tmp --cpus 1.5 \
   -e RELEASE_DISTRIBUTION=sname -e RELEASE_COOKIE=smoke-test-cookie \
+  -e IPS_SERVER__HEALTH_PORT=9091 -e IPS_SERVER__HEALTH_BIND=127.0.0.1 \
+  -e IMAGE_PIPE_ALLOCATOR=glibc \
   -v "$work/config.toml:/etc/image_pipe/config.toml:ro" \
   -v "$work/images:/data/images:ro" \
   "$image" >/dev/null
@@ -210,6 +239,32 @@ done
   docker logs "$name-dist" >&2 || true
   exit 1
 }
+
+status=starting
+for _ in $(seq 1 60); do
+  status=$(docker inspect -f '{{.State.Health.Status}}' "$name-dist" 2>/dev/null || echo exited)
+  [ "$status" = "healthy" ] || [ "$status" = "exited" ] && break
+  sleep 1
+done
+[ "$status" = "healthy" ] || {
+  echo "health port: the container did not become healthy ($status)" >&2
+  docker logs "$name-dist" >&2 || true
+  exit 1
+}
+
+# A 1.5-CPU quota rounds up to two libvips threads, and glibc's allocator
+# runs with two arenas and without jemalloc preloaded.
+beam_env=$(beam_env "$name-dist")
+for expected in VIPS_CONCURRENCY=2 MALLOC_ARENA_MAX=2; do
+  printf '%s\n' "$beam_env" | grep -qx "$expected" || {
+    echo "start script: the server's environment lacks $expected" >&2
+    exit 1
+  }
+done
+if printf '%s\n' "$beam_env" | grep -q '^LD_PRELOAD=.*jemalloc'; then
+  echo "start script: IMAGE_PIPE_ALLOCATOR=glibc still preloads jemalloc" >&2
+  exit 1
+fi
 
 # /proc/net/tcp lists listening sockets (state 0A) as hex address:port.
 # 0100007F is 127.0.0.1 and 1F90 is port 8080.
