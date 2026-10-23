@@ -14,9 +14,10 @@ This repository holds sibling Mix projects:
 | [`image_pipe/`](image_pipe/README.md) | The library and Plug: code, tests, benchmarks, and [documentation](image_pipe/docs/index.md) |
 | [`image_pipe_url/`](image_pipe_url/README.md) | The URL builder, grammar, and plan model, usable without the processing runtime |
 | [`image_pipe_server/`](image_pipe_server/README.md) | The standalone server: a release and Docker image configured without Elixir code |
+| [`image_pipe_svg/`](image_pipe_svg/README.md) | Optional SVG support, a precompiled native library that renders SVG originals and watermarks |
 | [`fiddle/`](docs/architecture/fiddle.md) | A Phoenix demo app for trying options visually |
 
-[Contributor notes](docs/index.md) cover architecture, design plans, and benchmarks.
+[Contributor notes](docs/index.md) cover architecture and benchmarks.
 [Development](docs/architecture/development.md) covers tool setup and checks.
 [RELEASING.md](RELEASING.md) describes publishing the packages.
 

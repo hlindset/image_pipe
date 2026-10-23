@@ -9,7 +9,7 @@ groups against a decoded image.
 `ImagePipe.Plan.Spec.Group` holds validated options. The executor resolves
 their source-dependent geometry in fixed stage order and constructs
 `ImagePipe.Transform.Operation.*` structs over `ImagePipe.Transform.State`.
-`ImagePipe.Transform.run/3` runs each operation with telemetry, materialization,
+`ImagePipe.Transform.Executor.Step.run/3` runs each operation with telemetry, materialization,
 and error handling. The executor owns stage and group order.
 
 `Plan.Spec` describes request intent; operation structs hold the parameters
@@ -29,7 +29,7 @@ request lifecycle.
 previous group, while group options themselves do not carry forward. Decode
 happens once, so only the first group can influence shrink-on-load planning.
 
-The [API contract](../../image_pipe/docs/api_contract.md#processing-semantics)
+The [API contract](api_contract.md#processing-semantics)
 defines the ordering and parameter semantics.
 
 ## Coordinate frames
@@ -71,7 +71,7 @@ The parser removes identity values before constructing operations.
 Sigma and pixelate block size use physical pixels
 without DPR scaling. Pixelate and gradient flush pending orientation so their
 grid and direction use the current display frame. See the
-[effect vocabulary](../../image_pipe/docs/api_contract.md#pixel-effects) for ranges,
+[effect vocabulary](api_contract.md#pixel-effects) for ranges,
 defaults, color syntax, and alpha behavior.
 
 ### Color values
@@ -83,19 +83,18 @@ the planning boundary.
 
 ## Executable transform operations
 
-Executable modules implement the `ImagePipe.Transform` behaviour:
-
-- `name/1` returns the stable operation name used in telemetry.
-- `execute/2` updates `ImagePipe.Transform.State`.
-- `requires_materialization?/1` declares whether the operation needs random
-  pixel access; the default is `false`.
+Each operation struct has a plain `execute/2` that
+updates `ImagePipe.Transform.State`. The step table in
+`ImagePipe.Transform.Executor.Step` gives each operation its stage name, used
+in telemetry, and `Step.random_access?/1` lists the operations that need
+random pixel access.
 
 Both crop forms use `Transform.Operation.Crop`; canvas extension uses
 `Transform.Operation.ExtendCanvas`. A cover resize uses separate resize and
 crop operations with an image measurement between them.
 
-`Transform.Materializer.flush/1` applies surviving pending orientation at a safe
-boundary. `AlphaPremultiply` is an internal helper used where an effect needs
+`Transform.OrientationFlush.flush/1` applies surviving pending orientation at a safe
+boundary. `Transform.Operation.AlphaPremultiply` is an internal helper used where an effect needs
 premultiplied alpha. Neither represents independent request syntax.
 
 The executor resolves orientation state, flip composition, and resize branches
@@ -111,8 +110,7 @@ only the final pixel width and height; a cover request follows it with a crop.
 Decode always opens sequentially. `ImagePipe.Transform.DecodePlanner` computes
 only shrink/scale load options; it does not switch the loader to random access.
 
-`ImagePipe.Transform.run/3` checks the operation's
-`requires_materialization?/1` callback. Immediately before the first operation
+`Step.run/3` checks `Step.random_access?/1` for the operation. Immediately before the first operation
 that needs random access, it copies the image to memory through
 `ImagePipe.Transform.Materializer` and marks the state as materialized. Smart
 or detector-guided crop and trim require this barrier. Sequential-safe
@@ -124,11 +122,12 @@ delivery barrier materializes any image that has not already been buffered.
 
 ## Decode planning
 
-`ImagePipe.Transform.Executor.decode_request/2` derives shrink-on-load information
-from the first group. Resize targets, crop extent, quarter-turn rotation, trim,
-and a reducing terminal can contribute. An arbitrary-angle rotation disables
-shrink-on-load planning because resampling changes the crop frame.
-BlurHash's terminal hint applies only to single-group requests, preserving
+`ImagePipe.Transform.Executor.decode_options/3` derives shrink-on-load information
+from the first group. Resize targets, crop extent, rotation, and a reducing
+terminal can contribute. Trim turns shrink-on-load off. An arbitrary-angle rotation plans
+against the rotated bounding box and decodes at twice the target, so the
+rotation resamples near the output size.
+The BlurHash and LQIP CSS terminal hint applies only to single-group requests, preserving
 the input scale of later groups that may trim or crop.
 
 The selected load shrink is an optimization. `Transform.State` retains source
@@ -155,4 +154,4 @@ rather than constructing executable operation modules.
 Transform operations depend on `Transform.State` and product-neutral values.
 They do not parse URLs, resolve sources, read caches, negotiate output, or send
 responses. The executor resolves source-dependent geometry and calls
-`Transform.run/3` for each image operation.
+`Step.run/3` for each image operation.

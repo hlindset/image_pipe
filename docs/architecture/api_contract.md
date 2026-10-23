@@ -86,7 +86,7 @@ guide, rotation, DPR, and effects must be stated again to apply again.
 EXIF is not reapplied. Internal orientation/color/materialization state may
 survive a group boundary when doing so is observably equivalent. Decode
 happens once, and only the first group may inform shrink-on-load.
-BlurHash's terminal reduction contributes a decode hint only for a single
+The BlurHash and LQIP CSS terminal reductions contribute a decode hint only for a single
 group, sized against its source crop when present so the crop retains enough
 detail for the terminal's working frame. Multi-group requests preserve the first
 group's input scale unless that group explicitly resizes it.
@@ -251,7 +251,7 @@ uses attention alone. `anchor`, `focus`, and `detect` are mutually exclusive
 guides and form one preset override family together with `anchor-offset`.
 Detection and smart guides do not accept anchor offsets. Guides reset at `-`.
 
-Mount options are `detector: :default | nil | module` and
+Configuration options are `detector: :default | nil | module` and
 `detector_required: boolean`. Explicit detection classes that the configured
 detector does not support return 400 before source resolution or cache
 access. Strict mode checks the requested explicit classes at the same point
@@ -613,7 +613,7 @@ text. `output=lqip-css` returns Image's packed 8-digit `#rrggbbaa` placeholder
 value as `text/plain; charset=utf-8`, with no `Vary: Accept`. Both placeholder
 outputs apply all groups and orientation, normalize to sRGB with black-flattened
 alpha and 8-bit channels, and retain source safety limits. LQIP CSS reduces to a
-materialized 3×3 frame before sampling; it adds no terminal-specific decode hint.
+materialized 3×3 frame before sampling.
 The value is used as `style="--lqip: #22333091"` with the shared stylesheet in
 [Image's LQIP CSS guide](https://hexdocs.pm/image/lqip_css.html). Successful
 placeholder responses use the usual cache and pre-fetch conditional-request path.
