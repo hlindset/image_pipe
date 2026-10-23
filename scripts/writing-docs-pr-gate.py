@@ -5,9 +5,18 @@ documentation until this session has run the writing-docs skill over it.
 Runs on `but pr ... new <branch>`, `gh pr create`, `but push <branch>`, and
 `git push <remote> <branch>`, so pushes after a pull request is open are
 checked too. When the branch changes
-documentation since it left origin/main, the session's transcript must hold the
-skill's closing summary (Audience, Pass 1-4, and Review lines, each filled in),
-written after the branch's documentation files last changed on disk.
+documentation since it left origin/main, the session's transcript must show the
+steps of the skill that leave a record:
+
+  - the skill's references/style.md and references/audiences.md were read
+    (a Read call, or a Bash command naming them);
+  - a review ran after this session first edited those files (an Agent call
+    whose prompt names review.md). Fixing what it reports doesn't call for
+    another. When the session never edited them, the review must come after
+    they last changed on disk;
+  - the closing summary (Audience, Pass 1-4, and Review lines, each filled in)
+    was written in message text after that review and after the files last
+    changed, so it covers the fixes.
 
 For a false positive, the agent can instead write a line
 `writing-docs exemption: <reason>` after those files changed. The command then
@@ -120,33 +129,64 @@ def docs_changed(base, branch):
 
 
 EXEMPTION = re.compile(r"^\W*writing-docs exemption:[ \t]*(\S.*)$", re.M | re.I)
+REFERENCES = ("style.md", "audiences.md")
 
 
-def last_marks(transcript):
-    """(time, None) of the latest complete summary and (time, reason) of the
-    latest exemption the session's agent wrote, each None when absent."""
-    summary, exemption = None, None
+class Marks:
+    """What the session did, from its transcript: when its own agent last wrote a
+    summary, an exemption (with its reason), and started a review, which skill
+    references it read, and when the session first changed one of `files`."""
+
+    def __init__(self):
+        self.summary = self.exemption = self.review = self.first_edit = None
+        self.read = set()
+
+
+def changed_paths(result):
+    """Files a tool result says it changed: an Edit or Write, or a Bash command
+    whose changes Claude Code recorded."""
+    if not isinstance(result, dict):
+        return []
+    diff = result.get("bashEditDiff") or {}
+    return [result.get("filePath") or "", *diff.get("changedFiles", [])]
+
+
+def last_marks(transcript, files=()):
+    marks = Marks()
     try:
         lines = open(transcript, encoding="utf-8")
     except OSError:
-        return None, None
+        return marks
     with lines:
         for line in lines:
             try:
                 entry = json.loads(line)
             except json.JSONDecodeError:
                 continue
+            if entry.get("type") == "user" and marks.first_edit is None:
+                paths = changed_paths(entry.get("toolUseResult"))
+                if any(path.endswith("/" + f) for path in paths if path for f in files):
+                    marks.first_edit = datetime.fromisoformat(entry["timestamp"].replace("Z", "+00:00"))
             if entry.get("type") != "assistant" or entry.get("isSidechain"):
                 continue
+            at = datetime.fromisoformat(entry["timestamp"].replace("Z", "+00:00"))
             for part in (entry.get("message") or {}).get("content") or []:
-                text = part.get("text", "") if isinstance(part, dict) else ""
-                at = datetime.fromisoformat(entry["timestamp"].replace("Z", "+00:00"))
+                if not isinstance(part, dict):
+                    continue
+                if part.get("type") == "tool_use":
+                    tool, given = part.get("name"), json.dumps(part.get("input") or {})
+                    if tool in ("Agent", "Task") and "review.md" in given:
+                        marks.review = at
+                    elif tool in ("Read", "Bash"):
+                        marks.read |= {name for name in REFERENCES if name in given}
+                    continue
+                text = part.get("text", "")
                 if all(re.search(r"^\W*" + label + r"[ \t]*\S", text, re.M) for label in SUMMARY):
-                    summary = at
+                    marks.summary = at
                 reason = EXEMPTION.search(text)
                 if reason:
-                    exemption = (at, reason.group(1).strip())
-    return summary, exemption
+                    marks.exemption = (at, reason.group(1).strip())
+    return marks
 
 
 def deny(reason):
@@ -178,14 +218,26 @@ def main():
     if not files:
         return
 
-    summary, exemption = last_marks(data.get("transcript_path", ""))
+    marks = last_marks(data.get("transcript_path", ""), files)
     changed = max(
         (datetime.fromtimestamp(os.path.getmtime(f), timezone.utc) for f in files if os.path.exists(f)),
         default=None,
     )
     fresh = lambda at: at is not None and (changed is None or at >= changed)
-    if fresh(summary):
+    # One review per round of work: it must see the session's edits, and fixes
+    # made after it are covered by the summary instead of another review.
+    anchor = marks.first_edit or changed
+    reviewed = marks.review is not None and (anchor is None or marks.review >= anchor)
+    when = "after this session first edited them" if marks.first_edit else "after they last changed"
+    missing = [
+        *(f"read references/{name}" for name in REFERENCES if name not in marks.read),
+        *([] if reviewed else [f"a review (an Agent call naming review.md) {when}"]),
+        *([] if fresh(marks.summary) and reviewed and marks.summary >= marks.review
+           else ["the closing summary in your message text after that review and after the last docs change"]),
+    ]
+    if not missing:
         return
+    exemption = marks.exemption
     if exemption and fresh(exemption[0]):
         print(json.dumps({
             "systemMessage": (
@@ -195,12 +247,11 @@ def main():
         }))
         return
 
-    stale = " Those files changed after this session's last summary." if summary else ""
     deny(
-        f"{branch} changes public docs ({', '.join(files)}).{stale} Remember to use the full "
-        "/writing-docs process for public docs changes, ending with its closing summary "
-        "in your message text (a summary inside a tool call or a file doesn't count), "
-        "then run this command again. If these files aren't public docs, write a line "
+        f"{branch} changes public docs ({', '.join(files)}). Remember to use the full "
+        "/writing-docs process for public docs changes. Not done yet in this session: "
+        + "; ".join(missing)
+        + ". Then run this command again. If these files aren't public docs, write a line "
         "`writing-docs exemption: <reason>` instead. The operator sees that reason."
     )
 
