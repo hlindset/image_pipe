@@ -81,6 +81,39 @@ defmodule ImagePipe.API.OutputCoalescingWireTest do
     end
   end
 
+  test "identical requests share one generation while 64 other images wait for a turn",
+       context do
+    pool = start_supervised!({ProcessingPool, max_concurrency: 1, max_queue: 128}, id: :deep)
+    options = context.options |> Keyword.put(:processing_pool, pool) |> CacheObserver.observe()
+    mount = Caches.plug(options)
+
+    others =
+      for index <- 1..64,
+          do: async(context, fn -> request(mount, "format=jpeg", "other-#{index}") end)
+
+    assert_receive {:fetch, ["other-" <> _], first_worker}
+
+    for _ <- 1..64, do: assert_receive({:coordination, %{pool: :output, result: :acquired}})
+
+    leader = async(context, fn -> request(mount, "format=jpeg") end)
+    assert_receive {:coordination, %{pool: :output, result: :acquired}}
+    follower = async(context, fn -> request(mount, "format=jpeg") end)
+    assert_receive {:coordination, %{pool: :output, result: :waiting}}
+
+    send(first_worker, :continue)
+
+    for _ <- 1..64 do
+      assert_receive {:fetch, [_], worker}, @generation_timeout
+      send(worker, :continue)
+    end
+
+    original = Task.await(leader, @generation_timeout)
+    assert original.status == 200
+    assert Task.await(follower, @generation_timeout).resp_body == original.resp_body
+    refute_received {:fetch, ["blocked"], _}
+    for task <- others, do: assert(Task.await(task, @generation_timeout).status == 200)
+  end
+
   test "without output caching identical requests use ordinary admission", context do
     mount =
       ImagePipe.Plug.init(
@@ -300,7 +333,10 @@ defmodule ImagePipe.API.OutputCoalescingWireTest do
     do: Caches.options(options)
 
   defp async(context, fun), do: Task.Supervisor.async_nolink(context.tasks, fun)
-  defp request(mount, path), do: ImagePipe.Plug.call(conn(:get, "/#{path}/src/blocked"), mount)
+
+  defp request(mount, path, source \\ "blocked"),
+    do: ImagePipe.Plug.call(conn(:get, "/#{path}/src/#{source}"), mount)
+
   defp output_options(:image), do: [format: :jpeg]
   defp output_options(terminal), do: [terminal: terminal]
 end

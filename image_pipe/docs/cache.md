@@ -192,8 +192,8 @@ background checks (see
   After a background check for a processed image finishes, no other check
   for that image starts for one second. Checks for other sizes or formats of
   the same original can still start.
-- Up to 64 processed images can be made at once while other requests wait for
-  them, with up to 1,024 requests waiting. Each wait lasts at most 60 seconds,
+- Up to 4,096 processed images can be shared between requests at once, with
+  up to 1,024 requests waiting for them. Each wait lasts at most 60 seconds,
   and at most 2 seconds after the image was sent if it isn't stored by then.
   Past any of these limits, a request processes the image itself, still
   subject to the [processing pool](processing-controls.md).

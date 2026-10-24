@@ -23,6 +23,11 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `Cache-Control: no-store` even when an earlier Plug set `Cache-Control`
   or `Set-Cookie`. Before, it kept the earlier Plug's caching headers and
   sent no `no-store`.
+- Identical requests for a processed image share one render while up to
+  4,096 other images are processing or waiting for a turn. Before, past 64
+  such images, each identical request rendered its own copy: a cold burst
+  of 160 thumbnails, each requested 3 times, made 342 renders instead of
+  160 and took twice as long.
 - On a CMYK source without a usable embedded ICC profile, colors from the
   request, such as `bg`, `colorize` and `duotone`, come out as requested.
   Before, `pad=5/bg=00ff00` painted `(192, 208, 11)` instead of
