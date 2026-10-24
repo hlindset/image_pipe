@@ -28,6 +28,16 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   such images, each identical request rendered its own copy: a cold burst
   of 160 thumbnails, each requested 3 times, made 342 renders instead of
   160 and took twice as long.
+- A streamed image gives back its processing turn when its encode ends,
+  instead of when the client has read the last byte. The part of the
+  response the client hasn't read yet waits in memory, up to 4 MB, and the
+  rest in a file in the system temporary directory, which needs room for
+  the largest responses slow clients read at once (see
+  [slow clients](docs/deployment.md#slow-clients)). Before, a few slow
+  clients downloading large images could hold every turn, so other requests
+  got `503`, and identical requests waited for the slowest client.
+  `processing_timeout` no longer counts the client's download, so a slow
+  download of a large image is no longer cut short at the deadline.
 - On a CMYK source without a usable embedded ICC profile, colors from the
   request, such as `bg`, `colorize` and `duotone`, come out as requested.
   Before, `pad=5/bg=00ff00` painted `(192, 208, 11)` instead of

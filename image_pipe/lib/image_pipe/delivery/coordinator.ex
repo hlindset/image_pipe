@@ -13,6 +13,17 @@ defmodule ImagePipe.Delivery.Coordinator do
   #
   # Pooled producers halt cooperatively and keep their slot through bracket
   # cleanup. Unpooled producers retain the force-kill backstop.
+  #
+  # After the first chunk, the coordinator pulls chunks at encode speed, not
+  # at the client's: each goes to the cache sink and into a buffer the client
+  # drains with `next/2`. So the producer returns, ending its pool turn, and
+  # the entry is committed, releasing the requests waiting for it, when the
+  # encode ends rather than when a slow client has read the last byte. Up to
+  # `@window` unsent bytes stay in memory. Past that, chunks are appended to a
+  # spool file at the session's `:spool_path`, deleted as soon as it's open,
+  # so the VM closes it and frees its space however this process stops.
+  # Without a spool path, or once a spool write fails, the coordinator stops
+  # pulling at `@window` and resumes as the client drains the buffer.
 
   use GenServer
 
@@ -24,6 +35,8 @@ defmodule ImagePipe.Delivery.Coordinator do
 
   @call_timeout 60_000
   @cancel_timeout 2_000
+  @window 4 * 1024 * 1024
+  @spool_read 256 * 1024
 
   defstruct [
     :build_fun,
@@ -42,7 +55,14 @@ defmodule ImagePipe.Delivery.Coordinator do
     :cache_sink,
     :fetch_started_at,
     :failure,
-    phase: :new
+    # A path to open the spool at, `{fd, size}` once open, `{:read_only, fd}`
+    # after a write to it fails, or `:failed` when it can't be opened.
+    :spool,
+    phase: :new,
+    # Unsent chunks in order: `{:memory, binary}` or `{:spool, offset, size}`.
+    buffer: :queue.new(),
+    buffered: 0,
+    encoded?: false
   ]
 
   @type server() :: GenServer.server()
@@ -103,7 +123,8 @@ defmodule ImagePipe.Delivery.Coordinator do
        cache_key: cache_key,
        output_lease: output_lease,
        request_context: request_context,
-       config: config
+       config: config,
+       spool: Keyword.get(session, :spool_path)
      }}
   end
 
@@ -133,10 +154,16 @@ defmodule ImagePipe.Delivery.Coordinator do
      }}
   end
 
-  def handle_call(:next, from, %{phase: phase, producer: producer, pending: nil} = state)
-      when phase in [:prepared, :streaming] and is_pid(producer) do
-    ref = Producer.request_next(producer, self())
-    {:noreply, %{state | phase: :streaming, pending: {:next, from}, producer_request_ref: ref}}
+  def handle_call(:next, from, %{phase: phase, pending: nil} = state)
+      when phase in [:prepared, :streaming] do
+    state = %{state | phase: :streaming}
+
+    case take(state) do
+      {:ok, chunk, state} -> {:reply, {:chunk, chunk}, pull(state)}
+      {:error, reason} -> {:stop, :normal, {:error, {:session, {:spool, reason}}}, state}
+      :empty when state.encoded? -> {:stop, :normal, :done, %{state | phase: :done}}
+      :empty -> {:noreply, pull(%{state | pending: {:next, from}})}
+    end
   end
 
   def handle_call(:next, _from, %{phase: :failed, failure: failure} = state) do
@@ -223,7 +250,7 @@ defmodule ImagePipe.Delivery.Coordinator do
       |> clear_producer()
 
     Cache.OutputWork.complete(state.output_lease, :bypass)
-    state = %{state | phase: :failed, failure: {:processing, :timeout}}
+    state = mark_failed(%{state | failure: {:processing, :timeout}})
 
     case pending do
       nil -> {:noreply, state}
@@ -332,35 +359,45 @@ defmodule ImagePipe.Delivery.Coordinator do
       )
 
       {:noreply,
-       %{
+       pull(%{
          state
          | pending: nil,
            phase: :prepared,
            cache_sink: cache_sink
-       }}
+       })}
     end)
   end
 
-  defp handle_producer_result({:ok, {:chunk, chunk}}, %{pending: {:next, from}} = state) do
+  defp handle_producer_result({:ok, {:chunk, chunk}}, state) do
     with_owner_check(state, fn state ->
       cache_sink = Cache.write_chunk(state.cache_sink, chunk, state.config)
       if state.cache_sink, do: release_unstored(cache_sink, state)
-      GenServer.reply(from, {:chunk, chunk})
-      {:noreply, %{state | pending: nil, cache_sink: cache_sink}}
+      state = %{state | cache_sink: cache_sink}
+
+      case state.pending do
+        {:next, from} ->
+          GenServer.reply(from, {:chunk, chunk})
+          {:noreply, pull(%{state | pending: nil})}
+
+        nil ->
+          {:noreply, state |> put(chunk) |> pull()}
+      end
     end)
   end
 
-  defp handle_producer_result({:ok, :done}, %{pending: {:next, from}} = state) do
+  defp handle_producer_result({:ok, :done}, state) do
     with_owner_check(state, fn state ->
       Cache.commit_sink(state.cache_sink, state.config, state.output_lease)
-      GenServer.reply(from, :done)
+      state = %{clear_producer(state) | cache_sink: nil, encoded?: true}
 
-      state =
-        state
-        |> clear_producer()
-        |> Map.merge(%{phase: :done, pending: nil, cache_sink: nil})
+      case state.pending do
+        {:next, from} ->
+          GenServer.reply(from, :done)
+          {:stop, :normal, %{state | phase: :done, pending: nil}}
 
-      {:stop, :normal, state}
+        nil ->
+          {:noreply, state}
+      end
     end)
   end
 
@@ -388,6 +425,111 @@ defmodule ImagePipe.Delivery.Coordinator do
     Cache.OutputWork.complete(state.output_lease, :bypass)
     {:stop, :normal, mark_failed(%{state | pending: nil})}
   end
+
+  # An encode failure with no client call waiting reaches the client's next
+  # call, in place of the chunks still buffered.
+  defp handle_producer_result({:error, reason}, %{pending: nil} = state) do
+    state = state |> abort_cache_sink(:stream_error) |> clear_producer()
+    Cache.OutputWork.complete(state.output_lease, :bypass)
+    {:noreply, mark_failed(%{state | failure: reason})}
+  end
+
+  # Asks the producer for the next chunk unless it's already asked, the encode
+  # has ended, or the buffer is full.
+  defp pull(%{producer: producer, producer_request_ref: nil, phase: phase} = state)
+       when is_pid(producer) and phase in [:prepared, :streaming] do
+    if room?(state) do
+      %{state | producer_request_ref: Producer.request_next(producer, self())}
+    else
+      state
+    end
+  end
+
+  defp pull(state), do: state
+
+  defp room?(state), do: state.buffered < @window or spool?(state)
+
+  defp spool?(%{spool: path}) when is_binary(path), do: true
+  defp spool?(%{spool: {_fd, size}}) when is_integer(size), do: true
+  defp spool?(_state), do: false
+
+  defp put(state, chunk) do
+    if state.buffered + byte_size(chunk) <= @window or not spool?(state) do
+      put_memory(state, chunk)
+    else
+      put_spool(state, chunk)
+    end
+  end
+
+  defp put_memory(state, chunk) do
+    %{
+      state
+      | buffer: :queue.in({:memory, chunk}, state.buffer),
+        buffered: state.buffered + byte_size(chunk)
+    }
+  end
+
+  defp put_spool(%{spool: path} = state, chunk) when is_binary(path) do
+    case :file.open(path, [:raw, :binary, :read, :write, :exclusive]) do
+      {:ok, fd} ->
+        _deleted = :file.delete(path, [:raw])
+        put_spool(%{state | spool: {fd, 0}}, chunk)
+
+      {:error, _reason} ->
+        put_memory(%{state | spool: :failed}, chunk)
+    end
+  end
+
+  defp put_spool(%{spool: {fd, size}} = state, chunk) do
+    case :file.pwrite(fd, size, chunk) do
+      :ok ->
+        item = {:spool, size, byte_size(chunk)}
+        %{state | buffer: :queue.in(item, state.buffer), spool: {fd, size + byte_size(chunk)}}
+
+      {:error, _reason} ->
+        put_memory(%{state | spool: {:read_only, fd}}, chunk)
+    end
+  end
+
+  defp take(state) do
+    case :queue.out(state.buffer) do
+      {{:value, {:memory, chunk}}, buffer} ->
+        {:ok, chunk, %{state | buffer: buffer, buffered: state.buffered - byte_size(chunk)}}
+
+      {{:value, {:spool, offset, size}}, buffer} ->
+        read_spool(state, buffer, offset, size)
+
+      {:empty, _buffer} ->
+        :empty
+    end
+  end
+
+  defp read_spool(state, buffer, offset, size) do
+    length = min(size, @spool_read)
+    fd = spool_fd(state.spool)
+
+    case :file.pread(fd, offset, length) do
+      {:ok, chunk} when byte_size(chunk) == length ->
+        buffer =
+          if length < size,
+            do: :queue.in_r({:spool, offset + length, size - length}, buffer),
+            else: buffer
+
+        {:ok, chunk, %{state | buffer: buffer}}
+
+      {:ok, _short} ->
+        {:error, :truncated}
+
+      {:error, reason} ->
+        {:error, reason}
+
+      :eof ->
+        {:error, :truncated}
+    end
+  end
+
+  defp spool_fd({:read_only, fd}), do: fd
+  defp spool_fd({fd, _size}), do: fd
 
   defp with_owner_check(state, fun) when is_function(fun, 1) do
     case receive_owner_down_message(state) do
@@ -500,7 +642,7 @@ defmodule ImagePipe.Delivery.Coordinator do
   defp producer_down_reason({:shutdown, {:processing, _} = reason}), do: reason
   defp producer_down_reason(reason), do: {:session, {:producer_down, reason}}
 
-  defp mark_failed(state), do: %{state | phase: :failed}
+  defp mark_failed(state), do: %{state | phase: :failed, buffer: :queue.new(), buffered: 0}
 
   # A source delivered unchanged has no debug info and isn't stored.
   defp cost(nil, _skipped), do: 0

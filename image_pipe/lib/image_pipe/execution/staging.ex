@@ -52,7 +52,8 @@ defmodule ImagePipe.Execution.Staging do
 
     Logger.warning(
       "image_pipe cache: can't stage originals in #{dir}, which must be a directory " <>
-        "only this user can access. Originals are held in memory instead."
+        "only this user can access. Originals are held in memory instead, and a slow " <>
+        "client keeps its processing turn while it downloads."
     )
 
     :error

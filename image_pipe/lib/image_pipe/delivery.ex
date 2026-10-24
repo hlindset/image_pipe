@@ -67,7 +67,8 @@ defmodule ImagePipe.Delivery do
 
   `session` carries this request's data for the session: the optional
   `:output_lease` it holds for the output, released when the entry is stored
-  or abandoned.
+  or abandoned, and the optional `:spool_path` where output the client hasn't
+  read yet goes past the session's memory window.
   """
   @spec stream(build_fun(), Key.t() | nil, keyword(), keyword()) ::
           {:ok, PreparedStream.t()} | {:error, term()}

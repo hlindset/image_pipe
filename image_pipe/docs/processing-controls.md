@@ -136,8 +136,14 @@ BlurHash, and LQIP placeholders, whether a request or a call to
 ## Deadlines
 
 The `processing_timeout` starts when a request gets its turn, and covers
-reading the original, processing, and sending the last byte of the response.
-A client that reads the response slowly uses up the deadline too.
+reading the original, processing, and encoding the response. The turn ends
+when the encode does, even if the client is still downloading. Up to 4 MB of
+the response that the client hasn't read yet waits in memory, and the rest in
+a temporary file in the directory that
+[downloaded originals](cache.md#downloaded-originals) use. When that
+directory isn't private to ImagePipe's user, or a write to the file fails, a
+slow client keeps the turn once 4 MB are waiting, and its download counts
+toward the deadline.
 
 When the deadline passes before the response starts, the request gets a
 `503`. When the response has already started, ImagePipe cuts it short, as

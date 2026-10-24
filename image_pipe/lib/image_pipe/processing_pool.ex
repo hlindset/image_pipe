@@ -48,7 +48,9 @@ defmodule ImagePipe.ProcessingPool do
               default: 30_000,
               doc: """
               Request deadline once processing starts, in milliseconds, from reading \
-              the original to sending the last byte. A request that takes longer \
+              the original to encoding the last byte. Without a usable spool \
+              directory, it also covers sending all but the last 4 MB to a slow \
+              client. A request that takes longer \
               fails with `{:processing, :timeout}`. Its worker keeps the slot until \
               the current operation and cleanup finish.
               """

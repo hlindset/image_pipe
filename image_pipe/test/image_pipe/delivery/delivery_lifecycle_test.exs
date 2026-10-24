@@ -63,11 +63,14 @@ defmodule ImagePipe.Delivery.DeliveryLifecycleTest do
     end
   end
 
+  # The large chunk fills the session's memory buffer, so the encode stays
+  # suspended after it until the client reads.
   defp cleanup_stream do
     Stream.resource(
       fn -> :first end,
       fn
-        :first -> {["first chunk"], :second}
+        :first -> {["first chunk"], :large}
+        :large -> {[:binary.copy("x", 4 * 1024 * 1024 + 1)], :second}
         :second -> {["second chunk"], :done}
         :done -> {:halt, :done}
       end,

@@ -23,7 +23,17 @@ defmodule ImagePipe.Execution do
   alias ImagePipe.Cache
   alias ImagePipe.Debug.Timing
   alias ImagePipe.Delivery
-  alias ImagePipe.Execution.{Acquisition, Context, Identity, Output, SourceCache, Watermarks}
+
+  alias ImagePipe.Execution.{
+    Acquisition,
+    Context,
+    Identity,
+    Output,
+    SourceCache,
+    Staging,
+    Watermarks
+  }
+
   alias ImagePipe.Output.Resolved
   alias ImagePipe.Processing
   alias ImagePipe.Processing.DebugBuilder
@@ -504,6 +514,17 @@ defmodule ImagePipe.Execution do
 
   defp continuation(config, _acquisition), do: config
 
+  # Where the stream spools output a slow client hasn't read yet. Without a
+  # private staging directory, it keeps pace with the client instead.
+  defp spool_path do
+    dir = Staging.dir()
+
+    case Staging.private_dir(dir) do
+      :ok -> Staging.temporary_path(dir)
+      :error -> nil
+    end
+  end
+
   # An overlapped preparation that failed answers with its error, without
   # waiting for another processing slot.
   defp generate(%Context{acquisition: %{processing: {:error, _reason} = error}}, _, _, _),
@@ -528,6 +549,8 @@ defmodule ImagePipe.Execution do
         result ->
           Processing.resume_fun(result, context.acquisition.source_bytes, config)
       end
+
+    session = Keyword.put(session, :spool_path, spool_path())
 
     with {:ok, stream} <-
            Delivery.stream(build, key, continuation(config, context.acquisition), session) do
