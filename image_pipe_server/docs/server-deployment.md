@@ -425,18 +425,32 @@ up, which sets how many threads libvips uses for each image. Set
 
 ## Memory allocator
 
-The Docker image runs the server with the jemalloc memory allocator, set
-with `MALLOC_CONF=background_thread:true` so it returns memory that image
-processing frees, even while the server is idle. glibc's default allocator
-keeps much of it. After a burst of requests, most of the memory the burst
-used goes back to the system within about 15 seconds. If you set
-`MALLOC_CONF` yourself, it replaces this value, so include
-`background_thread:true` in it. Set `IMAGE_PIPE_ALLOCATOR=glibc` to use glibc
-instead. The server also
-uses glibc when jemalloc can't load on the host, and logs a line saying so.
-With glibc, the server sets
-`MALLOC_ARENA_MAX=2`, which limits how much freed memory glibc keeps, unless
-you set it yourself.
+The Docker image runs the server with the jemalloc memory allocator, which
+returns memory that image processing frees, even while the server is idle.
+glibc's default allocator keeps much of it. After a burst of requests, most of
+the memory the burst used goes back to the system within about 15 seconds.
+
+The server sets
+`MALLOC_CONF=background_thread:true,narenas:N,dirty_decay_ms:1000`, where `N`
+is the container's CPU limit, rounded up, or the number of CPUs without a
+limit. With these settings, jemalloc uses one arena per CPU, and its
+background thread returns freed memory within about a second. If you set `MALLOC_CONF` yourself, it replaces this whole value, so
+start from it and keep `background_thread:true`.
+
+Set `IMAGE_PIPE_ALLOCATOR=glibc` to use glibc instead. The server also uses
+glibc when jemalloc can't load on the host, and logs a line saying so. With
+glibc, the server sets `MALLOC_ARENA_MAX=2`, which limits how much freed
+memory glibc keeps, unless you set it yourself.
+
+## Process limit
+
+The server runs at most 262,144 Erlang processes: one for each open
+connection, and a few for each request in progress. To change the limit, for
+example when
+[`max_connections`](server-configuration.md#server) approaches it, pass the
+VM flag `+P N` in the
+[`ERL_ZFLAGS`](https://www.erlang.org/doc/apps/erts/erl_cmd.html#environment-variables)
+environment variable, such as `ERL_ZFLAGS="+P 1048576"`.
 
 ## Code loading
 

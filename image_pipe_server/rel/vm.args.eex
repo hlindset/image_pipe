@@ -13,3 +13,7 @@
 ## lazy graph when it reads or frees it. ImagePipe bounds that depth, and 8 MB
 ## stacks (default 320 KB) leave room for anything it misses.
 +sssdcpu 1024
+## The VM allocates its process table for the process limit at startup: about
+## 14 MiB for the default 1,048,576. The server runs one process per open
+## connection and a few per request, far fewer than 262,144.
++P 262144

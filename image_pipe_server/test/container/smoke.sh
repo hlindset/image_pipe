@@ -3,8 +3,8 @@
 # checks the health checks, each output format, a JPEG XL source (which needs
 # the libvips the image builds from source), an SVG source (which needs the
 # image_pipe_svg NIF), the cache stats (which read disk space with df),
-# draining on shutdown, and the start script's port, CPU, and allocator
-# settings.
+# draining on shutdown, the start script's port, CPU, and allocator settings,
+# and the VM's process limit.
 #
 #     test/container/smoke.sh IMAGE [vision]
 #
@@ -133,14 +133,23 @@ beam_env() {
 }
 
 # The server runs on jemalloc, whose background thread returns memory while
-# the server is idle.
+# the server is idle. Without a CPU limit it gets one arena per core.
 beam_env=$(beam_env "$name")
-for expected in LD_PRELOAD=/usr/local/lib/libjemalloc.so.2 MALLOC_CONF=background_thread:true; do
+cores=$(docker exec "$name" nproc)
+for expected in LD_PRELOAD=/usr/local/lib/libjemalloc.so.2 \
+  "MALLOC_CONF=background_thread:true,narenas:$cores,dirty_decay_ms:1000"; do
   printf '%s\n' "$beam_env" | grep -qx "$expected" || {
     echo "allocator: the server's environment lacks $expected" >&2
     exit 1
   }
 done
+
+# Under a CPU limit, jemalloc gets one arena per CPU of the limit, rounded up.
+malloc_conf=$(docker run --rm --cpus 1.5 --entrypoint sh "$image" -c '. /app/releases/*/env.sh && echo "$MALLOC_CONF"')
+[ "$malloc_conf" = "background_thread:true,narenas:2,dirty_decay_ms:1000" ] || {
+  echo "allocator: under a 1.5-CPU limit, MALLOC_CONF is $malloc_conf" >&2
+  exit 1
+}
 
 # On SIGTERM the server reports not ready but keeps serving for the
 # configured shutdown_delay (15 s), and Docker sees the container turn
@@ -237,6 +246,13 @@ done
 [ "$rpc" = "pong" ] || {
   echo "distribution: rpc from inside the container failed" >&2
   docker logs "$name-dist" >&2 || true
+  exit 1
+}
+
+# vm.args lowers the process limit from the VM's default of 1,048,576.
+limit=$(docker exec "$name-dist" bin/image_pipe_server rpc 'IO.puts(:erlang.system_info(:process_limit))')
+[ "$limit" = 262144 ] || {
+  echo "process limit: expected 262144, got $limit" >&2
   exit 1
 }
 

@@ -5,6 +5,18 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- The Docker image gives jemalloc one arena per CPU, counting the container's
+  CPU limit, and returns freed memory within about one second instead of ten. A
+  burst of large images at four CPUs peaked at about 700 MiB instead of
+  1.4 GiB, with the same throughput, and the server held about 130 MiB
+  afterwards instead of 215 MiB. A `MALLOC_CONF` you set still replaces these
+  settings. See [memory allocator](docs/server-deployment.md#memory-allocator).
+- The server allows 262,144 Erlang processes instead of 1,048,576, which
+  saves about 10 MiB at startup. Set `ERL_ZFLAGS="+P N"` to raise it. See
+  [process limit](docs/server-deployment.md#process-limit).
+
 ## [0.4.0] - 2026-10-23
 
 ### Added
