@@ -33,7 +33,8 @@ defmodule ImagePipe.Transform.InputColorManagement do
      output step without setting `color_imported?`.
   4. For other input with an importable ICC profile, saves the profile bytes on
      `State`, imports to PCS float, and sets `color_imported?`.
-  5. Converts to the working space, including when no profile was imported.
+  5. Converts to the working space, including when no profile was imported,
+     and drops any profile left on the converted image.
 
   Preserves dimensions, `source_dimensions`, and `decode_shrink`. Returns a
   failure to buffer the source as `Materializer` classifies it, and other
@@ -108,7 +109,13 @@ defmodule ImagePipe.Transform.InputColorManagement do
          }}
       end
     else
-      with {:ok, image} <- to_colorspace(image, target) do
+      # libvips converts profile-less CMYK through its fallback profile and
+      # leaves that profile on the sRGB result, where it no longer describes
+      # the pixels.
+      with {:ok, image} <- to_colorspace(image, target),
+           {:ok, %State{image: image} = state} <-
+             materialize_tagged(State.set_image(state, image)),
+           {:ok, image} <- remove_profile(image) do
         {:ok, State.set_image(state, image)}
       end
     end
