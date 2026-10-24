@@ -160,7 +160,7 @@ defmodule ImagePipe.Delivery.Coordinator do
 
     case take(state) do
       {:ok, chunk, state} -> {:reply, {:chunk, chunk}, pull(state)}
-      {:error, reason} -> {:stop, :normal, {:error, {:session, {:spool, reason}}}, state}
+      {:error, reason} -> spool_failed(state, reason)
       :empty when state.encoded? -> {:stop, :normal, :done, %{state | phase: :done}}
       :empty -> {:noreply, pull(%{state | pending: {:next, from}})}
     end
@@ -526,6 +526,14 @@ defmodule ImagePipe.Delivery.Coordinator do
       :eof ->
         {:error, :truncated}
     end
+  end
+
+  # A spool that can't be read back ends the response. An encode still
+  # running stops, and its partial entry is dropped.
+  defp spool_failed(state, reason) do
+    state = cleanup_shutdown(state, :stream_error)
+    Cache.OutputWork.complete(state.output_lease, :bypass)
+    {:stop, :normal, {:error, {:session, {:spool, reason}}}, mark_failed(state)}
   end
 
   defp spool_fd({:read_only, fd}), do: fd

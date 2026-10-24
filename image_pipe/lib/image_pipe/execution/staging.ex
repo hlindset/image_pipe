@@ -12,6 +12,7 @@ defmodule ImagePipe.Execution.Staging do
   require Logger
 
   @grace_ms 3_600_000
+  @recheck_ms 10_000
   @staged ~r/\A\.image-pipe-[A-Za-z0-9_-]+\.tmp\z/
 
   # Staged originals live in their own directory, so the sweep lists only
@@ -25,7 +26,8 @@ defmodule ImagePipe.Execution.Staging do
   if needed. Returns `:error` for a symlink, a file, or another user's
   directory, which on a shared tmp directory could expose or replace staged
   originals, and logs a warning the first time. A directory found private
-  once stays so for the VM's lifetime.
+  once stays so for the VM's lifetime. A refused one is checked again at
+  most every 10 seconds.
   """
   @spec private_dir(Path.t()) :: :ok | :error
   def private_dir(dir) do
@@ -33,8 +35,17 @@ defmodule ImagePipe.Execution.Staging do
 
     case :persistent_term.get(key, false) do
       true -> :ok
-      found -> check_private(key, dir, found)
+      {:refused, at} -> recheck(key, dir, at)
+      false -> check_private(key, dir, false)
     end
+  end
+
+  # Every processed image asks for the directory, so a refused one is checked
+  # again at most every `@recheck_ms`.
+  defp recheck(key, dir, at) do
+    if System.monotonic_time(:millisecond) - at < @recheck_ms,
+      do: :error,
+      else: check_private(key, dir, :refused)
   end
 
   defp check_private(key, dir, found) do
@@ -45,10 +56,13 @@ defmodule ImagePipe.Execution.Staging do
   end
 
   # Only the first refusal of a directory is logged.
-  defp refuse(_key, _dir, :refused), do: :error
+  defp refuse(key, _dir, :refused) do
+    :persistent_term.put(key, {:refused, System.monotonic_time(:millisecond)})
+    :error
+  end
 
   defp refuse(key, dir, false) do
-    :persistent_term.put(key, :refused)
+    :persistent_term.put(key, {:refused, System.monotonic_time(:millisecond)})
 
     Logger.warning(
       "image_pipe cache: can't stage originals in #{dir}, which must be a directory " <>

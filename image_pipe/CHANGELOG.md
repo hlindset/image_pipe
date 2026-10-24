@@ -36,8 +36,9 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   [slow clients](docs/deployment.md#slow-clients)). Before, a few slow
   clients downloading large images could hold every turn, so other requests
   got `503`, and identical requests waited for the slowest client.
-  `processing_timeout` no longer counts the client's download, so a slow
-  download of a large image is no longer cut short at the deadline.
+  When the system temporary directory is private to ImagePipe's user and
+  has room, `processing_timeout` no longer counts the client's download, so
+  a slow download of a large image is no longer cut short at the deadline.
 - On a CMYK source without a usable embedded ICC profile, colors from the
   request, such as `bg`, `colorize` and `duotone`, come out as requested.
   Before, `pad=5/bg=00ff00` painted `(192, 208, 11)` instead of

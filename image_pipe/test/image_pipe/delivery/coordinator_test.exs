@@ -159,14 +159,20 @@ defmodule ImagePipe.Delivery.CoordinatorTest do
     owner =
       Task.Supervisor.async_nolink(context.tasks, fn ->
         build = fn pump -> pump.(["one", "two"], "image/jpeg", resolved(), nil) end
-        {:ok, _stream} = Delivery.stream(build, key, config)
-        send(test, :prepared)
+
+        {:ok, coordinator} =
+          Coordinator.start(build, self(), key, [], RequestContext.capture(), config)
+
+        {:ok, _prepared} = Coordinator.prepare(coordinator)
+        send(test, {:prepared, coordinator})
         receive do: (:finish -> :ok)
       end)
 
-    assert_receive :prepared
+    assert_receive {:prepared, coordinator}
     assert_receive {:cache_put, ^hash, "onetwo"}
+    ref = Process.monitor(coordinator)
     Task.shutdown(owner, :brutal_kill)
+    assert_receive {:DOWN, ^ref, :process, ^coordinator, _reason}
     refute_received {:cache_abort, ^hash}
     assert CacheObserver.stored_body(config, hash) == "onetwo"
   end

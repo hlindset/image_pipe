@@ -214,15 +214,17 @@ as well.
 
 ImagePipe streams each image as it is encoded, and frees the request's
 processing slot when the encode ends. The part of the response that a client
-hasn't read yet waits in memory, up to 4 MB per request, and the rest in a
-file in the system temporary directory until the client has read it (see
+hasn't read yet waits in memory, up to 4 MB per request, and anything beyond
+that in a file in the system temporary directory, kept until the download
+ends (see
 [deadlines](processing-controls.md#deadlines)). Give that directory room for
 the largest responses your slow clients read at the same time. When it is a
 `tmpfs`, those files use memory.
 
-When the temporary directory isn't private to ImagePipe's user, or is full,
-a slow client keeps its processing slot until 4 MB or less of its response is
-left to send, and that time counts toward `processing_timeout`.
+When the temporary directory isn't private to ImagePipe's user, or a write to
+it fails, the encode pauses whenever 4 MB of a slow client's response is
+waiting. The client then holds its processing slot until the encode ends, and
+that waiting counts toward `processing_timeout`.
 [Downloaded originals](cache.md#downloaded-originals) covers setting
 `TMPDIR`.
 
