@@ -1,0 +1,122 @@
+diff --git a/image_pipe/lib/image_pipe/cache/output_work.ex b/image_pipe/lib/image_pipe/cache/output_work.ex
+index 572423b..fb6c065 100644
+--- a/image_pipe/lib/image_pipe/cache/output_work.ex
++++ b/image_pipe/lib/image_pipe/cache/output_work.ex
+@@ -91,7 +91,8 @@ defmodule ImagePipe.Cache.OutputWork do
+       not lead? and not Map.has_key?(state.flights, key) ->
+         {:reply, :none, state}
+ 
+-      not Map.has_key?(state.flights, key) and map_size(state.flights) >= @max_flights ->
++      not Map.has_key?(state.flights, key) and
++          map_size(state.flights) >= :persistent_term.get(:ip_max_flights, @max_flights) ->
+         {:reply, :busy, state}
+ 
+       map_size(state.members) - map_size(state.flights) >= @max_waiters ->
+diff --git a/image_pipe/lib/image_pipe/delivery/coordinator.ex b/image_pipe/lib/image_pipe/delivery/coordinator.ex
+index 24e38e5..cf959af 100644
+--- a/image_pipe/lib/image_pipe/delivery/coordinator.ex
++++ b/image_pipe/lib/image_pipe/delivery/coordinator.ex
+@@ -42,7 +42,10 @@ defmodule ImagePipe.Delivery.Coordinator do
+     :cache_sink,
+     :fetch_started_at,
+     :failure,
+-    phase: :new
++    phase: :new,
++    prefetch?: false,
++    buffer: {[], []},
++    producer_done: false
+   ]
+ 
+   @type server() :: GenServer.server()
+@@ -103,7 +106,8 @@ defmodule ImagePipe.Delivery.Coordinator do
+        cache_key: cache_key,
+        output_lease: output_lease,
+        request_context: request_context,
+-       config: config
++       config: config,
++       prefetch?: :persistent_term.get(:ip_prefetch, false)
+      }}
+   end
+ 
+@@ -133,6 +137,20 @@ defmodule ImagePipe.Delivery.Coordinator do
+      }}
+   end
+ 
++  def handle_call(:next, from, %{prefetch?: true, pending: nil, phase: phase} = state)
++      when phase in [:prepared, :streaming] do
++    case :queue.out(state.buffer) do
++      {{:value, chunk}, buffer} ->
++        {:reply, {:chunk, chunk}, %{state | buffer: buffer, phase: :streaming}}
++
++      {:empty, _} ->
++        case state.producer_done do
++          true -> {:stop, :normal, :done, %{state | phase: :done}}
++          false -> {:noreply, %{state | phase: :streaming, pending: {:next, from}}}
++        end
++    end
++  end
++
+   def handle_call(:next, from, %{phase: phase, producer: producer, pending: nil} = state)
+       when phase in [:prepared, :streaming] and is_pid(producer) do
+     ref = Producer.request_next(producer, self())
+@@ -208,6 +226,42 @@ defmodule ImagePipe.Delivery.Coordinator do
+     end
+   end
+ 
++  def handle_info({ref, {:ok, {:chunk, chunk}}}, %{producer_request_ref: ref, prefetch?: true} = state)
++      when is_reference(ref) do
++    with_owner_check(state, fn state ->
++      cache_sink = Cache.write_chunk(state.cache_sink, chunk, state.config)
++      if state.cache_sink, do: release_unstored(cache_sink, state)
++      next_ref = Producer.request_next(state.producer, self())
++      state = %{state | cache_sink: cache_sink, producer_request_ref: next_ref}
++
++      case state.pending do
++        {:next, from} ->
++          GenServer.reply(from, {:chunk, chunk})
++          {:noreply, %{state | pending: nil}}
++
++        nil ->
++          {:noreply, %{state | buffer: :queue.in(chunk, state.buffer)}}
++      end
++    end)
++  end
++
++  def handle_info({ref, {:ok, :done}}, %{producer_request_ref: ref, prefetch?: true} = state)
++      when is_reference(ref) do
++    with_owner_check(state, fn state ->
++      Cache.commit_sink(state.cache_sink, state.config, state.output_lease)
++      state = %{clear_producer(state) | cache_sink: nil, producer_done: true}
++
++      case state.pending do
++        {:next, from} ->
++          GenServer.reply(from, :done)
++          {:stop, :normal, %{state | pending: nil, phase: :done}}
++
++        nil ->
++          {:noreply, state}
++      end
++    end)
++  end
++
+   def handle_info({ref, result}, %{producer_request_ref: ref} = state) when is_reference(ref) do
+     handle_producer_result(result, %{state | producer_request_ref: nil})
+   end
+@@ -331,12 +385,16 @@ defmodule ImagePipe.Delivery.Coordinator do
+          }}
+       )
+ 
++      producer_ref =
++        if state.prefetch?, do: Producer.request_next(state.producer, self()), else: nil
++
+       {:noreply,
+        %{
+          state
+          | pending: nil,
+            phase: :prepared,
+-           cache_sink: cache_sink
++           cache_sink: cache_sink,
++           producer_request_ref: producer_ref
+        }}
+     end)
+   end

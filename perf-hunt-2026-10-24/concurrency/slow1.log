@@ -1,0 +1,116 @@
+
+11:37:51.610 [info] The function passed as a handler with ID :enc is a local function.
+This means that it is either an anonymous function or a capture of a function without a module specified. That may cause a performance penalty when calling that handler. For more details see the note in `telemetry:attach/4` documentation.
+
+https://hexdocs.pm/telemetry/telemetry.html#attach/4
+
+11:37:51.655 [warning] ImagePipe instance SlowClient.Images serves unsigned URLs (allow_unsigned: true). Keep its mounts on a private network, and sign URLs (:keys) for public traffic.
+
+11:37:51.665 [info] cache: claimed cache root /tmp/slowcli-4418 as host "vm"
+
+11:37:51.701 [info] Running ImagePipe.Plug with Bandit 1.13.1 at 127.0.0.1:42591 (http)
+warm: %{bytes: 5158, ms: 321, ttfb: 321}
+
+11:38:22.720 [error] prepared_stream_error: {:processing, :timeout}
+
+11:38:22.725 [error] ** (ImagePipe.Plug.StreamAbortedError) image response failed after its headers were sent
+    (image_pipe 0.4.0) lib/image_pipe/plug/runner.ex:76: ImagePipe.Plug.Runner.raise_abort/2
+    (bandit 1.13.1) lib/bandit/pipeline.ex:168: Bandit.Pipeline.call_plug!/2
+    (bandit 1.13.1) lib/bandit/pipeline.ex:43: Bandit.Pipeline.run/5
+    (bandit 1.13.1) lib/bandit/http1/handler.ex:23: Bandit.HTTP1.Handler.handle_data/3
+    (bandit 1.13.1) lib/bandit/delegating_handler.ex:18: Bandit.DelegatingHandler.handle_data/3
+    (thousand_island 1.6.0) lib/thousand_island/handler.ex:636: ThousandIsland.Handler.invoke_callback/2
+    (bandit 1.13.1) lib/bandit/delegating_handler.ex:8: Bandit.DelegatingHandler.handle_continue/2
+    (stdlib 8.1) gen_server.erl:2424: :gen_server.try_handle_continue/3
+
+A: %{
+  prefetch: false,
+  fast_ms: [10007, 10010, 10012, 10007],
+  slow_ms: [33672, 34979],
+  slow_mb: [21.4, 22.0],
+  pool_active_samples: [2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2]
+}
+
+11:38:57.418 [error] prepared_stream_error: {:processing, :timeout}
+
+11:38:57.421 [error] ** (ImagePipe.Plug.StreamAbortedError) image response failed after its headers were sent
+    (image_pipe 0.4.0) lib/image_pipe/plug/runner.ex:76: ImagePipe.Plug.Runner.raise_abort/2
+    (bandit 1.13.1) lib/bandit/pipeline.ex:168: Bandit.Pipeline.call_plug!/2
+    (bandit 1.13.1) lib/bandit/pipeline.ex:43: Bandit.Pipeline.run/5
+    (bandit 1.13.1) lib/bandit/http1/handler.ex:23: Bandit.HTTP1.Handler.handle_data/3
+    (bandit 1.13.1) lib/bandit/delegating_handler.ex:18: Bandit.DelegatingHandler.handle_data/3
+    (thousand_island 1.6.0) lib/thousand_island/handler.ex:636: ThousandIsland.Handler.invoke_callback/2
+    (bandit 1.13.1) lib/bandit/delegating_handler.ex:8: Bandit.DelegatingHandler.handle_continue/2
+    (stdlib 8.1) gen_server.erl:2424: :gen_server.try_handle_continue/3
+
+B: %{
+  prefetch: false,
+  encodes: 7,
+  leader_ms: 35146,
+  follower_ms: [31600, 33431, 35679, 33759, 31576, 35414]
+}
+A: %{
+  prefetch: true,
+  fast_ms: [399, 524, 334, 399],
+  slow_ms: [34223, 49284],
+  slow_mb: [21.4, 30.8],
+  pool_active_samples: [1, 2, 2, 2, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+}
+B: %{
+  prefetch: true,
+  encodes: 1,
+  leader_ms: 36060,
+  follower_ms: [860, 865, 869, 855, 863, 860]
+}
+
+11:40:58.837 [error] prepared_stream_error: {:processing, :timeout}
+
+11:40:58.838 [error] ** (ImagePipe.Plug.StreamAbortedError) image response failed after its headers were sent
+    (image_pipe 0.4.0) lib/image_pipe/plug/runner.ex:76: ImagePipe.Plug.Runner.raise_abort/2
+    (bandit 1.13.1) lib/bandit/pipeline.ex:168: Bandit.Pipeline.call_plug!/2
+    (bandit 1.13.1) lib/bandit/pipeline.ex:43: Bandit.Pipeline.run/5
+    (bandit 1.13.1) lib/bandit/http1/handler.ex:23: Bandit.HTTP1.Handler.handle_data/3
+    (bandit 1.13.1) lib/bandit/delegating_handler.ex:18: Bandit.DelegatingHandler.handle_data/3
+    (thousand_island 1.6.0) lib/thousand_island/handler.ex:636: ThousandIsland.Handler.invoke_callback/2
+    (bandit 1.13.1) lib/bandit/delegating_handler.ex:8: Bandit.DelegatingHandler.handle_continue/2
+    (stdlib 8.1) gen_server.erl:2424: :gen_server.try_handle_continue/3
+
+A: %{
+  prefetch: false,
+  fast_ms: [10003, 10004, 10004, 10004],
+  slow_ms: [33776, 34895],
+  slow_mb: [21.4, 22.0],
+  pool_active_samples: [2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2]
+}
+
+11:41:33.371 [error] prepared_stream_error: {:processing, :timeout}
+
+11:41:33.372 [error] ** (ImagePipe.Plug.StreamAbortedError) image response failed after its headers were sent
+    (image_pipe 0.4.0) lib/image_pipe/plug/runner.ex:76: ImagePipe.Plug.Runner.raise_abort/2
+    (bandit 1.13.1) lib/bandit/pipeline.ex:168: Bandit.Pipeline.call_plug!/2
+    (bandit 1.13.1) lib/bandit/pipeline.ex:43: Bandit.Pipeline.run/5
+    (bandit 1.13.1) lib/bandit/http1/handler.ex:23: Bandit.HTTP1.Handler.handle_data/3
+    (bandit 1.13.1) lib/bandit/delegating_handler.ex:18: Bandit.DelegatingHandler.handle_data/3
+    (thousand_island 1.6.0) lib/thousand_island/handler.ex:636: ThousandIsland.Handler.invoke_callback/2
+    (bandit 1.13.1) lib/bandit/delegating_handler.ex:8: Bandit.DelegatingHandler.handle_continue/2
+    (stdlib 8.1) gen_server.erl:2424: :gen_server.try_handle_continue/3
+
+B: %{
+  prefetch: false,
+  encodes: 7,
+  leader_ms: 34501,
+  follower_ms: [30884, 32156, 30923, 33315, 32168, 33314]
+}
+A: %{
+  prefetch: true,
+  fast_ms: [89, 219, 282, 11],
+  slow_ms: [33761, 48619],
+  slow_mb: [21.4, 30.8],
+  pool_active_samples: [0, 2, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+}
+B: %{
+  prefetch: true,
+  encodes: 1,
+  leader_ms: 35981,
+  follower_ms: [870, 874, 867, 873, 885, 869]
+}
