@@ -1,0 +1,16 @@
+Code.require_file("h.exs", __DIR__)
+alias Vix.Vips.Operation, as: O
+img = H.noise(37, 53)
+{:ok, img} = Vix.Vips.Image.copy_memory(img)
+s = 20/37
+{:ok, a} = O.resize(img, s, vscale: 29/53)
+{:ok, a} = O.rot(a, :VIPS_ANGLE_D90)
+{:ok, r} = O.rot(img, :VIPS_ANGLE_D90)
+{:ok, b} = O.resize(r, 29/53, vscale: s)
+IO.inspect({Image.width(a), Image.height(a), Image.width(b), Image.height(b)})
+IO.inspect(H.maxdiff(a, b), label: "rot90 commute diff")
+{:ok, f} = O.flip(img, :VIPS_DIRECTION_HORIZONTAL)
+{:ok, c} = O.resize(f, s, vscale: 29/53)
+{:ok, a2} = O.resize(img, s, vscale: 29/53)
+{:ok, a2} = O.flip(a2, :VIPS_DIRECTION_HORIZONTAL)
+IO.inspect(H.maxdiff(a2, c), label: "flip commute diff")

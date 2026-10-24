@@ -1,0 +1,5 @@
+d = Path.join(__DIR__, "src")
+{:ok, img} = Image.open(Path.join(d, "cmyk.tif"))
+:ok = Vix.Vips.Image.write_to_file(img, Path.join(d, "cmyk_noicc.jpg"))
+{:ok, j} = Image.open(Path.join(d, "cmyk_noicc.jpg"))
+IO.inspect({Vix.Vips.Image.interpretation(j), Image.bands(j), Vix.Vips.Image.header_value(j, "icc-profile-data") |> elem(0)})

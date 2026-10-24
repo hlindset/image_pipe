@@ -1,0 +1,157 @@
+Vix.Nif.nif_foreign_find_load_buffer <bin 6254>
+Vix.Nif.nif_vips_operation_get_arguments "VipsForeignLoadTiffBuffer"
+Vix.Nif.nif_vips_blob <bin 6254>
+Vix.Nif.nif_vips_operation_call "VipsForeignLoadTiffBuffer", [{"access", 1}, ...]
+Vix.Vips.Image.header_value %Vix.Vips.Image{ref: #Reference<0.2326143948.1202847761.1559, "n-pages"
+Vix.Nif.nif_image_get_header #Reference<0.2326143948.1202847761.155949>, "n-pages"
+Vix.Vips.Image.header_value %Vix.Vips.Image{ref: #Reference<0.2326143948.1202847761.1559, "vips-loader"
+Vix.Nif.nif_image_get_header #Reference<0.2326143948.1202847761.155949>, "vips-loader"
+Vix.Nif.nif_vips_ref_string_to_erl_binary #Reference<0.2326143948.1202847746.157040>
+Vix.Vips.Image.header_value %Vix.Vips.Image{ref: #Reference<0.2326143948.1202847761.1559, "width"
+Vix.Nif.nif_image_get_header #Reference<0.2326143948.1202847761.155949>, "width"
+Vix.Vips.Image.header_value %Vix.Vips.Image{ref: #Reference<0.2326143948.1202847761.1559, "height"
+Vix.Nif.nif_image_get_header #Reference<0.2326143948.1202847761.155949>, "height"
+Vix.Vips.Image.header_value %Vix.Vips.Image{ref: #Reference<0.2326143948.1202847761.1559, "orientation"
+Vix.Nif.nif_image_get_header #Reference<0.2326143948.1202847761.155949>, "orientation"
+Vix.Vips.Image.header_value %Vix.Vips.Image{ref: #Reference<0.2326143948.1202847761.1559, "interpretation"
+Vix.Nif.nif_image_get_header #Reference<0.2326143948.1202847761.155949>, "interpretation"
+Vix.Vips.Image.header_value %Vix.Vips.Image{ref: #Reference<0.2326143948.1202847761.1559, "icc-profile-data"
+Vix.Nif.nif_image_get_header #Reference<0.2326143948.1202847761.155949>, "icc-profile-data"
+Vix.Vips.Image.header_value %Vix.Vips.Image{ref: #Reference<0.2326143948.1202847761.1559, "interpretation"
+Vix.Nif.nif_image_get_header #Reference<0.2326143948.1202847761.155949>, "interpretation"
+Vix.Nif.nif_image_hasalpha #Reference<0.2326143948.1202847761.155949>
+Vix.Vips.Image.header_value %Vix.Vips.Image{ref: #Reference<0.2326143948.1202847761.1559, "orientation"
+Vix.Nif.nif_image_get_header #Reference<0.2326143948.1202847761.155949>, "orientation"
+Vix.Vips.Image.header_value %Vix.Vips.Image{ref: #Reference<0.2326143948.1202847761.1559, "jpeg-multiscan"
+Vix.Nif.nif_image_get_header #Reference<0.2326143948.1202847761.155949>, "jpeg-multiscan"
+Vix.Vips.Image.header_value %Vix.Vips.Image{ref: #Reference<0.2326143948.1202847761.1559, "width"
+Vix.Nif.nif_image_get_header #Reference<0.2326143948.1202847761.155949>, "width"
+Vix.Vips.Image.header_value %Vix.Vips.Image{ref: #Reference<0.2326143948.1202847761.1559, "height"
+Vix.Nif.nif_image_get_header #Reference<0.2326143948.1202847761.155949>, "height"
+Vix.Vips.Image.header_value %Vix.Vips.Image{ref: #Reference<0.2326143948.1202847761.1559, "width"
+Vix.Nif.nif_image_get_header #Reference<0.2326143948.1202847761.155949>, "width"
+Vix.Vips.Image.header_value %Vix.Vips.Image{ref: #Reference<0.2326143948.1202847761.1559, "height"
+Vix.Nif.nif_image_get_header #Reference<0.2326143948.1202847761.155949>, "height"
+Vix.Vips.Image.header_value %Vix.Vips.Image{ref: #Reference<0.2326143948.1202847761.1559, "interpretation"
+Vix.Nif.nif_image_get_header #Reference<0.2326143948.1202847761.155949>, "interpretation"
+Vix.Vips.Image.header_value %Vix.Vips.Image{ref: #Reference<0.2326143948.1202847761.1559, "icc-profile-data"
+Vix.Nif.nif_image_get_header #Reference<0.2326143948.1202847761.155949>, "icc-profile-data"
+Vix.Vips.Image.header_value %Vix.Vips.Image{ref: #Reference<0.2326143948.1202847761.1559, "interpretation"
+Vix.Nif.nif_image_get_header #Reference<0.2326143948.1202847761.155949>, "interpretation"
+Vix.Nif.nif_vips_operation_call "colourspace", [{"space", 22}, ...]
+Vix.Vips.Image.header_value %Vix.Vips.Image{ref: #Reference<0.2326143948.1202847761.1559, "width"
+Vix.Nif.nif_image_get_header #Reference<0.2326143948.1202847761.155958>, "width"
+Vix.Vips.Image.header_value %Vix.Vips.Image{ref: #Reference<0.2326143948.1202847761.1559, "height"
+Vix.Nif.nif_image_get_header #Reference<0.2326143948.1202847761.155958>, "height"
+Vix.Vips.Image.header_value %Vix.Vips.Image{ref: #Reference<0.2326143948.1202847761.1559, "width"
+Vix.Nif.nif_image_get_header #Reference<0.2326143948.1202847761.155958>, "width"
+Vix.Vips.Image.header_value %Vix.Vips.Image{ref: #Reference<0.2326143948.1202847761.1559, "height"
+Vix.Nif.nif_image_get_header #Reference<0.2326143948.1202847761.155958>, "height"
+Vix.Nif.nif_image_copy_memory #Reference<0.2326143948.1202847761.155958>
+Vix.Vips.Image.header_value %Vix.Vips.Image{ref: #Reference<0.2326143948.1202847759.1563, "vips-sequential"
+Vix.Nif.nif_image_get_header #Reference<0.2326143948.1202847759.156336>, "vips-sequential"
+Vix.Nif.nif_image_copy_memory #Reference<0.2326143948.1202847759.156336>
+Vix.Nif.nif_image_remove_metadata #Reference<0.2326143948.1202847761.155967>, "vips-sequential"
+Vix.Nif.nif_image_copy_memory #Reference<0.2326143948.1202847761.155967>
+Vix.Vips.Image.header_value %Vix.Vips.Image{ref: #Reference<0.2326143948.1202847759.1563, "width"
+Vix.Nif.nif_image_get_header #Reference<0.2326143948.1202847759.156337>, "width"
+Vix.Vips.Image.header_value %Vix.Vips.Image{ref: #Reference<0.2326143948.1202847759.1563, "height"
+Vix.Nif.nif_image_get_header #Reference<0.2326143948.1202847759.156337>, "height"
+Vix.Vips.Image.header_value %Vix.Vips.Image{ref: #Reference<0.2326143948.1202847759.1563, "width"
+Vix.Nif.nif_image_get_header #Reference<0.2326143948.1202847759.156337>, "width"
+Vix.Vips.Image.header_value %Vix.Vips.Image{ref: #Reference<0.2326143948.1202847759.1563, "height"
+Vix.Nif.nif_image_get_header #Reference<0.2326143948.1202847759.156337>, "height"
+Vix.Nif.nif_vips_operation_call "xyz", [{"height", 30}, ...]
+Vix.Nif.nif_double_array [-0.0, 0.034482758620689655]
+Vix.Nif.nif_double_array [0.0, 0.0]
+Vix.Nif.nif_vips_operation_call "linear", [{"b", #Reference<0.2326143948.1202847746.157106>}, ...]
+Vix.Nif.nif_vips_operation_call "extract_band", [{"n", 1}, ...]
+Vix.Nif.nif_vips_operation_call "extract_band", [{"n", 1}, ...]
+Vix.Nif.nif_vips_operation_call "add", [{"right", #Reference<0.2326143948.1202847759.156342>}, ...]
+Vix.Nif.nif_double_array [1.0]
+Vix.Nif.nif_double_array [-0.0]
+Vix.Nif.nif_vips_operation_call "linear", [{"b", #Reference<0.2326143948.1202847746.157108>}, ...]
+Vix.Nif.nif_double_array [1.0]
+Vix.Nif.nif_double_array [-0.0]
+Vix.Nif.nif_vips_operation_call "linear", [{"b", #Reference<0.2326143948.1202847746.157110>}, ...]
+Vix.Nif.nif_vips_operation_call "clamp", [{"in", #Reference<0.2326143948.1202847761.155971>}]
+Vix.Nif.nif_double_array [1.0]
+Vix.Nif.nif_double_array [0.0]
+Vix.Nif.nif_vips_operation_call "linear", [{"b", #Reference<0.2326143948.1202847746.157112>}, ...]
+Vix.Nif.nif_image_hasalpha #Reference<0.2326143948.1202847759.156337>
+Vix.Vips.Image.header_value %Vix.Vips.Image{ref: #Reference<0.2326143948.1202847759.1563, "format"
+Vix.Nif.nif_image_get_header #Reference<0.2326143948.1202847759.156337>, "format"
+Vix.Nif.nif_vips_operation_call "premultiply", [{"in", #Reference<0.2326143948.1202847759.156337>}]
+Vix.Nif.nif_double_array [8.0]
+Vix.Nif.nif_double_array [0.0]
+Vix.Nif.nif_vips_operation_call "linear", [{"b", #Reference<0.2326143948.1202847746.157118>}, ...]
+Vix.Nif.nif_vips_operation_call "abs", [{"in", #Reference<0.2326143948.1202847761.155976>}]
+Vix.Nif.nif_double_array [-1.0]
+Vix.Nif.nif_double_array [1.0]
+Vix.Nif.nif_vips_operation_call "linear", [{"b", #Reference<0.2326143948.1202847746.157120>}, ...]
+Vix.Nif.nif_vips_operation_call "clamp", [{"in", #Reference<0.2326143948.1202847756.156077>}]
+Vix.Nif.nif_vips_operation_call "multiply", [{"right", #Reference<0.2326143948.1202847756.156078>}, ...]
+Vix.Vips.Image.header_value %Vix.Vips.Image{ref: #Reference<0.2326143948.1202847761.1559, "format"
+Vix.Nif.nif_image_get_header #Reference<0.2326143948.1202847761.155975>, "format"
+Vix.Nif.nif_vips_operation_call "gaussblur", [{"precision", 1}, ...]
+Vix.Vips.Image.header_value %Vix.Vips.Image{ref: #Reference<0.2326143948.1202847759.1563, "format"
+Vix.Nif.nif_image_get_header #Reference<0.2326143948.1202847759.156343>, "format"
+Vix.Nif.nif_double_array [8.0]
+Vix.Nif.nif_double_array [-1.0]
+Vix.Nif.nif_vips_operation_call "linear", [{"b", #Reference<0.2326143948.1202847746.157133>}, ...]
+Vix.Nif.nif_vips_operation_call "abs", [{"in", #Reference<0.2326143948.1202847759.156344>}]
+Vix.Nif.nif_double_array [-1.0]
+Vix.Nif.nif_double_array [1.0]
+Vix.Nif.nif_vips_operation_call "linear", [{"b", #Reference<0.2326143948.1202847747.159709>}, ...]
+Vix.Nif.nif_vips_operation_call "clamp", [{"in", #Reference<0.2326143948.1202847759.156346>}]
+Vix.Nif.nif_vips_operation_call "multiply", [{"right", #Reference<0.2326143948.1202847759.156347>}, ...]
+Vix.Nif.nif_vips_operation_call "add", [{"right", #Reference<0.2326143948.1202847759.156348>}, ...]
+Vix.Nif.nif_double_array [0.0]
+Vix.Nif.nif_vips_operation_call "relational_const", [{"c", #Reference<0.2326143948.1202847747.159717>}, ...]
+Vix.Nif.nif_vips_operation_call "ifthenelse", [{"in2", #Reference<0.2326143948.1202847756.156079>}, ...]
+Vix.Vips.Image.header_value %Vix.Vips.Image{ref: #Reference<0.2326143948.1202847761.1559, "format"
+Vix.Nif.nif_image_get_header #Reference<0.2326143948.1202847761.155975>, "format"
+Vix.Nif.nif_vips_operation_call "gaussblur", [{"precision", 1}, ...]
+Vix.Vips.Image.header_value %Vix.Vips.Image{ref: #Reference<0.2326143948.1202847761.1559, "format"
+Vix.Nif.nif_image_get_header #Reference<0.2326143948.1202847761.155982>, "format"
+Vix.Nif.nif_double_array [8.0]
+Vix.Nif.nif_double_array [-2.0]
+Vix.Nif.nif_vips_operation_call "linear", [{"b", #Reference<0.2326143948.1202847747.159719>}, ...]
+Vix.Nif.nif_vips_operation_call "abs", [{"in", #Reference<0.2326143948.1202847761.155983>}]
+Vix.Nif.nif_double_array [-1.0]
+Vix.Nif.nif_double_array [1.0]
+Vix.Nif.nif_vips_operation_call "linear", [{"b", #Reference<0.2326143948.1202847747.159721>}, ...]
+Vix.Nif.nif_vips_operation_call "clamp", [{"in", #Reference<0.2326143948.1202847761.155985>}]
+Vix.Nif.nif_vips_operation_call "multiply", [{"right", #Reference<0.2326143948.1202847761.155986>}, ...]
+Vix.Nif.nif_vips_operation_call "add", [{"right", #Reference<0.2326143948.1202847759.156350>}, ...]
+Vix.Nif.nif_double_array [0.0]
+Vix.Nif.nif_vips_operation_call "relational_const", [{"c", #Reference<0.2326143948.1202847747.159722>}, ...]
+Vix.Nif.nif_vips_operation_call "ifthenelse", [{"in2", #Reference<0.2326143948.1202847761.155981>}, ...]
+Vix.Vips.Image.header_value %Vix.Vips.Image{ref: #Reference<0.2326143948.1202847761.1559, "format"
+Vix.Nif.nif_image_get_header #Reference<0.2326143948.1202847761.155975>, "format"
+Vix.Nif.nif_vips_operation_call "gaussblur", [{"precision", 1}, ...]
+Vix.Vips.Image.header_value %Vix.Vips.Image{ref: #Reference<0.2326143948.1202847759.1563, "format"
+Vix.Nif.nif_image_get_header #Reference<0.2326143948.1202847759.156353>, "format"
+Vix.Nif.nif_double_array [8.0]
+Vix.Nif.nif_double_array [-3.0]
+Vix.Nif.nif_vips_operation_call "linear", [{"b", #Reference<0.2326143948.1202847747.159724>}, ...]
+Vix.Nif.nif_vips_operation_call "abs", [{"in", #Reference<0.2326143948.1202847759.156354>}]
+Vix.Nif.nif_double_array [-1.0]
+Vix.Nif.nif_double_array [1.0]
+Vix.Nif.nif_vips_operation_call "linear", [{"b", #Reference<0.2326143948.1202847747.159726>}, ...]
+Vix.Nif.nif_vips_operation_call "clamp", [{"in", #Reference<0.2326143948.1202847761.155988>}]
+Vix.Nif.nif_vips_operation_call "multiply", [{"right", #Reference<0.2326143948.1202847761.155989>}, ...]
+Vix.Nif.nif_vips_operation_call "add", [{"right", #Reference<0.2326143948.1202847761.155990>}, ...]
+Vix.Nif.nif_double_array [0.0]
+Vix.Nif.nif_vips_operation_call "relational_const", [{"c", #Reference<0.2326143948.1202847747.159727>}, ...]
+Vix.Nif.nif_vips_operation_call "ifthenelse", [{"in2", #Reference<0.2326143948.1202847759.156352>}, ...]
+Vix.Vips.Image.header_value %Vix.Vips.Image{ref: #Reference<0.2326143948.1202847761.1559, "format"
+Vix.Nif.nif_image_get_header #Reference<0.2326143948.1202847761.155975>, "format"
+Vix.Nif.nif_vips_operation_call "gaussblur", [{"precision", 1}, ...]
+Vix.Vips.Image.header_value %Vix.Vips.Image{ref: #Reference<0.2326143948.1202847761.1559, "format"
+Vix.Nif.nif_image_get_header #Reference<0.2326143948.1202847761.155994>, "format"
+Vix.Nif.nif_double_array [8.0]
+Vix.Nif.nif_double_array [-4.0]
+Vix.Nif.nif_vips_operation_call "linear", [{"b", #Reference<0.2326143948.1202847747.159729>}, ...]
+Vix.Nif.nif_vips_operation_call "abs", [{"in", #Reference<0.2326143948.1202847761.155995>}]
+Vix.Nif.nif_double_array [-1.0]

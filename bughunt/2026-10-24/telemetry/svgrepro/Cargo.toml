@@ -1,0 +1,11 @@
+[package]
+name = "image_pipe_svg_nif"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+resvg = { version = "=0.48.1", default-features = false, features = ["text", "raster-images"] }
+imagesize = "0.15"
+
+[profile.release]
+debug = false
