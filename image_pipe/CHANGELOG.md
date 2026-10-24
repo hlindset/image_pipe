@@ -31,6 +31,9 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The tracer ends an `image_pipe.http.client` span with an error status
   when the HTTP request raises, such as when connecting crashes. Before,
   the span stayed open and the trace lacked it.
+- An HTTP or S3 source whose response declares a `Content-Length` over
+  `max_body_bytes` fails as soon as the headers arrive. Before, the body
+  kept arriving into memory until ImagePipe read past the limit.
 
 ## [0.4.0] - 2026-10-23
 

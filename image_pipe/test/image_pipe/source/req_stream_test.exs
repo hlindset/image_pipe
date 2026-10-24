@@ -17,6 +17,13 @@ defmodule ImagePipe.Source.ReqStreamTest do
     assert error.reason == :truncated_body
   end
 
+  test "a declared Content-Length over max_body_bytes fails before streaming" do
+    {_origin, url} = raw_origin("HTTP/1.1 200 OK\r\ncontent-length: 100\r\n\r\nshort")
+
+    assert ReqStream.open([url: url], max_body_bytes: 99) ==
+             {:error, {:source, :body_too_large}}
+  end
+
   test "an incomplete chunked response is a truncated body" do
     {_origin, url} =
       raw_origin("HTTP/1.1 200 OK\r\ntransfer-encoding: chunked\r\n\r\n5\r\nshort\r\n")
