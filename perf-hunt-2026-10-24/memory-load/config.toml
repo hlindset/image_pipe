@@ -1,0 +1,26 @@
+[server]
+port = 18181
+bind = "127.0.0.1"
+shutdown_delay = 0
+
+[url]
+allow_unsigned = true
+
+[sources.static]
+adapter = "file"
+match = "path"
+root = "/tmp/claude-0/-home-user-image-pipe/d9301eaf-e830-533b-9e40-eef149fee684/scratchpad/load/images"
+root_id = "static"
+
+[sources.origin]
+adapter = "http"
+match = { prefix = "origin" }
+base_url = "http://127.0.0.1:18282"
+address_policy = { allow_loopback = true }
+
+[cache.output]
+root = "/tmp/claude-0/-home-user-image-pipe/d9301eaf-e830-533b-9e40-eef149fee684/scratchpad/load/cache/output"
+max_size_bytes = 2_000_000_000
+
+[telemetry]
+log_requests = false

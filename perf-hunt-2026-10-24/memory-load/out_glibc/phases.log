@@ -1,0 +1,57 @@
+1792844829.165 idle 10
+1792844839.170 start mix 4 60
+mix c=4: n=729 rps=12.2 p50=251.368ms p99=2208.808ms statuses=%{200 => 729}
+1792844900.829 end mix 4 60
+1792844900.831 idle 30
+1792844930.835 gc
+procs=218 before: [total: 59.58, processes: 18.52, binary: 0.91, ets: 2.9]
+        after: [total: 56.62, processes: 15.63, binary: 0.84, ets: 2.9]
+  freed bin=0.0 heap=2.08 (had bin=0.0 mem=4.5 q=0) :code_server
+  freed bin=0.0 heap=0.44 (had bin=0.0 mem=0.44 q=0) {:application_master, :start_it, 4}
+  freed bin=0.0 heap=0.05 (had bin=0.0 mem=0.05 q=0) :"Elixir.ImagePipe.Cache.FileSystem.Writers.1d7a5cb557ba4929"
+  freed bin=0.0 heap=0.03 (had bin=0.0 mem=0.03 q=0) ImagePipeServer.ProcessingPool
+  freed bin=0.01 heap=0.02 (had bin=0.01 mem=0.03 q=0) {ImagePipe.Cache.FileSystem.Admission, :init, 1}
+  freed bin=0.0 heap=0.03 (had bin=0.0 mem=0.04 q=0) :init
+  freed bin=0.0 heap=0.03 (had bin=0.0 mem=0.03 q=0) :inet_gethost_native
+  freed bin=0.0 heap=0.03 (had bin=0.0 mem=0.03 q=0) :otel_batch_processor_global
+1792844931.718 start big 8 60
+big c=8: n=772 rps=12.9 p50=626.738ms p99=1143.281ms statuses=%{200 => 772}
+1792844993.045 end big 8 60
+1792844993.047 idle 30
+1792845023.053 gc
+procs=216 before: [total: 57.6, processes: 15.87, binary: 1.32, ets: 3.16]
+        after: [total: 56.29, processes: 14.57, binary: 1.31, ets: 3.16]
+  freed bin=0.0 heap=0.93 (had bin=0.0 mem=2.43 q=0) :code_server
+  freed bin=0.0 heap=0.08 (had bin=0.0 mem=0.22 q=0) :erl_prim_loader
+  freed bin=0.0 heap=0.06 (had bin=0.0 mem=0.07 q=0) ImagePipe.Cache.OutputWork
+  freed bin=0.0 heap=0.05 (had bin=0.0 mem=0.05 q=0) ImagePipeServer.ProcessingPool
+  freed bin=0.01 heap=0.03 (had bin=0.01 mem=0.03 q=0) {ImagePipe.Cache.FileSystem.Admission, :init, 1}
+  freed bin=0.0 heap=0.03 (had bin=0.0 mem=0.03 q=0) :"Elixir.ImagePipe.Cache.FileSystem.Writers.1d7a5cb557ba4929"
+  freed bin=0.0 heap=0.02 (had bin=0.0 mem=0.03 q=0) Vix.Nif.Janitor
+  freed bin=0.0 heap=0.02 (had bin=0.0 mem=0.03 q=0) :otel_batch_processor_global
+1792845023.911 start autoq 4 45
+autoq c=4: n=146 rps=3.2 p50=913.258ms p99=3873.25ms statuses=%{200 => 146}
+1792845070.522 end autoq 4 45
+1792845070.525 idle 30
+1792845100.530 start distinct 4 60
+distinct c=4: n=1664 rps=27.7 p50=107.073ms p99=444.335ms statuses=%{200 => 1664}
+1792845161.061 end distinct 4 60
+1792845161.063 start hits 16 30
+hits c=16: n=106275 rps=3542.5 p50=3.385ms p99=17.987ms statuses=%{200 => 106275}
+1792845191.479 end hits 16 30
+1792845191.482 start origin 8 40
+origin c=8: n=455 rps=11.4 p50=674.19ms p99=1472.367ms statuses=%{200 => 455}
+1792845232.449 end origin 8 40
+1792845232.451 idle 60
+1792845292.460 gc
+procs=218 before: [total: 58.36, processes: 14.94, binary: 1.99, ets: 4.18]
+        after: [total: 58.1, processes: 14.69, binary: 1.98, ets: 4.18]
+  freed bin=0.02 heap=0.13 (had bin=0.02 mem=0.14 q=0) {ImagePipe.Cache.FileSystem.Admission, :init, 1}
+  freed bin=0.0 heap=0.03 (had bin=0.0 mem=0.03 q=0) ImagePipeServer.ProcessingPool
+  freed bin=0.0 heap=0.03 (had bin=0.0 mem=0.03 q=0) ImagePipe.Source.HTTP.Pools
+  freed bin=0.0 heap=0.03 (had bin=0.0 mem=0.03 q=0) :"Elixir.ImagePipe.Cache.FileSystem.Writers.1d7a5cb557ba4929"
+  freed bin=0.0 heap=0.02 (had bin=0.0 mem=0.03 q=0) ImagePipe.Cache.Work
+  freed bin=0.0 heap=0.02 (had bin=0.0 mem=0.02 q=0) ImagePipe.Execution.Staging.Resources
+  freed bin=0.0 heap=0.02 (had bin=0.0 mem=0.02 q=0) :inet_gethost_native
+  freed bin=0.0 heap=0.01 (had bin=0.0 mem=0.02 q=0) :otel_batch_processor_global
+1792845293.392 idle 10

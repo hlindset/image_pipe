@@ -1,0 +1,16 @@
+1792845814.625 idle 10
+1792845824.636 start mix 4 60
+mix c=4: n=604 rps=10.1 p50=279.955ms p99=3016.852ms statuses=%{200 => 604}
+    HWM mix 4 60 1397.24 MiB
+1792845886.748 end mix 4 60
+1792845886.751 idle 20
+1792845906.763 start big 8 45
+big c=8: n=576 rps=12.8 p50=626.276ms p99=1107.306ms statuses=%{200 => 576}
+    HWM big 8 45 915.258 MiB
+1792845952.833 end big 8 45
+1792845952.836 idle 20
+1792845972.847 start autoq 4 40
+autoq c=4: n=102 rps=2.5 p50=1262.674ms p99=5054.895ms statuses=%{200 => 102}
+    HWM autoq 4 40 1331.46 MiB
+1792846015.537 end autoq 4 40
+1792846015.543 idle 30

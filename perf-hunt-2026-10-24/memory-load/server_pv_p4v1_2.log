@@ -1,0 +1,6 @@
+2026-10-24 14:25:12.662 [info] Loading 122 CA(s) from :otp store
+2026-10-24 14:25:12.713 [warning] ImagePipe instance ImagePipeServer.ImagePipe serves unsigned URLs (allow_unsigned: true). Keep its mounts on a private network, and sign URLs (:keys) for public traffic.
+2026-10-24 14:25:12.718 [info] cache: claimed cache root /tmp/claude-0/-home-user-image-pipe/d9301eaf-e830-533b-9e40-eef149fee684/scratchpad/load/cache/output as host "vm"
+2026-10-24 14:25:12.815 [info] Running ImagePipeServer.Router with Bandit 1.13.1 at 127.0.0.1:18181 (http)
+2026-10-24 14:26:22.599 [notice] SIGTERM received - shutting down
+
