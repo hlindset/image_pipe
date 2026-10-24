@@ -1,0 +1,78 @@
+URL crop.md /orient=none/w=400/src/photos/beach.jpg -> 404 source not found
+URL crop.md /rotate=90/src/photos/beach.jpg -> 404 source not found
+URL crop.md /flip=h/src/photos/beach.jpg -> 404 source not found
+URL crop.md /trim=fff,20/src/photos/beach.jpg -> 404 source not found
+URL crop.md /trim=auto/trim-symmetry=hv/src/photos/logo.png -> 404 source not found
+URL crop.md /crop=50pct,100pct/anchor=left/w=300/src/photos/beach.jpg -> 404 source not found
+URL crop.md /crop=100pct,100pct/crop-ratio=16:9/src/photos/beach.jpg -> 404 source not found
+URL crop.md /region=100,50,400,300/src/photos/beach.jpg -> 404 source not found
+URL crop.md /w=400/h=400/fit=cover/anchor=smart/src/photos/beach.jpg -> 404 source not found
+URL crop.md /crop=600,400/anchor=top/anchor-offset=0,50/src/photos/beach.jpg -> 404 source not found
+URL crop.md /w=400/h=400/fit=cover/focus=0.3,0.6/src/photos/beach.jpg -> 404 source not found
+URL crop.md /w=400/h=400/fit=cover/detect=all,face:3/src/photos/beach.jpg -> 404 source not found
+URL effects.md /contrast=2/-/brightness=30/src/photos/beach.jpg -> 404 source not found
+URL effects.md /w=800/blur=2/src/photos/beach.jpg -> 404 source not found
+URL effects.md /progressive-blur=4,down,0.2,0.8/src/photos/beach.jpg -> 404 source not found
+URL effects.md /w=400/sharpen=1.5/src/photos/beach.jpg -> 404 source not found
+URL effects.md /pixelate=8/src/photos/beach.jpg -> 404 source not found
+URL effects.md /gray/src/photos/beach.jpg -> 404 source not found
+URL effects.md /bitonal/src/scans/receipt.png -> 404 source not found
+URL effects.md /monochrome=0.8,704214/src/photos/beach.jpg -> 404 source not found
+URL effects.md /duotone=1,123456,efab89/src/photos/beach.jpg -> 404 source not found
+URL effects.md /brightness=-20/src/photos/beach.jpg -> 404 source not found
+URL effects.md /contrast=1.25/src/photos/beach.jpg -> 404 source not found
+URL effects.md /saturation=0.7/src/photos/beach.jpg -> 404 source not found
+URL effects.md /colorize=0.3,red,keep-alpha/src/logos/brand.png -> 404 source not found
+URL effects.md /gradient=0.8,black,down,0.2,0.9/src/photos/beach.jpg -> 404 source not found
+URL output.md /w=800/format=webp/src/photos/beach.jpg -> 404 source not found
+URL output.md /w=800/q=70/src/photos/beach.jpg -> 404 source not found
+URL output.md /w=800/format-q=avif:60,webp:75/src/photos/beach.jpg -> 404 source not found
+URL output.md /w=800/autoquality=80/src/photos/beach.jpg -> 404 source not found
+URL output.md /w=800/format=webp/max-bytes=60000/src/photos/beach.jpg -> 404 source not found
+URL output.md /format=jpeg/jpeg-options=progressive,quant-table:3/src/photos/beach.jpg -> 404 source not found
+URL output.md /format=png/png-options=palette,filter:paeth/src/logos/brand.png -> 404 source not found
+URL output.md /format=webp/webp-options=near-lossless,effort:2/src/photos/beach.jpg -> 404 source not found
+URL output.md /format=avif/avif-options=subsample:auto,effort:1/src/photos/beach.jpg -> 404 source not found
+URL output.md /w=800/meta=strip/src/photos/beach.jpg -> 404 source not found
+URL output.md /w=2400/dpi=300/src/photos/beach.jpg -> 404 source not found
+URL output.md /w=800/profile=display-p3/src/photos/beach.jpg -> 404 source not found
+URL output.md /w=800/format=avif/hdr=preserve/src/photos/sunset.avif -> 404 source not found
+URL output.md /w=600/output=info,blurhash,lqip-css/src/photos/beach.jpg -> 404 source not found
+URL request.md /w=1200/filename=beach/src/photos/beach.jpg -> 404 source not found
+URL request.md /w=1200/format=jpeg/filename=beach/attachment/src/photos/beach.jpg -> 404 source not found
+URL request.md /w=400/page=2/src/scans/report.tiff -> 404 source not found
+URL request.md /w=800/cb=release-2/src/photos/beach.jpg -> 404 source not found
+URL request.md /w=800/expires=2000000000/src/photos/beach.jpg -> 404 source not found
+URL request.md /output=lqip-css/priority=low/src/photos/beach.jpg -> 404 source not found
+URL request.md /w=400/debug/src/photos/beach.jpg -> 404 source not found
+URL resize.md /w=400/h=300/src/photos/beach.jpg -> 404 source not found
+URL resize.md /w=400/h=300/fit=cover/src/photos/beach.jpg -> 404 source not found
+URL resize.md /w=1200/enlarge/src/photos/beach.jpg -> 404 source not found
+URL resize.md /w=400/min-h=300/src/photos/beach.jpg -> 404 source not found
+URL resize.md /w=400/zoom=1.5/src/photos/beach.jpg -> 404 source not found
+URL resize.md /w=512/enlarge/kernel=nearest/src/sprites/hero.png -> 404 source not found
+URL resize.md /w=400/h=300/fit=cover/dpr=2/src/photos/beach.jpg -> 404 source not found
+URL resize.md /w=400/h=400/extend/src/photos/beach.jpg -> 404 source not found
+URL resize.md /w=400/h=400/extend/extend-at=bottom/extend-offset=0,10/src/photos/beach.jpg -> 404 source not found
+URL resize.md /w=400/pad=10,20/src/photos/beach.jpg -> 404 source not found
+URL resize.md /w=400/h=400/extend/pad=12/bg=fff/src/photos/beach.jpg -> 404 source not found
+URL watermark.md /w=800/wm=logo/wm-at=bottom-right/wm-offset=16,16/wm-scale=0.2/src/photos/beach.jpg -> 400        unknown watermark
+URL watermark.md /wm=logo/src/photos/beach.jpg -> 400  unknown watermark
+URL watermark.md /wm-src64=YnJhbmQvbG9nby5wbmc/src/photos/beach.jpg -> 404 source not found
+URL watermark.md /wm=logo/wm-opacity=0.5/src/photos/beach.jpg -> 400  unknown watermark
+URL watermark.md /w=800/wm=logo/wm-scale=0.25/src/photos/beach.jpg -> 400        unknown watermark
+URL watermark.md /wm=logo/wm-at=bottom-right/src/photos/beach.jpg -> 400  unknown watermark
+URL watermark.md /wm=logo/wm-at=bottom-right/wm-offset=16,5pct/src/photos/beach.jpg -> 400  unknown watermark
+URL watermark.md /wm=logo/wm-tile/wm-scale=0.1/src/photos/beach.jpg -> 400  unknown watermark
+URL watermark.md /wm=logo/wm-tile/wm-gap=20,5pct/src/photos/beach.jpg -> 400  unknown watermark
+URL requesting-images.md /w=400/h=300/fit=cover/src/photos/beach.jpg -> 404 source not found
+URL requesting-images.md /w=400/h=300/fit=cover/src/photos/beach.jpg -> 404 source not found
+URL requesting-images.md /w=500/-/trim=fff/src/photos/beach.jpg -> 404 source not found
+URL requesting-images.md /preset=card/src/photos/beach.jpg -> 400  unknown preset: card
+URL requesting-images.md /preset=card/w=600/src/photos/beach.jpg -> 400  unknown preset: card
+URL requesting-images.md /sig=x/w=400/src/photos/beach.jpg -> 400  sig is not accepted: no signing keys are configured
+URL requesting-images.md /w=400/fit=fill/src/photos/beach.jpg -> 400            invalid value: expected contain, cover, stretch, or auto
+URL defining-presets.md /images/preset=card/src/photos/beach.jpg -> 400  unknown option
+URL defining-presets.md /preset=card/output=info/src/photos/beach.jpg -> 400  unknown preset: card
+URL choosing-an-autoquality-target.md /w=800/autoquality=85/src/photos/beach.jpg -> 404 source not found
+URL choosing-an-autoquality-target.md /w=800/debug/src/photos/beach.jpg -> 404 source not found

@@ -1,0 +1,10 @@
+Code.require_file("/tmp/claude-0/-home-user-image-pipe/d50ad5e9-8a8c-51d3-9791-b10ebb68545c/scratchpad/docs_processing/h.exs")
+r = H.root()
+{:ok, i} = Vix.Vips.Image.new_from_file(r <> "/s800x600.jpg")
+{:ok, i} = Vix.Vips.Operation.copy(i, xres: 300 / 25.4, yres: 300 / 25.4)
+:ok = Vix.Vips.Image.write_to_file(i, r <> "/dpi300.jpg")
+d = fn p, ex -> c = H.req(p, ex); {:ok, o} = Vix.Vips.Image.new_from_buffer(c.resp_body)
+  {:ok, names} = Vix.Vips.Image.header_field_names(o)
+  IO.puts("D #{p} #{inspect ex} -> #{c.status} #{hd(Plug.Conn.get_resp_header(c,"content-type"))} dpi=#{Float.round(Vix.Vips.Image.xres(o) * 25.4, 1)} exif=#{"exif-data" in names} jfif=#{inspect Vix.Vips.Image.header_value(o, "jpeg-resolution-unit")} vary=#{inspect Plug.Conn.get_resp_header(c,"vary")}") end
+d.("/src/dpi300.jpg", []); d.("/meta=keep/src/dpi300.jpg", []); d.("/meta=strip/src/dpi300.jpg", []); d.("/meta=strip/dpi=150/src/dpi300.jpg", []); d.("/dpi=150/format=png/src/dpi300.jpg", [])
+d.("/src/s150.png", [auto_avif: false, auto_webp: false])
