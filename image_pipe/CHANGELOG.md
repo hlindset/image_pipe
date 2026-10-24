@@ -41,6 +41,9 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `avif` among its compatible brands is detected as AVIF. Before, it was
   detected as HEIF, so `skip_processing_formats: [:avif]` didn't pass it
   through and `info` reported `heif`.
+- A `src` or `src64` source that isn't valid UTF-8 fails with `400`
+  `invalid source` before any source runs, as a watermark source does.
+  Before, it reached the source and usually failed with `404`.
 
 ## [0.4.0] - 2026-10-23
 
