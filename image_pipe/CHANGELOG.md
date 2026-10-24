@@ -5,6 +5,18 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- A FileSystem cache's startup scan is several times faster and uses a
+  quarter of the memory. On a 12-core machine, a cache of 1M entries is
+  scanned in 3.5 s instead of 19 s, with a memory peak of 0.6 GB instead of
+  2.4 GB. The first scan after an upgrade that changes the metadata format
+  takes 28 s instead of 320 s.
+- The startup scan deletes [leftover files](docs/cache.md#leftover-files)
+  while it counts the entries, so `:counting?` in the cache's
+  [usage](docs/cache.md#usage-and-hit-rate) stays `true` until the scan
+  finishes.
+
 ### Fixed
 
 - A response from a source configured to deny storage gets

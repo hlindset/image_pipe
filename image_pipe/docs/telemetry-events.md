@@ -642,7 +642,7 @@ in `bypass (deadline)`.
 Span. Emitted each time ImagePipe checks for
 [leftover files](cache.md#leftover-files), whether or not it finds any:
 
-- For the cache, after its startup scan and then every 24 hours.
+- For the cache, during its startup scan and then every 24 hours.
 - For staged originals, when the `:image_pipe` application starts and every
   24 hours after.
 
