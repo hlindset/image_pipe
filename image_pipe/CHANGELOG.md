@@ -21,6 +21,10 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   configured `auth`, `aws_sigv4` and headers on the next request. Before,
   ImagePipe treated it as another origin and dropped them, so the origin
   usually answered `401` or `403`.
+- The filesystem cache treats a path under its root that follows more
+  than 40 symlinks as unsafe. Before, some symlink loops inside the root,
+  such as one that passes through a link to `.`, hung the cache's startup
+  check or its first lookup and grew its memory without bound.
 
 ## [0.4.0] - 2026-10-23
 
