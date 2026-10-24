@@ -79,7 +79,7 @@ defmodule ImagePipe.Cache.FileSystem.ReconciliationTest do
     end
   end
 
-  test "the startup sweep waits for the scan's reconciliation", ctx do
+  test "the startup sweep ends before the scan reconciles", ctx do
     Enum.each(1..3, &seed_entry(key(&1), "body", ctx.root))
     orphan = orphan_body(ctx.root)
     gate = attach_batches(ctx.prefix, self(), true)
@@ -88,14 +88,12 @@ defmodule ImagePipe.Cache.FileSystem.ReconciliationTest do
 
     try do
       assert_receive {:batch, ^pid, 1}, 1000
-      assert File.exists?(orphan)
-      refute_received :swept
+      assert_received :swept
+      refute File.exists?(orphan)
       send(pid, :release_batch)
       assert_receive {:batch, ^pid, 1}, 1000
       send(pid, :release_batch)
-      assert_receive :swept, 1000
       assert :ok = Admission.await_scan(pid)
-      refute File.exists?(orphan)
     after
       close_gate(ctx.prefix, gate, pid)
     end

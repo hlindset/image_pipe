@@ -19,18 +19,13 @@ defmodule ImagePipe.Cache.FileSystem.Sweep do
 
   @grace_ms 3_600_000
   @marker ".metadata-version"
-
-  @temp ~r/\A\.[0-9a-f]{64}\.[A-Za-z0-9_-]+\.tmp\z/
-  # Bodies stored before their names carried size and cost end at the digest.
-  @body ~r/\A([0-9a-f]{64})\.[0-9a-f]{64}(?:\.\d+\.\d+)?\.body\z/
-  @meta ~r/\A[0-9a-f]{64}\.meta\z/
-  @partition ~r/\A[0-9a-f]{2}\z/
+  @counts %{temps: 0, bodies: 0, unreadable: 0, bytes: 0, removed: [], pending?: false}
 
   @doc false
   # Sweeps the cache at `root` and tells its Admission, found in `registry`,
   # what it removed.
   def run(root, pool, telemetry_opts, registry) do
-    removed = span(pool, telemetry_opts, fn -> sweep_root(root) end)
+    removed = scan(root, pool, telemetry_opts, fn _partition, _names -> :ok end)
 
     case Registry.lookup(registry, root) do
       [{admission, _value}] -> GenServer.cast(admission, {:swept, removed})
@@ -39,44 +34,64 @@ defmodule ImagePipe.Cache.FileSystem.Sweep do
   end
 
   @doc false
-  # Sweeps `listings`, the `{partition_dir, names}` of the tree at `root`, so a
-  # caller that already listed the tree doesn't list it again. Returns the
-  # removed entries, as `{key_hash, body_filename | :meta}`.
-  def run_listings(root, listings, pool, telemetry_opts),
-    do: span(pool, telemetry_opts, fn -> sweep_listings(root, listings) end)
-
-  defp span(pool, telemetry_opts, sweep) do
+  # Sweeps the cache at `root` and returns the removed entries, as
+  # `{key_hash, body_filename | :meta}`. Calls `on_partition` with each
+  # partition directory once it is swept, and its names as `{name,
+  # Store.classify(name)}`, from the task that listed it, so a caller that
+  # counts the entries doesn't list the tree again. The names leave out
+  # metadata files the sweep removed, but not other files it removed: a body
+  # the sweep removes is one no metadata file names.
+  def scan(root, pool, telemetry_opts, on_partition) do
     Telemetry.span(telemetry_opts, [:cache, :sweep], %{pool: pool}, fn ->
-      {removed, counts} = Map.pop(sweep.(), :removed)
+      {removed, counts} = Map.pop(sweep_root(root, on_partition), :removed)
       {removed, Map.put(counts, :result, :ok)}
     end)
   end
 
   @doc false
-  def sweep_root(root) do
-    sweep_listings(
-      root,
-      for(dir <- partitions(root), partition <- partitions(dir), do: listing(partition))
-    )
-  end
-
-  defp sweep_listings(root, listings) do
+  # Each first-level partition group is swept in its own task, so the names
+  # it lists are collected with that task rather than all in one heap.
+  def sweep_root(root, on_partition \\ fn _partition, _names -> :ok end) do
     cutoff = cutoff()
-    counts = %{temps: 0, bodies: 0, unreadable: 0, bytes: 0, removed: []}
     check_decode? = marked_version(root) != Store.metadata_version()
 
-    {counts, pending?} =
-      Enum.reduce(listings, {counts, false}, fn {dir, names}, {counts, pending?} ->
-        {names, counts, partition_pending?} =
-          if check_decode?,
-            do: remove_unreadable(dir, names, cutoff, counts),
-            else: {names, counts, false}
-
-        {sweep_partition(dir, names, cutoff, counts), pending? or partition_pending?}
-      end)
+    {pending?, counts} =
+      root
+      |> partitions()
+      |> Task.async_stream(&sweep_group(&1, cutoff, check_decode?, on_partition),
+        max_concurrency: System.schedulers_online(),
+        ordered: false,
+        timeout: :infinity
+      )
+      |> Enum.reduce(@counts, fn {:ok, group}, counts -> merge(counts, group) end)
+      |> Map.pop(:pending?)
 
     if check_decode? and not pending?, do: mark_version(root)
     counts
+  end
+
+  defp sweep_group(dir, cutoff, check_decode?, on_partition) do
+    Enum.reduce(partitions(dir), @counts, fn partition, counts ->
+      names = list(partition)
+
+      {names, counts} =
+        if check_decode?,
+          do: remove_unreadable(partition, names, cutoff, counts),
+          else: {names, counts}
+
+      classified = Enum.map(names, &{&1, Store.classify(&1)})
+      counts = sweep_partition(partition, classified, cutoff, counts)
+      on_partition.(partition, classified)
+      counts
+    end)
+  end
+
+  defp merge(counts, group) do
+    Map.merge(counts, group, fn
+      :removed, removed, more -> more ++ removed
+      :pending?, pending?, more -> pending? or more
+      _count, count, more -> count + more
+    end)
   end
 
   defp marked_version(root) do
@@ -101,43 +116,34 @@ defmodule ImagePipe.Cache.FileSystem.Sweep do
   end
 
   # Returns the names still present, so the leftover pass sees the removed
-  # metadata's bodies as unnamed, and whether an unreadable metadata file was
-  # too new to remove, which keeps the version unmarked so the next sweep
-  # checks again. The age check runs after the read, since a rewrite moves
-  # the mtime.
+  # metadata's bodies as unnamed. An unreadable metadata file too new to
+  # remove sets `pending?`, which keeps the version unmarked so the next
+  # sweep checks again. The age check runs after the read, since a rewrite
+  # moves the mtime.
   defp remove_unreadable(dir, names, cutoff, counts) do
-    Enum.reduce(names, {[], counts, false}, fn name, {kept, counts, pending?} ->
+    Enum.reduce(names, {[], counts}, fn name, {kept, counts} ->
       path = Path.join(dir, name)
 
       cond do
-        not String.ends_with?(name, ".meta") or not unreadable?(path) ->
-          {[name | kept], counts, pending?}
+        not String.ends_with?(name, ".meta") or not Store.undecodable?(path) ->
+          {[name | kept], counts}
 
         older?(path, cutoff) ->
-          {kept, remove(path, :unreadable, counts), pending?}
+          {kept, remove(path, :unreadable, counts)}
 
         true ->
-          {[name | kept], counts, true}
+          {[name | kept], %{counts | pending?: true}}
       end
     end)
   end
 
-  defp unreadable?(path) do
-    case Store.read_descriptor(path) do
-      {:error, {:invalid_metadata, _reason}} -> true
-      _readable_missing_or_failed -> false
-    end
-  end
-
-  @doc false
   # The partition directories directly under `dir`, matched by name. A
   # non-directory with a partition name lists as empty.
-  def partitions(dir) do
-    for name <- list(dir), Regex.match?(@partition, name), do: Path.join(dir, name)
+  defp partitions(dir) do
+    for <<a, b>> = name <- list(dir), hex?(a) and hex?(b), do: Path.join(dir, name)
   end
 
-  @doc false
-  def listing(dir), do: {dir, list(dir)}
+  defp hex?(char), do: char in ?0..?9 or char in ?a..?f
 
   defp cutoff, do: System.os_time(:millisecond) - @grace_ms
 
@@ -151,39 +157,23 @@ defmodule ImagePipe.Cache.FileSystem.Sweep do
   # A key's only body, with its meta beside it, is the body the meta names,
   # as Admission's count assumes, so it needs no read. Only a key with
   # several bodies, or a body without a meta, is checked.
-  defp sweep_partition(dir, names, cutoff, counts) do
-    classified = Enum.map(names, &{&1, classify(&1)})
-    present = MapSet.new(names)
-
-    bodies =
-      Enum.frequencies(for {_name, {:bodies, meta}} <- classified, do: meta)
+  defp sweep_partition(dir, classified, cutoff, counts) do
+    metas = MapSet.new(for {_name, {:meta, hash}} <- classified, do: hash)
+    bodies = Enum.frequencies(for {_name, {:body, hash, _row}} <- classified, do: hash)
 
     Enum.reduce(classified, counts, fn
-      {name, :temps}, counts ->
+      {name, :temp}, counts ->
         path = Path.join(dir, name)
         if older?(path, cutoff), do: remove(path, :temps, counts), else: counts
 
-      {name, {:bodies, meta}}, counts ->
-        if Map.fetch!(bodies, meta) == 1 and MapSet.member?(present, meta),
+      {name, {:body, hash, _row}}, counts ->
+        if Map.fetch!(bodies, hash) == 1 and MapSet.member?(metas, hash),
           do: counts,
-          else: sweep_body(Path.join(dir, name), Path.join(dir, meta), cutoff, counts)
+          else: sweep_body(Path.join(dir, name), Path.join(dir, hash <> ".meta"), cutoff, counts)
 
-      {_name, :unrelated}, counts ->
+      {_name, _meta_or_unrelated}, counts ->
         counts
     end)
-  end
-
-  defp classify(name) do
-    cond do
-      Regex.match?(@temp, name) ->
-        :temps
-
-      match = Regex.run(@body, name, capture: :all_but_first) ->
-        {:bodies, hd(match) <> ".meta"}
-
-      true ->
-        :unrelated
-    end
   end
 
   # A body is left behind when its key has no meta, or when the meta names
@@ -229,15 +219,14 @@ defmodule ImagePipe.Cache.FileSystem.Sweep do
   # A meta file whose name isn't a key hash was never an entry, so it's
   # removed without telling Admission about it.
   defp removed(counts, :unreadable, name) do
-    if Regex.match?(@meta, name),
-      do: Map.update!(counts, :removed, &[{Path.rootname(name), :meta} | &1]),
-      else: counts
+    case Store.classify(name) do
+      {:meta, hash} -> Map.update!(counts, :removed, &[{hash, :meta} | &1])
+      _other -> counts
+    end
   end
 
-  defp removed(counts, :bodies, name),
-    do: Map.update!(counts, :removed, &[{key_hash(name), name} | &1])
+  defp removed(counts, :bodies, <<hash::binary-size(64), _rest::binary>> = name),
+    do: Map.update!(counts, :removed, &[{hash, name} | &1])
 
   defp removed(counts, _kind, _name), do: counts
-
-  defp key_hash(name), do: name |> String.split(".", parts: 2) |> hd()
 end

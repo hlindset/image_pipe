@@ -272,8 +272,8 @@ the cache can't parse count as left behind too, and so do their bodies.
 ImagePipe deletes leftover files in the background once they are more than
 an hour old:
 
-- In the cache's `root`, after its startup scan and every 24 hours while the
-  instance runs.
+- In the cache's `root`, during its startup scan and every 24 hours while
+  the instance runs.
 - In the `image_pipe` directory under the system temporary directory
   (`TMPDIR`, or `/tmp`), where originals are staged while they download,
   when the `:image_pipe` application starts and every 24 hours after.
@@ -281,7 +281,7 @@ an hour old:
 The cache records the metadata format it last checked in a
 `.metadata-version` file in `root`. It reads every metadata file only when
 that file is missing or names another format, as after an upgrade or a
-downgrade.
+downgrade. The startup scan then takes longer.
 
 The `[:cache, :sweep]` event reports what each cleanup removed (see
 [cache events](telemetry-events.md#cache-events)).
@@ -354,10 +354,11 @@ expensive.
 - An entry larger than the limit on unfinished writes is never stored (see
   [writing entries](#writing-entries)).
 - On startup the process lists the entries on disk in the background,
-  reading only file names. If the cache is over the cap, for example after
-  you lower `max_size_bytes`, it evicts in batches until it's under, so
-  requests can use the cache between batches. Then it deletes
-  [leftover files](#leftover-files).
+  reading only file names except after a
+  [metadata format change](#leftover-files), and deletes leftover files as
+  it goes. If the cache is over the cap, for example after you lower
+  `max_size_bytes`, it then evicts in batches until it's under, so requests
+  can use the cache between batches.
 
 A write that waits more than 5 seconds for the cache process is reported as
 a [cache write](telemetry-events.md#cache-write) error with
@@ -401,8 +402,8 @@ cache's `:bytes`, `:entries`, and `:max_bytes`, and its `:hits`, `:misses`,
   `root` isn't writable or its disk is full. The image is still served.
 - `:counting?` is `true` until the
   [startup scan](#eviction-and-startup-scan) has counted the entries on
-  disk. Until then, `:bytes` and `:entries` leave out the ones it hasn't
-  reached.
+  disk, deleted leftover files, and evicted down to `max_size_bytes`. Until
+  then, `:bytes` and `:entries` leave out the ones it hasn't reached.
 
 The hit rate is `hits / (hits + misses)`. Each node counts only its own
 requests. A cache that isn't configured isn't listed. A cache whose `root`

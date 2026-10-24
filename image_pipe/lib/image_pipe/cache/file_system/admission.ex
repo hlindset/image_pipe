@@ -59,8 +59,8 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
       pool: :output,
       # The entries' charged bytes (`Policy.charged_bytes/1`).
       stored_bytes: 0,
-      # Keys dropped, deleted or committed while the startup scan runs, so a
-      # stale scanned entry for them is skipped. nil after the scan.
+      # Raw keys dropped, deleted or committed while the startup scan runs,
+      # so a stale scanned entry for them is skipped. nil after the scan.
       scan_changes: nil,
       # The linked startup scan, whose exit releases await_scan/2 callers.
       scan_pid: nil,
@@ -165,70 +165,50 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
         }
   def usage(server, timeout), do: GenServer.call(server, :usage, timeout)
 
+  # The sweep lists each partition once, a first-level group per task, and
+  # each task counts the entries in its partitions. So the entries are
+  # counted once every partition is swept, and the sweep's removals are
+  # applied after that.
   defp scan_directory(state, admission_pid) do
-    {listings, entries} = list_entries(state.root)
-
-    entries
-    |> Enum.chunk_every(500)
-    |> Enum.each(&GenServer.call(admission_pid, {:apply_scan_batch, &1}, :infinity))
+    removed =
+      Sweep.scan(state.root, state.pool, tel_opts(state), fn partition, names ->
+        case partition_rows(partition, names) do
+          [] -> :ok
+          rows -> GenServer.call(admission_pid, {:apply_scan_batch, rows}, :infinity)
+        end
+      end)
 
     # Evict to the cap, in case it was lowered. No gate: these are cached
     # entries with no candidate to compare against.
     GenServer.call(admission_pid, :reconcile_to_cap, :infinity)
     GenServer.call(admission_pid, :counted, :infinity)
-
-    # Remove files a VM that died left behind.
-    removed = Sweep.run_listings(state.root, listings, state.pool, tel_opts(state))
     GenServer.cast(admission_pid, {:swept, removed})
-
     GenServer.call(admission_pid, :scan_complete, :infinity)
   end
 
-  # One pass lists each two-level partition once, a first-level group per
-  # task. The listings feed both the entries and the leftover sweep.
-  defp list_entries(root) do
-    root
-    |> Sweep.partitions()
-    |> Task.async_stream(&list_partition_group/1,
-      max_concurrency: System.schedulers_online(),
-      ordered: false,
-      timeout: :infinity
-    )
-    |> Enum.reduce({[], []}, fn {:ok, {listings, entries}}, {all_listings, all_entries} ->
-      {listings ++ all_listings, entries ++ all_entries}
-    end)
-  end
+  # An entry is a metadata file and the body it names, as a row. A key with
+  # one body beside its metadata needs no read. Two bodies, as after two
+  # commits for one key raced, are told apart by reading the metadata.
+  defp partition_rows(partition, names) do
+    metas = MapSet.new(for {_name, {:meta, hash}} <- names, do: hash)
 
-  defp list_partition_group(dir) do
-    listings = for partition <- Sweep.partitions(dir), do: Sweep.listing(partition)
-    {listings, Enum.flat_map(listings, &partition_entries/1)}
-  end
+    bodies =
+      for {name, {:body, hash, row}} <- names,
+          row != nil,
+          MapSet.member?(metas, hash),
+          do: {hash, name, row}
 
-  # An entry is a metadata file and the body it names. A key with one body
-  # beside its metadata needs no read. Two bodies, as after two commits for
-  # one key raced, are told apart by reading the metadata.
-  defp partition_entries({partition, names}) do
-    metas = for name <- names, String.ends_with?(name, ".meta"), into: MapSet.new(), do: name
-
-    names
-    |> Enum.flat_map(&body_entry(&1, metas))
-    |> Enum.group_by(& &1.key_hash)
+    bodies
+    |> Enum.group_by(&elem(&1, 0))
     |> Enum.flat_map(fn
-      {_hash, [entry]} -> [entry]
-      {hash, entries} -> named_entry(partition, hash, entries)
+      {_hash, [{_key_hash, _name, row}]} -> [row]
+      {hash, bodies} -> named_row(partition, hash, bodies)
     end)
   end
 
-  defp body_entry(name, metas) do
-    case FileSystem.parse_body_filename(name) do
-      {:ok, entry} -> if MapSet.member?(metas, entry.key_hash <> ".meta"), do: [entry], else: []
-      {:error, _invalid} -> []
-    end
-  end
-
-  defp named_entry(partition, hash, entries) do
+  defp named_row(partition, hash, bodies) do
     case FileSystem.read_descriptor(Path.join(partition, hash <> ".meta")) do
-      {:ok, %{body_filename: named}, _mtime} -> Enum.filter(entries, &(&1.body_filename == named))
+      {:ok, %{body_filename: named}, _mtime} -> for {_hash, ^named, row} <- bodies, do: row
       {:error, _reason} -> []
     end
   end
@@ -386,12 +366,16 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
 
   def handle_call(:scan_complete, _from, state), do: {:reply, :ok, complete_scan(state)}
 
-  def handle_call({:apply_scan_batch, batch}, _from, state) do
+  # Rows from the scan, as `Store.body_row/1` builds them.
+  def handle_call({:apply_scan_batch, rows}, _from, state) do
     state =
-      Enum.reduce(batch, state, fn entry, acc ->
-        if tracked?(acc, entry.key_hash) or scan_changed?(acc, entry.key_hash),
-          do: acc,
-          else: put(acc, entry)
+      Enum.reduce(rows, state, fn {key, size, _cost, _body_sha256} = row, acc ->
+        if :ets.member(acc.entries, key) or scan_changed?(acc, key) do
+          acc
+        else
+          :ets.insert(acc.entries, row)
+          %{acc | stored_bytes: acc.stored_bytes + Policy.charged_bytes(size)}
+        end
       end)
 
     {:reply, :ok, state}
@@ -670,20 +654,16 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
   # when its metadata or listing was read, so its parts rebuild it.
   defp put(state, descriptor) do
     state = forget(state, descriptor.key_hash)
-    {:ok, %{body_sha256: body_sha256}} = FileSystem.parse_body_filename(descriptor.body_filename)
-
-    :ets.insert(
-      state.entries,
-      {raw(descriptor.key_hash), descriptor.size_bytes, descriptor.cost_us, raw(body_sha256)}
-    )
-
+    {:ok, row} = FileSystem.body_row(descriptor.body_filename)
+    :ets.insert(state.entries, row)
     %{state | stored_bytes: state.stored_bytes + charged(descriptor)}
   end
 
   defp forget(state, key_hash) do
-    note_scan_change(state, key_hash)
+    key = raw(key_hash)
+    note_scan_change(state, key)
 
-    case :ets.take(state.entries, raw(key_hash)) do
+    case :ets.take(state.entries, key) do
       [{_key, size, _cost, _body_sha256}] ->
         %{state | stored_bytes: state.stored_bytes - Policy.charged_bytes(size)}
 
@@ -702,11 +682,11 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
       delete_meta?: delete_meta?
     }
 
-  defp note_scan_change(%{scan_changes: nil}, _key_hash), do: :ok
-  defp note_scan_change(state, key_hash), do: :ets.insert(state.scan_changes, {key_hash})
+  defp note_scan_change(%{scan_changes: nil}, _key), do: :ok
+  defp note_scan_change(state, key), do: :ets.insert(state.scan_changes, {key})
 
-  defp scan_changed?(%{scan_changes: nil}, _key_hash), do: false
-  defp scan_changed?(state, key_hash), do: :ets.member(state.scan_changes, key_hash)
+  defp scan_changed?(%{scan_changes: nil}, _key), do: false
+  defp scan_changed?(state, key), do: :ets.member(state.scan_changes, key)
 
   defp start_reconciliation(%{reconciling?: true} = state), do: state
 

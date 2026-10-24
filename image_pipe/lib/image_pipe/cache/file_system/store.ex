@@ -616,6 +616,19 @@ defmodule ImagePipe.Cache.FileSystem.Store do
   end
 
   @doc false
+  # Whether the metadata file at `meta_path` reads but doesn't decode. Unlike
+  # read_descriptor/1 it doesn't stat the file, since a sweep that checks
+  # every metadata file spends most of its time on these calls.
+  def undecodable?(meta_path) do
+    with {:ok, meta_binary} <- read_cache_file(meta_path, :metadata),
+         {:error, {:invalid_metadata, _reason}} <- decode_metadata(meta_binary) do
+      true
+    else
+      _decoded_missing_or_failed -> false
+    end
+  end
+
+  @doc false
   def delete_victims([], _opts), do: :ok
 
   def delete_victims(victims, opts) do
@@ -700,32 +713,93 @@ defmodule ImagePipe.Cache.FileSystem.Store do
 
   @doc false
   def parse_body_filename(body_filename) do
-    with [hash, body_sha256, size, cost, "body"] <- String.split(body_filename, "."),
-         true <- hex64?(hash, :lower) and valid_body_sha256?(body_sha256),
-         {:ok, size} <- digits(size),
-         {:ok, cost} <- digits(cost) do
-      {:ok,
-       %{
-         key_hash: hash,
-         body_sha256: body_sha256,
-         size_bytes: size,
-         cost_us: cost,
-         body_filename: body_filename
-       }}
-    else
-      _invalid -> {:error, :invalid_body_filename}
+    case body_parts(body_filename) do
+      {:ok, hash, body_sha256, {_raw_hash, size, cost, _raw_sha256}} ->
+        {:ok,
+         %{
+           key_hash: hash,
+           body_sha256: body_sha256,
+           size_bytes: size,
+           cost_us: cost,
+           body_filename: body_filename
+         }}
+
+      :error ->
+        {:error, :invalid_body_filename}
     end
   end
+
+  @doc false
+  # The row Admission keeps for a body: `{key hash, size, cost, body
+  # SHA-256}`, with both hashes as raw 32-byte binaries.
+  def body_row(body_filename) do
+    case body_parts(body_filename) do
+      {:ok, _hash, _body_sha256, row} -> {:ok, row}
+      :error -> :error
+    end
+  end
+
+  @doc false
+  # What a file in a partition directory is, by its name: a body with its
+  # key hash and row, a metadata file with its key hash, a temp file, or
+  # none of these. Bodies stored before their names carried size and cost
+  # end at the digest, and have no row.
+  def classify(<<hash::binary-size(64), ".meta">>) do
+    if hex64?(hash, :lower), do: {:meta, hash}, else: :unrelated
+  end
+
+  def classify(<<?., hash::binary-size(64), ?., rest::binary>>) do
+    if hex64?(hash, :lower) and temp_suffix?(rest), do: :temp, else: :unrelated
+  end
+
+  def classify(<<hash::binary-size(64), ?., body_sha256::binary-size(64), ".body">>) do
+    if hex64?(hash, :lower) and hex64?(body_sha256, :lower),
+      do: {:body, hash, nil},
+      else: :unrelated
+  end
+
+  def classify(name) do
+    case body_parts(name) do
+      {:ok, hash, _body_sha256, row} -> {:body, hash, row}
+      :error -> :unrelated
+    end
+  end
+
+  # The hashes are matched by position, and decoding them checks they are
+  # lowercase hex.
+  defp body_parts(<<hash::binary-size(64), ?., body_sha256::binary-size(64), ?., rest::binary>>) do
+    with {:ok, raw_hash} <- Base.decode16(hash, case: :lower),
+         {:ok, raw_sha256} <- Base.decode16(body_sha256, case: :lower),
+         {size, <<?., rest::binary>>} <- digits(rest),
+         {cost, ".body"} <- digits(rest) do
+      {:ok, hash, body_sha256, {raw_hash, size, cost, raw_sha256}}
+    else
+      _invalid -> :error
+    end
+  end
+
+  defp body_parts(_name), do: :error
 
   # Digits only: a sign would let a planted name count negative bytes.
-  defp digits(<<digit, _rest::binary>> = string) when digit in ?0..?9 do
-    case Integer.parse(string) do
-      {integer, ""} -> {:ok, integer}
-      _other -> :error
-    end
-  end
-
+  defp digits(<<digit, rest::binary>>) when digit in ?0..?9, do: digits(rest, digit - ?0)
   defp digits(_string), do: :error
+
+  defp digits(<<digit, rest::binary>>, integer) when digit in ?0..?9,
+    do: digits(rest, integer * 10 + digit - ?0)
+
+  defp digits(rest, integer), do: {integer, rest}
+
+  # The random part temp_path/1 writes: URL-safe Base64.
+  defp temp_suffix?(<<".tmp">>), do: false
+  defp temp_suffix?(rest), do: temp_random?(rest)
+
+  defp temp_random?(<<".tmp">>), do: true
+
+  defp temp_random?(<<char, rest::binary>>)
+       when char in ?a..?z or char in ?A..?Z or char in ?0..?9 or char in [?_, ?-],
+       do: temp_random?(rest)
+
+  defp temp_random?(_rest), do: false
 
   # Creates the partition directory only when `fun` finds it missing, so a
   # write into an existing partition makes no directory calls.

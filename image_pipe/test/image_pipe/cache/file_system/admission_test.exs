@@ -148,7 +148,7 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
     refute File.exists?(leftover)
   end
 
-  test "usage stops counting once the entries are counted, before the sweep ends", %{
+  test "usage counts the entries once every partition is swept", %{
     registry: registry,
     tmp_dir: tmp_dir
   } do
@@ -158,10 +158,11 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
     pid = start_supervised!({Admission, opts})
 
     assert_receive {:sweep_started, scan}
-    assert %{counting?: false, entries: 1} = Admission.usage(pid, 1_000)
+    assert %{counting?: true} = Admission.usage(pid, 1_000)
 
     send(scan, :continue)
     :ok = Admission.await_scan(pid)
+    assert %{counting?: false, entries: 1} = Admission.usage(pid, 1_000)
   end
 
   test "the startup scan stops when its Admission stops", %{
@@ -422,7 +423,7 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
     put_disk_entry(tmp_dir, hash, String.duplicate("x", 4_321))
     {:ok, runtime_descriptor, _} = FileSystem.read_descriptor(paths.meta_path)
     Admission.hit(pid, runtime_descriptor)
-    assert :ok = GenServer.call(pid, {:apply_scan_batch, [snapshot]})
+    assert :ok = apply_snapshot(pid, snapshot)
 
     # The runtime entry survives; the scan did not overwrite it with the
     # snapshot, which has a different size and body.
@@ -451,7 +452,10 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
     {paths, descriptor}
   end
 
-  defp apply_snapshot(pid, entry), do: GenServer.call(pid, {:apply_scan_batch, [entry]})
+  defp apply_snapshot(pid, entry) do
+    {:ok, row} = FileSystem.Store.body_row(entry.body_filename)
+    GenServer.call(pid, {:apply_scan_batch, [row]})
+  end
 
   defp remove_disk_entry(paths, descriptor) do
     File.rm!(paths.meta_path)
