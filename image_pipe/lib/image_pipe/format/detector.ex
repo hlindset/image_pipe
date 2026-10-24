@@ -64,9 +64,19 @@ defmodule ImagePipe.Format.Detector do
   def detect(peek) when is_binary(peek) do
     case match_magic(peek) do
       nil -> if svg?(peek), do: :svg, else: :unknown
+      :heif -> if compatible_brand?(peek, "avif"), do: :avif, else: :heif
       format -> format
     end
   end
+
+  # An AVIF can name a generic HEIF brand, such as `mif1`, as its major brand
+  # and list `avif` among the compatible brands that follow it in the box.
+  defp compatible_brand?(<<size::32, "ftyp", _major::32, _minor::32, rest::binary>>, brand) do
+    brands = binary_part(rest, 0, min(max(size - 16, 0), byte_size(rest)))
+    brand in for(<<compatible::binary-4 <- brands>>, do: compatible)
+  end
+
+  defp compatible_brand?(_peek, _brand), do: false
 
   defp match_magic(peek) do
     Enum.find_value(@magic, fn {format, signatures} ->
