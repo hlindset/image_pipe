@@ -45,9 +45,18 @@ defmodule ImagePipe.Telemetry.Trace.ReqStep do
 
   defp traced(req, acc, fun, state, next) do
     {req, span_ctx} = start(req)
-    result = next.(req, acc, fun, state)
-    finish(span_ctx, result)
-    result
+
+    try do
+      next.(req, acc, fun, state)
+    rescue
+      exception ->
+        finish(span_ctx, {{:error, exception}, nil, acc, state})
+        reraise exception, __STACKTRACE__
+    else
+      result ->
+        finish(span_ctx, result)
+        result
+    end
   end
 
   defp start(req) do

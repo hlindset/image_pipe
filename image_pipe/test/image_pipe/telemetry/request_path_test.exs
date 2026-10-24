@@ -54,7 +54,9 @@ defmodule ImagePipe.Telemetry.RequestPathTest do
 
     test "replaces bytes that aren't valid UTF-8" do
       assert Telemetry.request_path(<<"/w=40/", 0xFF, ".jpg">>, "") == "/w=40/\uFFFD.jpg"
-      assert Telemetry.request_path("/w=40", <<"v=1&", 0xFF>>) == "/w=40?v=REDACTED&\uFFFD"
+
+      assert Telemetry.request_path("/w=40", <<"v=1&", 0xFF, "=2">>) ==
+               "/w=40?v=REDACTED&\uFFFD=REDACTED"
     end
 
     test "keeps the URL signature, wm-enc tokens, and other options" do
@@ -71,7 +73,7 @@ defmodule ImagePipe.Telemetry.RequestPathTest do
 
     test "redacts every value in the query string of a path without a marker" do
       assert Telemetry.request_path("/w=40", "X-Amz-Signature=abc&token=key;keep=1&flag") ==
-               "/w=40?X-Amz-Signature=REDACTED&token=REDACTED;keep=REDACTED&flag"
+               "/w=40?X-Amz-Signature=REDACTED&token=REDACTED;keep=REDACTED&REDACTED"
 
       assert Telemetry.request_path("/favicon.ico", "v=2") == "/favicon.ico?v=REDACTED"
       assert Telemetry.request_path("/w=40", "") == "/w=40"

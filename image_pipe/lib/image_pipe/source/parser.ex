@@ -18,8 +18,8 @@ defmodule ImagePipe.Source.Parser do
   #     `%Source.SchemePath{}` holding the scheme and the part after
   #     `scheme://` split on `/`.
   #   * anything else (a scheme no configured source matches, built-in or
-  #     custom, an empty source, a NUL byte, or a malformed authority) —
-  #     `{:error, {:invalid_source, reason}}`.
+  #     custom, an empty source, invalid UTF-8, a NUL byte, or a malformed
+  #     authority) — `{:error, {:invalid_source, reason}}`.
   #
   # `ImagePipe.Source.resolve/3` consumes the returned
   # `ImagePipe.Source.plan_source()` unchanged.
@@ -43,9 +43,11 @@ defmodule ImagePipe.Source.Parser do
 
   # No file system path or object key can hold a NUL byte.
   defp do_translate(source, config) when is_binary(source) do
-    if String.contains?(source, <<0>>),
-      do: {:error, {:invalid_source, :nul_byte}},
-      else: classify(source, config)
+    cond do
+      not String.valid?(source) -> {:error, {:invalid_source, :invalid_utf8}}
+      String.contains?(source, <<0>>) -> {:error, {:invalid_source, :nul_byte}}
+      true -> classify(source, config)
+    end
   end
 
   defp classify(source, config) do

@@ -115,15 +115,15 @@ defmodule ImagePipe.Source.ReqStream do
       {:ok, %Req.Response{status: status} = response} when status in 200..299 ->
         validate_response = Keyword.get(runtime_opts, :validate_response, fn _response -> :ok end)
 
-        case validate_response.(response) do
-          :ok ->
-            %{
-              response: response,
-              origin: Origin.from_response(response, {requested_at, clock.()}),
-              receive_timeout:
-                option(req_options, runtime_opts, :receive_timeout, @default_receive_timeout)
-            }
-
+        with :ok <- check_length(response, Keyword.get(runtime_opts, :max_body_bytes)),
+             :ok <- validate_response.(response) do
+          %{
+            response: response,
+            origin: Origin.from_response(response, {requested_at, clock.()}),
+            receive_timeout:
+              option(req_options, runtime_opts, :receive_timeout, @default_receive_timeout)
+          }
+        else
           {:error, reason} ->
             cancel_response(response)
             {:error, reason}
@@ -159,6 +159,20 @@ defmodule ImagePipe.Source.ReqStream do
             addresses
           )
         end)
+    end
+  end
+
+  # The body streams into this process's mailbox whether or not anyone reads
+  # it, and the body stream enforces the limit only as it's read. A declared
+  # length over the limit fails before any of it arrives.
+  defp check_length(_response, nil), do: :ok
+
+  defp check_length(response, max_body_bytes) do
+    with [value] <- Req.Response.get_header(response, "content-length"),
+         {length, ""} when length > max_body_bytes <- Integer.parse(value) do
+      {:error, :body_too_large}
+    else
+      _ -> :ok
     end
   end
 
@@ -428,8 +442,7 @@ defmodule ImagePipe.Source.ReqStream do
   defp redirect_options(req_options, previous, next) do
     opts = Keyword.put(req_options, :url, URI.to_string(next))
 
-    case {previous.scheme, String.downcase(previous.host), previous.port} ==
-           {next.scheme, String.downcase(next.host || ""), next.port} do
+    case origin(previous) == origin(next) do
       true ->
         opts
 
@@ -439,6 +452,10 @@ defmodule ImagePipe.Source.ReqStream do
         |> Keyword.update(:headers, [], &conditional_headers/1)
     end
   end
+
+  # URI.merge leaves the port of a protocol-relative Location unset.
+  defp origin(uri),
+    do: {uri.scheme, String.downcase(uri.host || ""), uri.port || URI.default_port(uri.scheme)}
 
   defp conditional_headers(headers) do
     Enum.filter(headers, fn {name, _value} ->

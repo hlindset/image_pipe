@@ -134,14 +134,19 @@ defmodule ImagePipe.RequestSafetyTest do
     assert conn.status == 400
   end
 
-  test "a NUL byte in the source fails as an invalid source before any adapter sees it" do
+  test "a NUL byte or invalid UTF-8 in the source fails as an invalid source before any adapter sees it" do
     config =
       ImagePipe.Plug.init(
         allow_unsigned: true,
         sources: [path: [adapter: DenyingSourceAdapter, match: :path, options: []]]
       )
 
-    for path <- ["/format=jpeg/src/images/a.jpg%00.png", "/format=jpeg/src64/aW1hZ2VzL2EuanBnAA"] do
+    for path <- [
+          "/format=jpeg/src/images/a.jpg%00.png",
+          "/format=jpeg/src64/aW1hZ2VzL2EuanBnAA",
+          "/format=jpeg/src/images/%FF.png",
+          "/format=jpeg/src64/__4"
+        ] do
       conn = ImagePipe.Plug.call(conn(:get, path), config)
       assert conn.status == 400
       assert conn.resp_body == "invalid source"

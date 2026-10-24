@@ -16,6 +16,42 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Before, `pad=5/bg=00ff00` painted `(192, 208, 11)` instead of
   `(0, 255, 0)`, and a progressive blur or several blur groups could
   crash the BEAM.
+- An HTTP source that redirects to a protocol-relative `Location` on the
+  same host, such as `//images.example.com/moved.jpg`, keeps its
+  configured `auth`, `aws_sigv4` and headers on the next request. Before,
+  ImagePipe treated it as another origin and dropped them, so the origin
+  usually answered `401` or `403`.
+- A file source and the filesystem cache treat a path under their root
+  that follows more than 40 symlinks as unsafe. A file source request for
+  such a path fails as a denied path (`404`). Before, some symlink loops
+  inside the root, such as one that passes through a link to `.`, hung the
+  request, or the cache's startup check or first lookup, and grew memory
+  without bound.
+- With `stages: true`, the default Logger logs `:processing_error` on
+  `[:source, :watermark]` and `[:transform, :execute]`, and `:error` on
+  `[:transform, :operation]`, at `:warning`. Before, it logged them at the
+  configured level.
+- The tracer ends an `image_pipe.http.client` span with an error status
+  when a step of the HTTP request raises an exception. Before, the span
+  stayed open and the trace lacked it.
+- An HTTP or S3 source whose response declares a `Content-Length` over
+  `max_body_bytes` fails as soon as the headers arrive. Before, the body
+  kept arriving into memory until ImagePipe read past the limit.
+- The filesystem cache deletes an entry's temporary metadata file when
+  writing it fails, such as on a full disk. Before, the file stayed until
+  the daily sweep.
+- An AVIF whose major brand is a generic HEIF brand, such as `mif1`, with
+  `avif` among its compatible brands is detected as AVIF. Before, it was
+  detected as HEIF, so `skip_processing_formats: [:avif]` didn't pass it
+  through and `info` reported `heif`.
+- A `src` or `src64` source that isn't valid UTF-8 fails with `400`
+  `invalid source` before the source is fetched, as a watermark source
+  does.
+  Before, it reached the source and usually failed with `404`.
+- In telemetry, a query part without a value, such as `&token` in a
+  source URL or in a request's query string, is replaced with `REDACTED`.
+  Before, it was kept, so a bare token that an origin authorizes with
+  appeared in `:source_url`, the logged path, and traces.
 
 ## [0.4.0] - 2026-10-23
 

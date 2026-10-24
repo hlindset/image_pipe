@@ -54,6 +54,15 @@ defmodule ImagePipe.Format.DetectorTest do
       end
     end
 
+    test "a HEIF brand with avif among the compatible brands is AVIF" do
+      assert Detector.detect(<<0, 0, 0, 0x1C, "ftypmif1", 0::32, "mif1miafavif">>) == :avif
+      assert Detector.detect(<<0, 0, 0, 0x18, "ftypmif1", 0::32, "miafheic">>) == :heif
+    end
+
+    test "only brands inside the ftyp box count" do
+      assert Detector.detect(<<0, 0, 0, 0x18, "ftypmif1", 0::32, "miafheic", "avif">>) == :heif
+    end
+
     test "TIFF little-endian and big-endian" do
       assert Detector.detect(<<"II", 0x2A, 0x00, 0, 0>>) == :tiff
       assert Detector.detect(<<"MM", 0x00, 0x2A, 0, 0>>) == :tiff

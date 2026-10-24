@@ -42,4 +42,12 @@ defmodule ImagePipe.SafePathPropertyTest do
       assert SafePath.relative(path, root) == Path.safe_relative(path, root), path
     end
   end
+
+  test "a loop that passes through a link to . is unsafe", %{tmp_dir: root} do
+    for {name, target} <- [{"a", "c/b"}, {"c", "."}, {"b", "a"}] do
+      File.ln_s!(target, Path.join(root, name))
+    end
+
+    assert SafePath.relative("a/x", root) == :error
+  end
 end

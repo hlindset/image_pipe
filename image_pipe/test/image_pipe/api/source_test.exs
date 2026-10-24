@@ -235,6 +235,10 @@ defmodule ImagePipe.API.SourceTest do
       assert {:error, {:invalid_source, _reason}} = Source.translate("", [])
     end
 
+    test "a source that isn't valid UTF-8 is rejected" do
+      assert {:error, {:invalid_source, :invalid_utf8}} = Source.translate(<<"a", 255>>, [])
+    end
+
     test "a non-http(s) scheme is rejected" do
       assert {:error, {:invalid_source, _reason}} =
                Source.translate("ftp://example.com/cat.jpg", [])

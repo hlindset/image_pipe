@@ -123,6 +123,21 @@ defmodule ImagePipe.Telemetry.Trace.ReqStepTest do
     assert is_binary(s.attributes[:"error.type"])
   end
 
+  test "ends the client span with status :error when the request raises" do
+    Telemetry.span([], [:request], %{}, fn ->
+      req =
+        stub_request(fn _req -> raise ArgumentError, "connect crashed" end)
+        |> ReqStep.attach()
+
+      assert_raise ArgumentError, fn -> Req.request(req) end
+      {:ok, %{result: :ok}}
+    end)
+
+    assert_receive {:span, %Span{name: "image_pipe.http.client", kind: :client} = s}
+    assert s.status == :error
+    assert s.attributes[:"error.type"] == "ArgumentError"
+  end
+
   test "error span carries the exception type, never the inspected message" do
     Telemetry.span([], [:request], %{}, fn ->
       req =

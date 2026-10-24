@@ -17,6 +17,13 @@ defmodule ImagePipe.Source.ReqStreamTest do
     assert error.reason == :truncated_body
   end
 
+  test "a declared Content-Length over max_body_bytes fails before streaming" do
+    {_origin, url} = raw_origin("HTTP/1.1 200 OK\r\ncontent-length: 100\r\n\r\nshort")
+
+    assert ReqStream.open([url: url], max_body_bytes: 99) ==
+             {:error, {:source, :body_too_large}}
+  end
+
   test "an incomplete chunked response is a truncated body" do
     {_origin, url} =
       raw_origin("HTTP/1.1 200 OK\r\ntransfer-encoding: chunked\r\n\r\n5\r\nshort\r\n")
@@ -151,6 +158,36 @@ defmodule ImagePipe.Source.ReqStreamTest do
 
       assert Enum.join(stream) == "bytes"
     end
+  end
+
+  test "a protocol-relative redirect to the same host keeps authorization and headers" do
+    plug = fn conn ->
+      assert Plug.Conn.get_req_header(conn, "authorization") == ["Bearer private"]
+      assert Plug.Conn.get_req_header(conn, "x-api-key") == ["private"]
+
+      case conn.request_path do
+        "/image" ->
+          conn
+          |> Plug.Conn.put_resp_header("location", "//first.test/moved")
+          |> Plug.Conn.send_resp(302, "")
+
+        "/moved" ->
+          Plug.Conn.send_resp(conn, 200, "bytes")
+      end
+    end
+
+    stream =
+      open_body!(
+        [
+          url: "https://first.test/image",
+          plug: plug,
+          auth: {:bearer, "private"},
+          headers: [{"x-api-key", "private"}]
+        ],
+        max_redirects: 1
+      )
+
+    assert Enum.join(stream) == "bytes"
   end
 
   test "a redirect from https to http is refused" do

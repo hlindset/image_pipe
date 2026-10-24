@@ -75,8 +75,10 @@ would be `nil` is left out of the metadata.
 `:exception` events also carry `:kind`, `:reason`, and `:stacktrace`.
 
 Metadata never includes signing or encryption keys. In source URLs, each
-query value and any user name and password are replaced with `REDACTED`. [What events contain](telemetry.md#what-events-contain) lists
-the paths and source URLs metadata includes.
+query value, each query part without a value, such as `&token`, and any
+user name and password are replaced with `REDACTED`.
+[What events contain](telemetry.md#what-events-contain) lists the paths and
+source URLs metadata includes.
 
 ## Result values
 
@@ -118,7 +120,8 @@ stages. `ImagePipe.write/5` writes its destination after the span closes.
       standard base64 can hold `/`, so the segments after it made only of
       base64 characters are dropped too.
     - Without a source segment, the query string is kept with each value
-      replaced with `REDACTED`, as in `?v=REDACTED`.
+      and each part without a value replaced with `REDACTED`, as in
+      `?v=REDACTED`.
     - Bytes that aren't valid UTF-8 become `U+FFFD`.
     - Other segments are kept as sent, including the URL signature (`sig=`)
       and `wm-enc=` values.
@@ -216,8 +219,9 @@ preset lookup, and URL parsing. Why a request was rejected is on the
     success: a `src` source percent-decoded, a `src64` source decoded from
     base64, or an `enc` source decrypted. It's a URL or a path, such as
     `photos/cat.jpg`. Each value in its query string is replaced with
-    `REDACTED`, as in `?X-Amz-Signature=REDACTED`, and so is a user name and
-    password, as in `https://REDACTED@origin.example/cat.jpg`. Bytes that
+    `REDACTED`, as in `?X-Amz-Signature=REDACTED`. So is each part without
+    a value, such as `&token`, and a user name and password, as in
+    `https://REDACTED@origin.example/cat.jpg`. Bytes that
     aren't valid UTF-8 become `U+FFFD`, and control characters, such as a
     line break, are percent-encoded (`%0A`).
   - `:watermark_source_urls` (list of strings): the watermark source of each
@@ -497,6 +501,8 @@ parse and render spans don't.
   output-cache miss.
 - Stop metadata: `:result` (atom), a request [result value](#result-values).
 
+The default Logger logs any result other than `:ok` at `:warning`.
+
 ## Cache events
 
 ### `[:cache, :lookup]`
@@ -702,6 +708,8 @@ Requested and executed operations can differ: `:crop_guided` and
 requested operation can run as several. `:operation_count` can therefore
 differ from the number of `[:transform, :operation]` spans.
 
+The default Logger logs `:processing_error` at `:warning`.
+
 ### `[:transform, :input_color_management]`
 
 Span. Nested in `[:transform, :execute]`. Wraps preparing the decoded image's
@@ -733,6 +741,8 @@ work, except for a `[:transform, :materialize]` nested in it.
   - `:result` (atom): `:ok` or `:error`.
   - `:dims` (`{width, height}`): the image size after the operation, on
     success.
+
+The default Logger logs `:error` at `:warning`.
 
 ### `[:transform, :materialize]`
 
