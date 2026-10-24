@@ -7,10 +7,15 @@ defmodule ImagePipe.Telemetry.SourceURLTest do
   describe "source_url/1" do
     test "redacts every query value and keeps the names" do
       assert Telemetry.source_url(
-               "https://o.test/a.jpg?X-Amz-Signature=s&token=t;hdnts=exp~1&v=2&flag&empty="
+               "https://o.test/a.jpg?X-Amz-Signature=s&token=t;hdnts=exp~1&v=2&empty="
              ) ==
                "https://o.test/a.jpg?X-Amz-Signature=REDACTED&token=REDACTED;" <>
-                 "hdnts=REDACTED&v=REDACTED&flag&empty=REDACTED"
+                 "hdnts=REDACTED&v=REDACTED&empty=REDACTED"
+    end
+
+    test "redacts a query component without a value, which can be a token" do
+      assert Telemetry.source_url("https://o.test/a.jpg?sig=1&s3cr3t&&v") ==
+               "https://o.test/a.jpg?sig=REDACTED&REDACTED&&REDACTED"
     end
 
     test "reads the query as the origin does" do

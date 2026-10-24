@@ -289,8 +289,9 @@ defmodule ImagePipe.Telemetry do
   # `REDACTED`, along with the segments after one that only base64 could
   # make, which are the rest of a standard-base64 token split at its `/`. A
   # query after a source is the source's own, so it's dropped. Without a
-  # source, the query's values become `REDACTED`. Nothing is decoded, so the
-  # work stays linear in the path's length. Invalid UTF-8 is replaced.
+  # source, the query's values and value-less parts become `REDACTED`.
+  # Nothing is decoded, so the work stays linear in the path's length.
+  # Invalid UTF-8 is replaced.
   @spec request_path(String.t(), String.t()) :: String.t()
   def request_path(path, query) do
     path =
@@ -330,8 +331,8 @@ defmodule ImagePipe.Telemetry do
   defp base64_piece?(padding), do: padding in ["", "=", "=="]
 
   @doc false
-  # A parsed source for telemetry: its query values, and any userinfo,
-  # become `REDACTED`. The query runs from the first `?` to a `#`, as the
+  # A parsed source for telemetry: its query values, query parts without a
+  # value, and any userinfo become `REDACTED`. The query runs from the first `?` to a `#`, as the
   # origin reads it. A source is decoded from the request without a UTF-8
   # check, so invalid bytes are replaced and control characters
   # percent-encoded, keeping log lines whole and valid.
@@ -413,10 +414,13 @@ defmodule ImagePipe.Telemetry do
     redact_pairs(rest, query, offset + byte_size(pair) + 1, [separator, redact_param(pair) | acc])
   end
 
+  # A component without `=` can be a bare token, so it's redacted whole.
+  defp redact_param(""), do: ""
+
   defp redact_param(pair) do
     case :binary.split(pair, "=") do
       [name, _value] -> [name, "=REDACTED"]
-      [_name] -> pair
+      [_token] -> "REDACTED"
     end
   end
 
