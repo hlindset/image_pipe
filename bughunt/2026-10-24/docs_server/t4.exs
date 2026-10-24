@@ -1,0 +1,18 @@
+Code.require_file("common.exs", __DIR__)
+base = %{"IPS_URL__ALLOW_UNSIGNED" => "true"}
+e = fn m -> Map.merge(base, m) end
+T.show("base_url", e.(%{"IPS_URL__BASE_URL" => "https://x.com"}), fn _ -> :accepted end)
+T.show("encrypt_source", e.(%{"IPS_URL__ENCRYPT_SOURCE" => "true"}), fn _ -> :accepted end)
+T.show("enc keys without keys", e.(%{"IPS_URL__SOURCE_ENCRYPTION_KEYS" => String.duplicate("cd", 32)}), fn _ -> :accepted end)
+T.show("keys short", %{"IPS_URL__KEYS" => "abcd"})
+T.show("log_stages no requests", e.(%{"IPS_TELEMETRY__LOG_REQUESTS" => "false", "IPS_TELEMETRY__LOG_STAGES" => "true"}))
+T.show("detector_warmup list", e.(%{"IPS_PROCESSING__DETECTOR_WARMUP" => "face"}), fn c -> c.detector_warmup end)
+T.show("max_concurrency default", e.(%{}), fn c -> {c.pool[:max_concurrency], c.pool[:low_priority_max_concurrency], System.schedulers_online()} end)
+T.show("cache output env", e.(%{"IPS_CACHE__OUTPUT__ROOT" => "/tmp/x", "IPS_CACHE__OUTPUT__MAX_SIZE_BYTES" => "1000000"}), fn c -> T.opts(c)[:cache] end)
+T.show("cache output rel root", e.(%{"IPS_CACHE__OUTPUT__ROOT" => "rel", "IPS_CACHE__OUTPUT__MAX_SIZE_BYTES" => "1000000"}))
+T.show("cache output no size", e.(%{"IPS_CACHE__OUTPUT__ROOT" => "/tmp/x"}))
+T.show("vary_on toml", Map.put(base, "IPS_CONFIG_TOML", "[cache]\nvary_on = [{ header = \"X-Tenant\" }, { cookie = \"ab\" }]\n"), fn c -> T.opts(c)[:vary_on] end)
+T.show("freshness force", Map.put(base, "IPS_CONFIG_TOML", "[processing]\nsource_cache_policy = { freshness = { force = 60 }, stale_while_revalidate = \"disabled\" }\n"), fn c -> T.opts(c)[:source_cache_policy] end)
+T.show("buckets", Map.put(base, "IPS_CONFIG_TOML", "[sources.m]\nadapter=\"s3\"\nmatch={scheme=\"s3\"}\nregion=\"r\"\nendpoint=\"https://s3.x.com\"\ncredentials={static={access_key_id=\"a\", secret_access_key=\"b\"}}\n[sources.m.buckets.b1]\nregion=\"eu\"\ncredentials={provider=\"instance_role\"}\n"), fn c -> c.credential_warmups end)
+T.show("log_level env invalid", e.(%{"IPS_TELEMETRY__LOG_LEVEL" => "warn"}))
+T.show("http_cache inherit at top", e.(%{"IPS_HTTP__HTTP_CACHE" => "inherit"}))

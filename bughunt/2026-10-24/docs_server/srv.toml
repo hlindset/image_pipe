@@ -1,0 +1,20 @@
+[server]
+port = 18431
+health_port = 18432
+
+[sources.photos]
+adapter = "file"
+match = "path"
+root = "/tmp/claude-0/-home-user-image-pipe/d50ad5e9-8a8c-51d3-9791-b10ebb68545c/scratchpad/docs_server/imgs"
+root_id = "photos"
+
+[url]
+allow_unsigned = true
+
+[cache.output]
+root = "/tmp/claude-0/-home-user-image-pipe/d50ad5e9-8a8c-51d3-9791-b10ebb68545c/scratchpad/docs_server/cachedir"
+max_size_bytes = 1073741824
+
+[stats]
+enabled = true
+token = "3b9f6c1e8a2d4f7b0c5e9a1d6f2b8c4e"

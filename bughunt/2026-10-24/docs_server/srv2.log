@@ -1,0 +1,16 @@
+2026-10-24 11:44:05.977 [info] Loading 122 CA(s) from :otp store
+2026-10-24 11:44:06.073 [info] Running ImagePipeServer.Health with Bandit 1.13.1 at 0.0.0.0:18432 (http)
+2026-10-24 11:44:06.073 [warning] ImagePipe instance ImagePipeServer.ImagePipe serves unsigned URLs (allow_unsigned: true). Keep its mounts on a private network, and sign URLs (:keys) for public traffic.
+2026-10-24 11:44:06.079 [info] cache: claimed cache root /tmp/claude-0/-home-user-image-pipe/d50ad5e9-8a8c-51d3-9791-b10ebb68545c/scratchpad/docs_server/cachedir as host "vm"
+2026-10-24 11:44:06.186 [info] Running ImagePipeServer.Router with Bandit 1.13.1 at 0.0.0.0:18431 (http)
+2026-10-24 11:44:07.095 request_id=GOF0hlxPvHhyocYAAAqh [warning] GET /images/w=40/src/REDACTED 401 1ms
+2026-10-24 11:44:07.144 request_id=GOF0hlzWLQNdq9wAAArB [info] GET /images/w=40/src/REDACTED 200 35ms 824B source_url=photo.jpg cache=hit source=photos source_fetch=ok fetch_ms=3
+2026-10-24 11:44:07.150 request_id=GOF0hl-0LvjSbcEAAArh [warning] GET /images/w=40/src/REDACTED 401 0ms
+2026-10-24 11:44:07.157 request_id=GOF0hmAk3ClTB30AAAsB [warning] GET /other 401 0ms
+2026-10-24 11:44:07.165 request_id=GOF0hmCVR_4sZ5QAAAsh [info] GET /other 404 0ms
+2026-10-24 11:44:07.172 request_id=GOF0hmEKpjTg5Y8AAAtB [warning] GET /other 401 0ms
+2026-10-24 11:44:07.222 request_id=GOF0hmPt9Roi2k0AAAwh [info] GET /images/w=40/src/REDACTED 200 0ms 824B source_url=photo.jpg cache=hit source=photos source_fetch=not_modified fetch_ms=0
+2026-10-24 11:44:07.228 request_id=my-id.1:2 [info] GET /images/w=40/src/REDACTED 200 0ms 824B source_url=photo.jpg cache=hit source=photos source_fetch=not_modified fetch_ms=0
+2026-10-24 11:44:07.234 request_id=GOF0hmS0U3tt0ckAAAxB [info] GET /images/w=40/src/REDACTED 200 0ms 824B source_url=photo.jpg cache=hit source=photos source_fetch=not_modified fetch_ms=0
+2026-10-24 11:44:16.173 [notice] SIGTERM received - shutting down
+

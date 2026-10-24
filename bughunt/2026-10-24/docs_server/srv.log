@@ -1,0 +1,41 @@
+2026-10-24 11:42:05.124 [info] Loading 122 CA(s) from :otp store
+2026-10-24 11:42:05.295 [info] Running ImagePipeServer.Health with Bandit 1.13.1 at 0.0.0.0:18432 (http)
+2026-10-24 11:42:05.295 [warning] ImagePipe instance ImagePipeServer.ImagePipe serves unsigned URLs (allow_unsigned: true). Keep its mounts on a private network, and sign URLs (:keys) for public traffic.
+2026-10-24 11:42:05.302 [info] cache: claimed cache root /tmp/claude-0/-home-user-image-pipe/d50ad5e9-8a8c-51d3-9791-b10ebb68545c/scratchpad/docs_server/cachedir as host "vm"
+2026-10-24 11:42:05.451 [info] Running ImagePipeServer.Router with Bandit 1.13.1 at 0.0.0.0:18431 (http)
+2026-10-24 11:42:11.493 request_id=GOF0a2133Zh0rPYAABZh [info] GET /w=400/src/REDACTED 200 70ms 578B source_url=photo.jpg cache=miss source=photos source_fetch=ok fetch_ms=4 input=jpeg input_size=4000x2667 decode_ms=4 ops=resize output=avif output_size=400x267 encode_ms=20 admission=admitted queue_ms=0
+2026-10-24 11:42:11.571 request_id=GOF0a3Wvp8K1Qd8AABaB [info] GET /w=400/src/REDACTED 200 15ms 2.5kB source_url=photo.jpg cache=miss source=photos source_fetch=ok fetch_ms=0 input=jpeg input_size=4000x2667 decode_ms=1 ops=resize output=jpeg output_size=400x267 encode_ms=2 admission=admitted queue_ms=0
+2026-10-24 11:42:11.625 request_id=GOF0a3eGE_cXgCkAABah [info] GET /w=800/src/REDACTED 200 39ms 578B source_url=photo.jpg cache=miss source=photos source_fetch=ok fetch_ms=0 input=jpeg input_size=4000x2667 decode_ms=1 ops=resize output=avif output_size=800x533 encode_ms=24 admission=admitted queue_ms=0
+2026-10-24 11:42:11.664 request_id=GOF0a3qd5gnwsSUAABbB [info] GET /w=300/h=300/src/REDACTED 200 27ms 570B source_url=photo.jpg cache=miss source=photos source_fetch=ok fetch_ms=0 input=jpeg input_size=4000x2667 decode_ms=1 ops=resize output=avif output_size=300x200 encode_ms=9 admission=admitted queue_ms=0
+2026-10-24 11:42:11.709 request_id=GOF0a30H9cB6LgUAABbh [info] GET /w=300/h=300/fit=cover/src/REDACTED 200 31ms 576B source_url=photo.jpg cache=miss source=photos source_fetch=ok fetch_ms=0 input=jpeg input_size=4000x2667 decode_ms=5 ops=resize,crop output=avif output_size=300x300 encode_ms=10 admission=admitted queue_ms=0
+2026-10-24 11:42:11.725 request_id=GOF0a3-ZDT1qibsAABcB [info] GET /fit=cover/h=300/w=300/src/REDACTED 200 3ms 576B source_url=photo.jpg cache=hit source=photos source_fetch=not_modified fetch_ms=0
+2026-10-24 11:42:11.753 request_id=GOF0a4C84Ah2HioAABch [info] GET /w=300/h=300/fit=cover/format=png/src/REDACTED 200 13ms 1.1kB source_url=photo.jpg cache=miss source=photos source_fetch=ok fetch_ms=0 input=jpeg input_size=4000x2667 decode_ms=1 ops=resize,crop output=png output_size=300x300 encode_ms=2 admission=admitted queue_ms=0
+2026-10-24 11:42:11.776 request_id=GOF0a4IuFx9bQdkAABdB [info] GET /w=30/format=webp/src/REDACTED 200 12ms 292B source_url=photo.jpg cache=miss source=photos source_fetch=ok fetch_ms=0 input=jpeg input_size=4000x2667 decode_ms=2 ops=resize output=webp output_size=30x20 encode_ms=1 admission=admitted queue_ms=0
+2026-10-24 11:42:11.804 request_id=GOF0a4P1_Ifxf_MAABdh [info] GET /w=30/format=avif/src/REDACTED 200 9ms 535B source_url=photo.jpg cache=miss source=photos source_fetch=ok fetch_ms=0 input=jpeg input_size=4000x2667 decode_ms=1 ops=resize output=avif output_size=30x20 encode_ms=2 admission=admitted queue_ms=0
+2026-10-24 11:42:11.845 request_id=GOF0a4Y2QxvbwzAAABeB [info] GET /w=30/format=jpeg/src/REDACTED 200 12ms 816B source_url=photo.jpg cache=miss source=photos source_fetch=ok fetch_ms=0 input=jpeg input_size=4000x2667 decode_ms=1 ops=resize output=jpeg output_size=30x20 encode_ms=3 admission=admitted queue_ms=0
+2026-10-24 11:42:11.861 request_id=GOF0a4fWuc_Lc90AABeh [warning] GET /w=400/src/REDACTED 404 2ms source_url=phoot.jpg error=source reason="source not found" source=photos source_fetch=source_error fetch_ms=0
+2026-10-24 11:42:11.868 request_id=GOF0a4hRDwKp018AABfB [warning] GET /w=400/photo.jpg 400 1ms error=invalid_request reason="missing src/, src64/, or enc/ before the image path"
+2026-10-24 11:42:11.874 request_id=GOF0a4iyLVL6qnkAABfh [warning] GET /w=300/h=300/fit=fill/src/REDACTED 400 0ms error=invalid_request reason="invalid value: expected contain, cover, stretch, or auto"
+2026-10-24 11:42:19.040 request_id=GOF0bTPBh_KO-SMAABgB [info] GET /w=400/src/REDACTED 200 1ms 578B source_url=photo.jpg cache=hit source=photos source_fetch=not_modified fetch_ms=0
+2026-10-24 11:42:19.052 request_id=GOF0bTSDs8QRoL0AABgh [info] GET /w=800/src/REDACTED 200 1ms 578B source_url=photo.jpg cache=hit source=photos source_fetch=not_modified fetch_ms=0
+2026-10-24 11:42:19.062 request_id=GOF0bTUcKmsxBRgAABhB [info] GET /w=300/h=300/src/REDACTED 200 0ms 570B source_url=photo.jpg cache=hit source=photos source_fetch=not_modified fetch_ms=0
+2026-10-24 11:42:19.071 request_id=GOF0bTWt-LeOd6YAABhh [info] GET /w=300/h=300/fit=cover/src/REDACTED 200 0ms 576B source_url=photo.jpg cache=hit source=photos source_fetch=not_modified fetch_ms=0
+2026-10-24 11:43:20.881 request_id=GOF0e5ncXWnVutEAABkh [warning] GET /images/w=40/src/REDACTED 400 0ms error=invalid_request reason="unknown option"
+2026-10-24 11:43:20.887 request_id=GOF0e5o6KnRvHooAABlB [warning] GET /images/w=40/src/REDACTED 400 0ms error=invalid_request reason="unknown option"
+2026-10-24 11:43:20.894 request_id=GOF0e5qfiZIQboYAABlh [warning] GET /other 400 0ms error=invalid_request reason="missing src/, src64/, or enc/ before the image path"
+2026-10-24 11:43:20.899 request_id=GOF0e5rztN3_MFAAABmB [warning] GET /other 400 0ms error=invalid_request reason="missing src/, src64/, or enc/ before the image path"
+2026-10-24 11:43:20.929 request_id=GOF0e5y4oDk9xvYAABoh [warning] GET /images/w=40/src/REDACTED 400 0ms error=invalid_request reason="unknown option"
+2026-10-24 11:43:20.934 request_id=GOF0e50K3Nwcm-sAABpB [warning] GET /images/w=40/src/REDACTED 400 0ms error=invalid_request reason="unknown option"
+2026-10-24 11:43:20.941 request_id=GOF0e51sY2Wf-kEAABph [warning] GET /images/w=40/src/REDACTED 400 0ms error=invalid_request reason="unknown option"
+2026-10-24 11:43:46.717 [notice] SIGTERM received - shutting down
+
+2026-10-24 11:43:46.741 request_id=GOF0gZ6E2miV6XgAABqh [info] GET /w=40/src/REDACTED 200 12ms 824B source_url=photo.jpg cache=miss source=photos source_fetch=ok fetch_ms=0 input=jpeg input_size=4000x2667 decode_ms=1 ops=resize output=jpeg output_size=40x27 encode_ms=1 admission=admitted queue_ms=0
+2026-10-24 11:43:46.748 request_id=GOF0gZ-Zwch49A8AABrB [info] GET /w=40/src/REDACTED 200 0ms 824B source_url=photo.jpg cache=hit source=photos source_fetch=not_modified fetch_ms=0
+2026-10-24 11:43:47.763 request_id=GOF0gdwcXe3OkysAABsB [info] GET /w=40/src/REDACTED 200 0ms 824B source_url=photo.jpg cache=hit source=photos source_fetch=not_modified fetch_ms=0
+2026-10-24 11:43:47.771 request_id=GOF0gdyJlhze6igAABsh [info] GET /w=40/src/REDACTED 200 1ms 824B source_url=photo.jpg cache=hit source=photos source_fetch=not_modified fetch_ms=0
+2026-10-24 11:43:48.786 request_id=GOF0ghkR8EwJ8OUAABth [info] GET /w=40/src/REDACTED 200 0ms 824B source_url=photo.jpg cache=hit source=photos source_fetch=not_modified fetch_ms=0
+2026-10-24 11:43:48.794 request_id=GOF0ghmB3bblL48AABuB [info] GET /w=40/src/REDACTED 200 1ms 824B source_url=photo.jpg cache=hit source=photos source_fetch=not_modified fetch_ms=0
+2026-10-24 11:43:49.810 request_id=GOF0glYLYj_HqVIAABvB [info] GET /w=40/src/REDACTED 200 1ms 824B source_url=photo.jpg cache=hit source=photos source_fetch=not_modified fetch_ms=0
+2026-10-24 11:43:49.817 request_id=GOF0glZ9PRWnDyAAABvh [info] GET /w=40/src/REDACTED 200 2ms 824B source_url=photo.jpg cache=hit source=photos source_fetch=not_modified fetch_ms=0
+2026-10-24 11:43:50.832 request_id=GOF0gpMJrPxonhkAABwh [info] GET /w=40/src/REDACTED 200 1ms 824B source_url=photo.jpg cache=hit source=photos source_fetch=not_modified fetch_ms=0
+2026-10-24 11:43:50.839 request_id=GOF0gpNwy8qYbpIAABxB [info] GET /w=40/src/REDACTED 200 0ms 824B source_url=photo.jpg cache=hit source=photos source_fetch=not_modified fetch_ms=0

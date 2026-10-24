@@ -1,0 +1,9 @@
+2026-10-24 11:46:13.577 [info] Loading 122 CA(s) from :otp store
+2026-10-24 11:46:13.680 [info] Running ImagePipeServer.Health with Bandit 1.13.1 at 0.0.0.0:18432 (http)
+2026-10-24 11:46:13.680 [warning] ImagePipe instance ImagePipeServer.ImagePipe serves unsigned URLs (allow_unsigned: true). Keep its mounts on a private network, and sign URLs (:keys) for public traffic.
+2026-10-24 11:46:13.686 [info] cache: claimed cache root /tmp/claude-0/-home-user-image-pipe/d50ad5e9-8a8c-51d3-9791-b10ebb68545c/scratchpad/docs_server/cachedir as host "vm"
+2026-10-24 11:46:13.785 [info] Running ImagePipeServer.Router with Bandit 1.13.1 at 0.0.0.0:18431 (http)
+2026-10-24 11:46:14.674 request_id=GOF0pA35gqdyocYAABXh [info] GET /w=40/src/REDACTED 200 40ms 824B source_url=trips/beach.jpg cache=miss source=photos source_fetch=ok fetch_ms=2 input=jpeg input_size=4000x2667 decode_ms=1 ops=resize output=jpeg output_size=40x27 encode_ms=5 admission=admitted queue_ms=0
+2026-10-24 11:46:14.682 request_id=GOF0pBEIgZYqlpgAABYB [info] GET /w=40/src/REDACTED 200 2ms 824B source_url=trips/beach.jpg cache=hit source=photos source_fetch=not_modified fetch_ms=0
+2026-10-24 11:53:53.105 [notice] SIGTERM received - shutting down
+

@@ -1,0 +1,10 @@
+HTTP/1.1 200 OK
+transfer-encoding: chunked
+date: Sat, 24 Oct 2026 11:42:10 GMT
+cache-control: public, max-age=0
+x-request-id: GOF0a4Y2QxvbwzAAABeB
+etag: "ipr1-B-g1GQ9kuGM50gDmNRYiHXhKH22yx4DQlvA1eDsvAkc"
+age: 0
+content-disposition: inline
+content-type: image/jpeg
+
