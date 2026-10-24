@@ -497,6 +497,8 @@ parse and render spans don't.
   output-cache miss.
 - Stop metadata: `:result` (atom), a request [result value](#result-values).
 
+The default Logger logs any result other than `:ok` at `:warning`.
+
 ## Cache events
 
 ### `[:cache, :lookup]`
@@ -702,6 +704,8 @@ Requested and executed operations can differ: `:crop_guided` and
 requested operation can run as several. `:operation_count` can therefore
 differ from the number of `[:transform, :operation]` spans.
 
+The default Logger logs `:processing_error` at `:warning`.
+
 ### `[:transform, :input_color_management]`
 
 Span. Nested in `[:transform, :execute]`. Wraps preparing the decoded image's
@@ -733,6 +737,8 @@ work, except for a `[:transform, :materialize]` nested in it.
   - `:result` (atom): `:ok` or `:error`.
   - `:dims` (`{width, height}`): the image size after the operation, on
     success.
+
+The default Logger logs `:error` at `:warning`.
 
 ### `[:transform, :materialize]`
 

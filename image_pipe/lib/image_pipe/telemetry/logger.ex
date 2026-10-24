@@ -230,6 +230,7 @@ defmodule ImagePipe.Telemetry.Logger do
         :parser_error
       ] or
       encode_failure?(suffix, metadata) or
+      stage_failure?(suffix, metadata) or
       color_management_failure?(suffix, metadata) or
       detect_fallback_warning?(suffix, metadata) or
       negotiate_failure?(suffix, metadata) or
@@ -244,6 +245,13 @@ defmodule ImagePipe.Telemetry.Logger do
   # `:client_closed`), which stay at the base level.
   defp encode_failure?([:encode | _], meta), do: meta[:result] == :processing_error
   defp encode_failure?(_suffix, _meta), do: false
+
+  # A watermark that couldn't be prepared and a transform that failed carry no
+  # client-side outcome, so a failure there is always worth a warning.
+  defp stage_failure?([:source, :watermark | _], meta), do: meta[:result] == :processing_error
+  defp stage_failure?([:transform, :operation | _], meta), do: meta[:result] == :error
+  defp stage_failure?([:transform, :execute | _], meta), do: meta[:result] == :processing_error
+  defp stage_failure?(_suffix, _meta), do: false
 
   # A corrupt or unsupported embedded ICC profile that prevents color conditioning —
   # a decode-class failure (maps to 415). Escalate to :warning.

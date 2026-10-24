@@ -509,6 +509,24 @@ defmodule ImagePipe.Telemetry.LoggerTest do
     assert log =~ "encode: processing_error"
   end
 
+  test "escalates watermark and transform stage failures to warning" do
+    prefix = [__MODULE__, :stage_failures]
+    Telemetry.attach_default_logger(prefix: prefix, level: :info, stages: true)
+
+    for {event, metadata} <- [
+          {[:source, :watermark, :stop], %{phase: :open, result: :processing_error}},
+          {[:transform, :operation, :stop], %{operation: :resize, result: :error}},
+          {[:transform, :execute, :stop], %{result: :processing_error, operation_count: 2}}
+        ] do
+      log =
+        capture_log(fn ->
+          :telemetry.execute(prefix ++ event, %{duration: 1000}, metadata)
+        end)
+
+      assert log =~ "[warning]", inspect(event)
+    end
+  end
+
   test "renders the encode-search stop with outcome, chosen quality/bytes, and score" do
     Telemetry.attach_default_logger(level: :info, stages: true)
 

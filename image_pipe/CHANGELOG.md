@@ -25,6 +25,9 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   than 40 symlinks as unsafe. Before, some symlink loops inside the root,
   such as one that passes through a link to `.`, hung the cache's startup
   check or its first lookup and grew its memory without bound.
+- With `stages: true`, the default Logger logs a watermark that failed, a
+  failed transform operation, and a failed `[:transform, :execute]` at
+  `:warning`. Before, it logged them at the configured level.
 
 ## [0.4.0] - 2026-10-23
 
