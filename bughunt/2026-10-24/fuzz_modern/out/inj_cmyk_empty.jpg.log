@@ -1,0 +1,7 @@
+=== /tmp/claude-0/-home-user-image-pipe/d50ad5e9-8a8c-51d3-9791-b10ebb68545c/scratchpad/fuzz_modern/inputs/inj/cmyk_empty.jpg
+/tmp/claude-0/-home-user-image-pipe/d50ad5e9-8a8c-51d3-9791-b10ebb68545c/scratchpad/fuzz_modern/scripts/rc.sh: line 6:  7477 Segmentation fault      MIX_ENV=test timeout ${TO:-120} mix run --no-compile $F/scripts/run.exs "$@" > /tmp/claude-0/-home-user-image-pipe/d50ad5e9-8a8c-51d3-9791-b10ebb68545c/scratchpad/fuzz_modern/out/last.$$ 2>&1
+[] 200 image/jpeg 927B 128ms 96x64x3 VIPS_INTERPRETATION_sRGB icc=0 p00=[201, 37, 48] pc=[69, 136, 179]
+[w=300/] 200 image/jpeg 927B 35ms 96x64x3 VIPS_INTERPRETATION_sRGB icc=0 p00=[201, 37, 48] pc=[69, 136, 179]
+[crop=50pct,50pct/rotate=90/] 200 image/jpeg 878B 32ms 32x48x3 VIPS_INTERPRETATION_sRGB icc=0 p00=[201, 37, 48] pc=[69, 136, 181]
+[blur=5/] 200 image/jpeg 1051B 32ms 96x64x3 VIPS_INTERPRETATION_sRGB icc=0 p00=[201, 37, 48] pc=[93, 106, 140]
+EXIT=139 T=1.166066300

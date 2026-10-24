@@ -1,0 +1,11 @@
+=== /tmp/claude-0/-home-user-image-pipe/d50ad5e9-8a8c-51d3-9791-b10ebb68545c/scratchpad/fuzz_modern/inputs/inj/greyjpg_p3.jpg
+[] 200 image/jpeg 594B 120ms 96x64x1 VIPS_INTERPRETATION_B_W icc=0 p00=~c"f" pc=[150]
+[w=300/] 200 image/jpeg 594B 9ms 96x64x1 VIPS_INTERPRETATION_B_W icc=0 p00=~c"f" pc=[150]
+[crop=50pct,50pct/rotate=90/] 200 image/jpeg 523B 13ms 32x48x1 VIPS_INTERPRETATION_B_W icc=0 p00=~c"f" pc=[150]
+[blur=5/] 200 image/jpeg 646B 8ms 96x64x1 VIPS_INTERPRETATION_B_W icc=0 p00=~c"f" pc=[129]
+[progressive-blur=5,down,0,1/format=png/] 200 image/png 593B 29ms 96x64x1 VIPS_INTERPRETATION_B_W icc=0 p00=~c"f" pc=[130]
+[pad=10/bg=00ff00/format=png/] 200 image/png 518B 25ms 116x84x3 VIPS_INTERPRETATION_sRGB icc=0 p00=[0, 255, 0] pc=[150, 150, 150]
+[format=webp/] 200 image/webp 288B 7ms 96x64x3 VIPS_INTERPRETATION_sRGB icc=0 p00=~c"fff" pc=[150, 150, 150]
+[format=avif/] 200 image/avif 543B 8ms 96x64x3 VIPS_INTERPRETATION_sRGB icc=0 p00=~c"fff" pc=[150, 150, 150]
+[format=png/] 200 image/png 321B 5ms 96x64x1 VIPS_INTERPRETATION_B_W icc=0 p00=~c"f" pc=[150]
+EXIT=0 T=1.085727542

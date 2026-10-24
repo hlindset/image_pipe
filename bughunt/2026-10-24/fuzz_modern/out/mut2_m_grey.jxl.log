@@ -1,0 +1,613 @@
+    │
+ 21 │           <<pre::binary-size(pos), _::8, post::binary>> = acc
+    │                              ~
+    │
+    └─ /tmp/claude-0/-home-user-image-pipe/d50ad5e9-8a8c-51d3-9791-b10ebb68545c/scratchpad/fuzz_modern/scripts/mutfuzz.exs:21:30
+    │
+ 28 │         <<pre::binary-size(pos), _::binary-size(len), post::binary>> = b
+    │                            ~
+    │
+    └─ /tmp/claude-0/-home-user-image-pipe/d50ad5e9-8a8c-51d3-9791-b10ebb68545c/scratchpad/fuzz_modern/scripts/mutfuzz.exs:28:28
+    │
+ 28 │         <<pre::binary-size(pos), _::binary-size(len), post::binary>> = b
+    │                                                 ~
+    │
+    └─ /tmp/claude-0/-home-user-image-pipe/d50ad5e9-8a8c-51d3-9791-b10ebb68545c/scratchpad/fuzz_modern/scripts/mutfuzz.exs:28:49
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/modular/encoding/encoding.cc:575: JXL_FAILURE: ANS decode final state failed
+./lib/jxl/modular/encoding/encoding.cc:597: JXL_RETURN_IF_ERROR code=1: dec_status
+./lib/jxl/dec_modular.cc:413: JXL_FAILURE: Failed to decode modular DC group
+./lib/jxl/dec_frame.cc:308: JXL_RETURN_IF_ERROR code=1: modular_frame_decoder_.DecodeVarDCTDC(dc_group_id, br, dec_state_)
+./lib/jxl/dec_frame.cc:644: JXL_FAILURE: Error in DC group
+./lib/jxl/decode.cc:1182: frame processing failed
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/dec_group.cc:772: JXL_FAILURE: ANS checksum failure.
+./lib/jxl/dec_frame.cc:472: JXL_RETURN_IF_ERROR code=1: DecodeGroup(br, num_passes, ac_group_id, dec_state_, &group_dec_caches_[thread], thread, render_pipeline_input, decoded_, decoded_passes_per_ac_group_[ac_group_id], force_draw, dc_only, &should_run_pipeline)
+./lib/jxl/dec_frame.cc:717: JXL_FAILURE: Error in AC group
+./lib/jxl/decode.cc:1182: frame processing failed
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/modular/encoding/encoding.cc:575: JXL_FAILURE: ANS decode final state failed
+./lib/jxl/modular/encoding/encoding.cc:597: JXL_RETURN_IF_ERROR code=1: dec_status
+./lib/jxl/dec_modular.cc:413: JXL_FAILURE: Failed to decode modular DC group
+./lib/jxl/dec_frame.cc:308: JXL_RETURN_IF_ERROR code=1: modular_frame_decoder_.DecodeVarDCTDC(dc_group_id, br, dec_state_)
+./lib/jxl/dec_frame.cc:644: JXL_FAILURE: Error in DC group
+./lib/jxl/decode.cc:1182: frame processing failed
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/chroma_from_luma.h:84: JXL_FAILURE: Base B correlation is out of range
+./lib/jxl/dec_frame.cc:68: JXL_RETURN_IF_ERROR code=1: state->shared_storage.cmap.DecodeDC(reader)
+./lib/jxl/dec_frame.cc:283: JXL_RETURN_IF_ERROR code=1: jxl::DecodeGlobalDCInfo(br, decoded_->IsJPEG(), dec_state_, pool_)
+./lib/jxl/decode.cc:1182: frame processing failed
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/dec_ans.cc:340: JXL_FAILURE: Using LZ77 when explicitly disallowed
+./lib/jxl/dec_context_map.cc:81: JXL_RETURN_IF_ERROR code=1: DecodeHistograms(input, 1, &code, &dummy_ctx_map, context_map->size() <= 2)
+./lib/jxl/dec_ans.cc:345: JXL_RETURN_IF_ERROR code=1: DecodeContextMap(context_map, &num_histograms, br)
+./lib/jxl/dec_context_map.cc:81: JXL_RETURN_IF_ERROR code=1: DecodeHistograms(input, 1, &code, &dummy_ctx_map, context_map->size() <= 2)
+./lib/jxl/entropy_coder.cc:61: JXL_RETURN_IF_ERROR code=1: DecodeContextMap(&ctx_map, &block_ctx_map->num_ctxs, br)
+./lib/jxl/dec_frame.cc:65: JXL_RETURN_IF_ERROR code=1: DecodeBlockCtxMap(reader, &state->shared_storage.block_ctx_map)
+./lib/jxl/dec_frame.cc:283: JXL_RETURN_IF_ERROR code=1: jxl::DecodeGlobalDCInfo(br, decoded_->IsJPEG(), dec_state_, pool_)
+./lib/jxl/decode.cc:1182: frame processing failed
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/modular/transform/transform.cc:80: JXL_FAILURE: Invalid channel range: 3..6 (there are only 3 channels)
+./lib/jxl/modular/transform/palette.h:265: JXL_RETURN_IF_ERROR code=1: CheckEqualChannels(input, begin_c, end_c)
+./lib/jxl/modular/encoding/encoding.cc:474: JXL_RETURN_IF_ERROR code=1: transform.MetaApply(image)
+./lib/jxl/modular/encoding/encoding.cc:597: JXL_RETURN_IF_ERROR code=1: dec_status
+./lib/jxl/dec_modular.cc:413: JXL_FAILURE: Failed to decode modular DC group
+./lib/jxl/dec_frame.cc:308: JXL_RETURN_IF_ERROR code=1: modular_frame_decoder_.DecodeVarDCTDC(dc_group_id, br, dec_state_)
+./lib/jxl/dec_frame.cc:644: JXL_FAILURE: Error in DC group
+./lib/jxl/decode.cc:1182: frame processing failed
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/dec_group.cc:772: JXL_FAILURE: ANS checksum failure.
+./lib/jxl/dec_frame.cc:472: JXL_RETURN_IF_ERROR code=1: DecodeGroup(br, num_passes, ac_group_id, dec_state_, &group_dec_caches_[thread], thread, render_pipeline_input, decoded_, decoded_passes_per_ac_group_[ac_group_id], force_draw, dc_only, &should_run_pipeline)
+./lib/jxl/dec_frame.cc:717: JXL_FAILURE: Error in AC group
+./lib/jxl/decode.cc:1182: frame processing failed
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:1972: file type box major brand must be "jxl "
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/entropy_coder.cc:56: JXL_FAILURE: Invalid block context map: too big
+./lib/jxl/dec_frame.cc:65: JXL_RETURN_IF_ERROR code=1: DecodeBlockCtxMap(reader, &state->shared_storage.block_ctx_map)
+./lib/jxl/dec_frame.cc:283: JXL_RETURN_IF_ERROR code=1: jxl::DecodeGlobalDCInfo(br, decoded_->IsJPEG(), dec_state_, pool_)
+./lib/jxl/decode.cc:1182: frame processing failed
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/dec_context_map.cc:95: JXL_FAILURE: Invalid context map
+./lib/jxl/dec_ans.cc:345: JXL_RETURN_IF_ERROR code=1: DecodeContextMap(context_map, &num_histograms, br)
+./lib/jxl/modular/encoding/dec_ma.cc:117: JXL_RETURN_IF_ERROR code=1: DecodeHistograms(br, kNumTreeContexts, &tree_code, &tree_context_map)
+./lib/jxl/modular/encoding/encoding.cc:536: JXL_RETURN_IF_ERROR code=1: DecodeTree(br, &tree_storage, max_tree_size)
+./lib/jxl/modular/encoding/encoding.cc:597: JXL_RETURN_IF_ERROR code=1: dec_status
+./lib/jxl/dec_modular.cc:413: JXL_FAILURE: Failed to decode modular DC group
+./lib/jxl/dec_frame.cc:308: JXL_RETURN_IF_ERROR code=1: modular_frame_decoder_.DecodeVarDCTDC(dc_group_id, br, dec_state_)
+./lib/jxl/dec_frame.cc:644: JXL_FAILURE: Error in DC group
+./lib/jxl/decode.cc:1182: frame processing failed
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/chroma_from_luma.h:84: JXL_FAILURE: Base B correlation is out of range
+./lib/jxl/dec_frame.cc:68: JXL_RETURN_IF_ERROR code=1: state->shared_storage.cmap.DecodeDC(reader)
+./lib/jxl/dec_frame.cc:283: JXL_RETURN_IF_ERROR code=1: jxl::DecodeGlobalDCInfo(br, decoded_->IsJPEG(), dec_state_, pool_)
+./lib/jxl/decode.cc:1182: frame processing failed
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:1899: the second box must be the ftyp box
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:990: invalid signature
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:990: invalid signature
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/dec_ans.cc:279: JXL_FAILURE: Invalid HybridUintConfig
+./lib/jxl/dec_ans.cc:290: JXL_RETURN_IF_ERROR code=1: DecodeUintConfig(log_alpha_size, &(*uint_config)[i], br)
+./lib/jxl/dec_ans.cc:355: JXL_RETURN_IF_ERROR code=1: DecodeUintConfigs(code->log_alpha_size, &code->uint_config, br)
+./lib/jxl/dec_context_map.cc:81: JXL_RETURN_IF_ERROR code=1: DecodeHistograms(input, 1, &code, &dummy_ctx_map, context_map->size() <= 2)
+./lib/jxl/dec_ans.cc:345: JXL_RETURN_IF_ERROR code=1: DecodeContextMap(context_map, &num_histograms, br)
+./lib/jxl/modular/encoding/dec_ma.cc:117: JXL_RETURN_IF_ERROR code=1: DecodeHistograms(br, kNumTreeContexts, &tree_code, &tree_context_map)
+./lib/jxl/dec_modular.cc:198: JXL_RETURN_IF_ERROR code=1: DecodeTree(reader, &tree, tree_size_limit)
+./lib/jxl/decode.cc:1182: frame processing failed
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/dec_bit_reader.h:212: JXL_FAILURE: Non-zero padding bits
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:990: invalid signature
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/modular/encoding/encoding.cc:575: JXL_FAILURE: ANS decode final state failed
+./lib/jxl/modular/encoding/encoding.cc:597: JXL_RETURN_IF_ERROR code=1: dec_status
+./lib/jxl/dec_modular.cc:413: JXL_FAILURE: Failed to decode modular DC group
+./lib/jxl/dec_frame.cc:308: JXL_RETURN_IF_ERROR code=1: modular_frame_decoder_.DecodeVarDCTDC(dc_group_id, br, dec_state_)
+./lib/jxl/dec_frame.cc:644: JXL_FAILURE: Error in DC group
+./lib/jxl/decode.cc:1182: frame processing failed
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/modular/encoding/encoding.cc:575: JXL_FAILURE: ANS decode final state failed
+./lib/jxl/modular/encoding/encoding.cc:597: JXL_RETURN_IF_ERROR code=1: dec_status
+./lib/jxl/dec_modular.cc:413: JXL_FAILURE: Failed to decode modular DC group
+./lib/jxl/dec_frame.cc:308: JXL_RETURN_IF_ERROR code=1: modular_frame_decoder_.DecodeVarDCTDC(dc_group_id, br, dec_state_)
+./lib/jxl/dec_frame.cc:644: JXL_FAILURE: Error in DC group
+./lib/jxl/decode.cc:1182: frame processing failed
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:990: invalid signature
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/modular/encoding/encoding.cc:575: JXL_FAILURE: ANS decode final state failed
+./lib/jxl/modular/encoding/encoding.cc:597: JXL_RETURN_IF_ERROR code=1: dec_status
+./lib/jxl/dec_modular.cc:413: JXL_FAILURE: Failed to decode modular DC group
+./lib/jxl/dec_frame.cc:308: JXL_RETURN_IF_ERROR code=1: modular_frame_decoder_.DecodeVarDCTDC(dc_group_id, br, dec_state_)
+./lib/jxl/dec_frame.cc:644: JXL_FAILURE: Error in DC group
+./lib/jxl/decode.cc:1182: frame processing failed
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/modular/encoding/encoding.cc:575: JXL_FAILURE: ANS decode final state failed
+./lib/jxl/modular/encoding/encoding.cc:597: JXL_RETURN_IF_ERROR code=1: dec_status
+./lib/jxl/dec_modular.cc:413: JXL_FAILURE: Failed to decode modular DC group
+./lib/jxl/dec_frame.cc:308: JXL_RETURN_IF_ERROR code=1: modular_frame_decoder_.DecodeVarDCTDC(dc_group_id, br, dec_state_)
+./lib/jxl/dec_frame.cc:644: JXL_FAILURE: Error in DC group
+./lib/jxl/decode.cc:1182: frame processing failed
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/modular/encoding/encoding.cc:575: JXL_FAILURE: ANS decode final state failed
+./lib/jxl/modular/encoding/encoding.cc:597: JXL_RETURN_IF_ERROR code=1: dec_status
+./lib/jxl/dec_modular.cc:413: JXL_FAILURE: Failed to decode modular DC group
+./lib/jxl/dec_frame.cc:308: JXL_RETURN_IF_ERROR code=1: modular_frame_decoder_.DecodeVarDCTDC(dc_group_id, br, dec_state_)
+./lib/jxl/dec_frame.cc:644: JXL_FAILURE: Error in DC group
+./lib/jxl/decode.cc:1182: frame processing failed
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/field_encodings.h:126: JXL_FAILURE: Invalid value 0 for WhitePoint
+./lib/jxl/field_encodings.h:126: JXL_FAILURE: Invalid value 0 for WhitePoint
+./lib/jxl/fields.cc:619: JXL_RETURN_IF_ERROR code=1: visitor.Visit(fields)
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/modular/encoding/encoding.cc:575: JXL_FAILURE: ANS decode final state failed
+./lib/jxl/modular/encoding/encoding.cc:597: JXL_RETURN_IF_ERROR code=1: dec_status
+./lib/jxl/dec_modular.cc:413: JXL_FAILURE: Failed to decode modular DC group
+./lib/jxl/dec_frame.cc:308: JXL_RETURN_IF_ERROR code=1: modular_frame_decoder_.DecodeVarDCTDC(dc_group_id, br, dec_state_)
+./lib/jxl/dec_frame.cc:644: JXL_FAILURE: Error in DC group
+./lib/jxl/decode.cc:1182: frame processing failed
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:1972: file type box major brand must be "jxl "
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:990: invalid signature
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/chroma_from_luma.h:80: JXL_FAILURE: Base X correlation is out of range
+./lib/jxl/dec_frame.cc:68: JXL_RETURN_IF_ERROR code=1: state->shared_storage.cmap.DecodeDC(reader)
+./lib/jxl/dec_frame.cc:283: JXL_RETURN_IF_ERROR code=1: jxl::DecodeGlobalDCInfo(br, decoded_->IsJPEG(), dec_state_, pool_)
+./lib/jxl/decode.cc:1182: frame processing failed
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:1899: the second box must be the ftyp box
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/modular/encoding/encoding.cc:575: JXL_FAILURE: ANS decode final state failed
+./lib/jxl/modular/encoding/encoding.cc:597: JXL_RETURN_IF_ERROR code=1: dec_status
+./lib/jxl/dec_modular.cc:413: JXL_FAILURE: Failed to decode modular DC group
+./lib/jxl/dec_frame.cc:308: JXL_RETURN_IF_ERROR code=1: modular_frame_decoder_.DecodeVarDCTDC(dc_group_id, br, dec_state_)
+./lib/jxl/dec_frame.cc:644: JXL_FAILURE: Error in DC group
+./lib/jxl/decode.cc:1182: frame processing failed
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/modular/encoding/encoding.cc:575: JXL_FAILURE: ANS decode final state failed
+./lib/jxl/modular/encoding/encoding.cc:597: JXL_RETURN_IF_ERROR code=1: dec_status
+./lib/jxl/dec_modular.cc:413: JXL_FAILURE: Failed to decode modular DC group
+./lib/jxl/dec_frame.cc:308: JXL_RETURN_IF_ERROR code=1: modular_frame_decoder_.DecodeVarDCTDC(dc_group_id, br, dec_state_)
+./lib/jxl/dec_frame.cc:644: JXL_FAILURE: Error in DC group
+./lib/jxl/decode.cc:1182: frame processing failed
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/dec_group.cc:772: JXL_FAILURE: ANS checksum failure.
+./lib/jxl/dec_frame.cc:472: JXL_RETURN_IF_ERROR code=1: DecodeGroup(br, num_passes, ac_group_id, dec_state_, &group_dec_caches_[thread], thread, render_pipeline_input, decoded_, decoded_passes_per_ac_group_[ac_group_id], force_draw, dc_only, &should_run_pipeline)
+./lib/jxl/dec_frame.cc:717: JXL_FAILURE: Error in AC group
+./lib/jxl/decode.cc:1182: frame processing failed
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/modular/encoding/encoding.cc:575: JXL_FAILURE: ANS decode final state failed
+./lib/jxl/modular/encoding/encoding.cc:597: JXL_RETURN_IF_ERROR code=1: dec_status
+./lib/jxl/dec_modular.cc:442: JXL_FAILURE: Failed to decode AC metadata
+./lib/jxl/dec_frame.cc:318: JXL_RETURN_IF_ERROR code=1: modular_frame_decoder_.DecodeAcMetadata(dc_group_id, br, dec_state_)
+./lib/jxl/dec_frame.cc:644: JXL_FAILURE: Error in DC group
+./lib/jxl/decode.cc:1182: frame processing failed
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:1899: the second box must be the ftyp box
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2150: codestream never finished
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/dec_group.cc:772: JXL_FAILURE: ANS checksum failure.
+./lib/jxl/dec_frame.cc:472: JXL_RETURN_IF_ERROR code=1: DecodeGroup(br, num_passes, ac_group_id, dec_state_, &group_dec_caches_[thread], thread, render_pipeline_input, decoded_, decoded_passes_per_ac_group_[ac_group_id], force_draw, dc_only, &should_run_pipeline)
+./lib/jxl/dec_frame.cc:717: JXL_FAILURE: Error in AC group
+./lib/jxl/decode.cc:1182: frame processing failed
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:1899: the second box must be the ftyp box
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:1972: file type box major brand must be "jxl "
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/fields.cc:357: Skipping 6438-bit extension(s)
+./lib/jxl/fields.cc:357: Skipping 6438-bit extension(s)
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/dec_context_map.cc:95: JXL_FAILURE: Invalid context map
+./lib/jxl/entropy_coder.cc:61: JXL_RETURN_IF_ERROR code=1: DecodeContextMap(&ctx_map, &block_ctx_map->num_ctxs, br)
+./lib/jxl/dec_frame.cc:65: JXL_RETURN_IF_ERROR code=1: DecodeBlockCtxMap(reader, &state->shared_storage.block_ctx_map)
+./lib/jxl/dec_frame.cc:283: JXL_RETURN_IF_ERROR code=1: jxl::DecodeGlobalDCInfo(br, decoded_->IsJPEG(), dec_state_, pool_)
+./lib/jxl/decode.cc:1182: frame processing failed
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:1899: the second box must be the ftyp box
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/modular/encoding/encoding.cc:575: JXL_FAILURE: ANS decode final state failed
+./lib/jxl/modular/encoding/encoding.cc:597: JXL_RETURN_IF_ERROR code=1: dec_status
+./lib/jxl/dec_modular.cc:413: JXL_FAILURE: Failed to decode modular DC group
+./lib/jxl/dec_frame.cc:308: JXL_RETURN_IF_ERROR code=1: modular_frame_decoder_.DecodeVarDCTDC(dc_group_id, br, dec_state_)
+./lib/jxl/dec_frame.cc:644: JXL_FAILURE: Error in DC group
+./lib/jxl/decode.cc:1182: frame processing failed
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:1968: file type box too small
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/dec_context_map.cc:95: JXL_FAILURE: Invalid context map
+./lib/jxl/dec_ans.cc:345: JXL_RETURN_IF_ERROR code=1: DecodeContextMap(context_map, &num_histograms, br)
+./lib/jxl/dec_modular.cc:199: JXL_RETURN_IF_ERROR code=1: DecodeHistograms(reader, (tree.size() + 1) / 2, &code, &context_map)
+./lib/jxl/decode.cc:1182: frame processing failed
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/image_metadata.cc:227: JXL_FAILURE: dim_shift 4 too large
+./lib/jxl/image_metadata.cc:227: JXL_FAILURE: dim_shift 4 too large
+./lib/jxl/fields.cc:619: JXL_RETURN_IF_ERROR code=1: visitor.Visit(fields)
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2150: codestream never finished
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/entropy_coder.cc:56: JXL_FAILURE: Invalid block context map: too big
+./lib/jxl/dec_frame.cc:65: JXL_RETURN_IF_ERROR code=1: DecodeBlockCtxMap(reader, &state->shared_storage.block_ctx_map)
+./lib/jxl/dec_frame.cc:283: JXL_RETURN_IF_ERROR code=1: jxl::DecodeGlobalDCInfo(br, decoded_->IsJPEG(), dec_state_, pool_)
+./lib/jxl/decode.cc:1182: frame processing failed
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/modular/encoding/encoding.cc:575: JXL_FAILURE: ANS decode final state failed
+./lib/jxl/modular/encoding/encoding.cc:597: JXL_RETURN_IF_ERROR code=1: dec_status
+./lib/jxl/dec_modular.cc:413: JXL_FAILURE: Failed to decode modular DC group
+./lib/jxl/dec_frame.cc:308: JXL_RETURN_IF_ERROR code=1: modular_frame_decoder_.DecodeVarDCTDC(dc_group_id, br, dec_state_)
+./lib/jxl/dec_frame.cc:644: JXL_FAILURE: Error in DC group
+./lib/jxl/decode.cc:1182: frame processing failed
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/dec_context_map.cc:95: JXL_FAILURE: Invalid context map
+./lib/jxl/dec_ans.cc:345: JXL_RETURN_IF_ERROR code=1: DecodeContextMap(context_map, &num_histograms, br)
+./lib/jxl/modular/encoding/dec_ma.cc:117: JXL_RETURN_IF_ERROR code=1: DecodeHistograms(br, kNumTreeContexts, &tree_code, &tree_context_map)
+./lib/jxl/modular/encoding/encoding.cc:536: JXL_RETURN_IF_ERROR code=1: DecodeTree(br, &tree_storage, max_tree_size)
+./lib/jxl/modular/encoding/encoding.cc:597: JXL_RETURN_IF_ERROR code=1: dec_status
+./lib/jxl/dec_modular.cc:413: JXL_FAILURE: Failed to decode modular DC group
+./lib/jxl/dec_frame.cc:308: JXL_RETURN_IF_ERROR code=1: modular_frame_decoder_.DecodeVarDCTDC(dc_group_id, br, dec_state_)
+./lib/jxl/dec_frame.cc:644: JXL_FAILURE: Error in DC group
+./lib/jxl/decode.cc:1182: frame processing failed
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:990: invalid signature
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/modular/encoding/encoding.cc:575: JXL_FAILURE: ANS decode final state failed
+./lib/jxl/modular/encoding/encoding.cc:597: JXL_RETURN_IF_ERROR code=1: dec_status
+./lib/jxl/dec_modular.cc:442: JXL_FAILURE: Failed to decode AC metadata
+./lib/jxl/dec_frame.cc:318: JXL_RETURN_IF_ERROR code=1: modular_frame_decoder_.DecodeAcMetadata(dc_group_id, br, dec_state_)
+./lib/jxl/dec_frame.cc:644: JXL_FAILURE: Error in DC group
+./lib/jxl/decode.cc:1182: frame processing failed
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/dec_context_map.cc:95: JXL_FAILURE: Invalid context map
+./lib/jxl/dec_ans.cc:345: JXL_RETURN_IF_ERROR code=1: DecodeContextMap(context_map, &num_histograms, br)
+./lib/jxl/modular/encoding/dec_ma.cc:117: JXL_RETURN_IF_ERROR code=1: DecodeHistograms(br, kNumTreeContexts, &tree_code, &tree_context_map)
+./lib/jxl/modular/encoding/encoding.cc:536: JXL_RETURN_IF_ERROR code=1: DecodeTree(br, &tree_storage, max_tree_size)
+./lib/jxl/modular/encoding/encoding.cc:597: JXL_RETURN_IF_ERROR code=1: dec_status
+./lib/jxl/dec_modular.cc:413: JXL_FAILURE: Failed to decode modular DC group
+./lib/jxl/dec_frame.cc:308: JXL_RETURN_IF_ERROR code=1: modular_frame_decoder_.DecodeVarDCTDC(dc_group_id, br, dec_state_)
+./lib/jxl/dec_frame.cc:644: JXL_FAILURE: Error in DC group
+./lib/jxl/decode.cc:1182: frame processing failed
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/dec_context_map.cc:95: JXL_FAILURE: Invalid context map
+./lib/jxl/entropy_coder.cc:61: JXL_RETURN_IF_ERROR code=1: DecodeContextMap(&ctx_map, &block_ctx_map->num_ctxs, br)
+./lib/jxl/dec_frame.cc:65: JXL_RETURN_IF_ERROR code=1: DecodeBlockCtxMap(reader, &state->shared_storage.block_ctx_map)
+./lib/jxl/dec_frame.cc:283: JXL_RETURN_IF_ERROR code=1: jxl::DecodeGlobalDCInfo(br, decoded_->IsJPEG(), dec_state_, pool_)
+./lib/jxl/decode.cc:1182: frame processing failed
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/dec_modular.cc:413: JXL_FAILURE: Failed to decode modular DC group
+./lib/jxl/dec_frame.cc:308: JXL_RETURN_IF_ERROR code=1: modular_frame_decoder_.DecodeVarDCTDC(dc_group_id, br, dec_state_)
+./lib/jxl/dec_frame.cc:644: JXL_FAILURE: Error in DC group
+./lib/jxl/decode.cc:1179: frame out of bounds
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/modular/encoding/encoding.cc:575: JXL_FAILURE: ANS decode final state failed
+./lib/jxl/modular/encoding/encoding.cc:597: JXL_RETURN_IF_ERROR code=1: dec_status
+./lib/jxl/dec_modular.cc:413: JXL_FAILURE: Failed to decode modular DC group
+./lib/jxl/dec_frame.cc:308: JXL_RETURN_IF_ERROR code=1: modular_frame_decoder_.DecodeVarDCTDC(dc_group_id, br, dec_state_)
+./lib/jxl/dec_frame.cc:644: JXL_FAILURE: Error in DC group
+./lib/jxl/decode.cc:1182: frame processing failed
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/dec_group.cc:772: JXL_FAILURE: ANS checksum failure.
+./lib/jxl/dec_frame.cc:472: JXL_RETURN_IF_ERROR code=1: DecodeGroup(br, num_passes, ac_group_id, dec_state_, &group_dec_caches_[thread], thread, render_pipeline_input, decoded_, decoded_passes_per_ac_group_[ac_group_id], force_draw, dc_only, &should_run_pipeline)
+./lib/jxl/dec_frame.cc:717: JXL_FAILURE: Error in AC group
+./lib/jxl/decode.cc:1182: frame processing failed
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/modular/encoding/encoding.cc:575: JXL_FAILURE: ANS decode final state failed
+./lib/jxl/modular/encoding/encoding.cc:597: JXL_RETURN_IF_ERROR code=1: dec_status
+./lib/jxl/dec_modular.cc:413: JXL_FAILURE: Failed to decode modular DC group
+./lib/jxl/dec_frame.cc:308: JXL_RETURN_IF_ERROR code=1: modular_frame_decoder_.DecodeVarDCTDC(dc_group_id, br, dec_state_)
+./lib/jxl/dec_frame.cc:644: JXL_FAILURE: Error in DC group
+./lib/jxl/decode.cc:1182: frame processing failed
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/modular/encoding/encoding.cc:575: JXL_FAILURE: ANS decode final state failed
+./lib/jxl/modular/encoding/encoding.cc:597: JXL_RETURN_IF_ERROR code=1: dec_status
+./lib/jxl/dec_modular.cc:442: JXL_FAILURE: Failed to decode AC metadata
+./lib/jxl/dec_frame.cc:318: JXL_RETURN_IF_ERROR code=1: modular_frame_decoder_.DecodeAcMetadata(dc_group_id, br, dec_state_)
+./lib/jxl/dec_frame.cc:644: JXL_FAILURE: Error in DC group
+./lib/jxl/decode.cc:1182: frame processing failed
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/dec_ans.cc:208: JXL_FAILURE: Invalid huffman tree number 0, alphabet size 370
+./lib/jxl/dec_ans.cc:358: JXL_RETURN_IF_ERROR code=1: DecodeANSCodes(num_histograms, max_alphabet_size, br, code)
+./lib/jxl/dec_context_map.cc:81: JXL_RETURN_IF_ERROR code=1: DecodeHistograms(input, 1, &code, &dummy_ctx_map, context_map->size() <= 2)
+./lib/jxl/dec_ans.cc:345: JXL_RETURN_IF_ERROR code=1: DecodeContextMap(context_map, &num_histograms, br)
+./lib/jxl/coeff_order.cc:109: JXL_RETURN_IF_ERROR code=1: DecodeHistograms(br, kPermutationContexts, &code, &context_map)
+./lib/jxl/dec_frame.cc:371: JXL_RETURN_IF_ERROR code=1: DecodeCoeffOrders( used_orders, dec_state_->used_acs, &dec_state_->shared_storage .coeff_orders[i * dec_state_->shared_storage.coeff_order_size], br)
+./lib/jxl/dec_frame.cc:663: JXL_RETURN_IF_ERROR code=1: ProcessACGlobal(sections[ac_global_sec].br)
+./lib/jxl/decode.cc:1182: frame processing failed
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/modular/encoding/encoding.cc:575: JXL_FAILURE: ANS decode final state failed
+./lib/jxl/modular/encoding/encoding.cc:597: JXL_RETURN_IF_ERROR code=1: dec_status
+./lib/jxl/dec_modular.cc:413: JXL_FAILURE: Failed to decode modular DC group
+./lib/jxl/dec_frame.cc:308: JXL_RETURN_IF_ERROR code=1: modular_frame_decoder_.DecodeVarDCTDC(dc_group_id, br, dec_state_)
+./lib/jxl/dec_frame.cc:644: JXL_FAILURE: Error in DC group
+./lib/jxl/decode.cc:1182: frame processing failed
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/modular/transform/transform.h:115: JXL_FAILURE: Invalid predictor
+./lib/jxl/fields.cc:619: JXL_RETURN_IF_ERROR code=1: visitor.Visit(fields)
+./lib/jxl/modular/encoding/encoding.cc:458: JXL_RETURN_IF_ERROR code=1: status
+./lib/jxl/modular/encoding/encoding.cc:597: JXL_RETURN_IF_ERROR code=1: dec_status
+./lib/jxl/dec_modular.cc:413: JXL_FAILURE: Failed to decode modular DC group
+./lib/jxl/dec_frame.cc:308: JXL_RETURN_IF_ERROR code=1: modular_frame_decoder_.DecodeVarDCTDC(dc_group_id, br, dec_state_)
+./lib/jxl/dec_frame.cc:644: JXL_FAILURE: Error in DC group
+./lib/jxl/decode.cc:1182: frame processing failed
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/modular/encoding/encoding.cc:575: JXL_FAILURE: ANS decode final state failed
+./lib/jxl/modular/encoding/encoding.cc:597: JXL_RETURN_IF_ERROR code=1: dec_status
+./lib/jxl/dec_modular.cc:413: JXL_FAILURE: Failed to decode modular DC group
+./lib/jxl/dec_frame.cc:308: JXL_RETURN_IF_ERROR code=1: modular_frame_decoder_.DecodeVarDCTDC(dc_group_id, br, dec_state_)
+./lib/jxl/dec_frame.cc:644: JXL_FAILURE: Error in DC group
+./lib/jxl/decode.cc:1182: frame processing failed
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2150: codestream never finished
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:990: invalid signature
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/dec_context_map.cc:95: JXL_FAILURE: Invalid context map
+./lib/jxl/dec_ans.cc:345: JXL_RETURN_IF_ERROR code=1: DecodeContextMap(context_map, &num_histograms, br)
+./lib/jxl/modular/encoding/dec_ma.cc:117: JXL_RETURN_IF_ERROR code=1: DecodeHistograms(br, kNumTreeContexts, &tree_code, &tree_context_map)
+./lib/jxl/modular/encoding/encoding.cc:536: JXL_RETURN_IF_ERROR code=1: DecodeTree(br, &tree_storage, max_tree_size)
+./lib/jxl/modular/encoding/encoding.cc:597: JXL_RETURN_IF_ERROR code=1: dec_status
+./lib/jxl/dec_modular.cc:413: JXL_FAILURE: Failed to decode modular DC group
+./lib/jxl/dec_frame.cc:308: JXL_RETURN_IF_ERROR code=1: modular_frame_decoder_.DecodeVarDCTDC(dc_group_id, br, dec_state_)
+./lib/jxl/dec_frame.cc:644: JXL_FAILURE: Error in DC group
+./lib/jxl/decode.cc:1182: frame processing failed
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2150: codestream never finished
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/dec_group.cc:772: JXL_FAILURE: ANS checksum failure.
+./lib/jxl/dec_frame.cc:472: JXL_RETURN_IF_ERROR code=1: DecodeGroup(br, num_passes, ac_group_id, dec_state_, &group_dec_caches_[thread], thread, render_pipeline_input, decoded_, decoded_passes_per_ac_group_[ac_group_id], force_draw, dc_only, &should_run_pipeline)
+./lib/jxl/dec_frame.cc:717: JXL_FAILURE: Error in AC group
+./lib/jxl/decode.cc:1182: frame processing failed
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2150: codestream never finished
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/dec_ans.cc:208: JXL_FAILURE: Invalid huffman tree number 0, alphabet size 8
+./lib/jxl/dec_ans.cc:358: JXL_RETURN_IF_ERROR code=1: DecodeANSCodes(num_histograms, max_alphabet_size, br, code)
+./lib/jxl/dec_context_map.cc:81: JXL_RETURN_IF_ERROR code=1: DecodeHistograms(input, 1, &code, &dummy_ctx_map, context_map->size() <= 2)
+./lib/jxl/entropy_coder.cc:61: JXL_RETURN_IF_ERROR code=1: DecodeContextMap(&ctx_map, &block_ctx_map->num_ctxs, br)
+./lib/jxl/dec_frame.cc:65: JXL_RETURN_IF_ERROR code=1: DecodeBlockCtxMap(reader, &state->shared_storage.block_ctx_map)
+./lib/jxl/dec_frame.cc:283: JXL_RETURN_IF_ERROR code=1: jxl::DecodeGlobalDCInfo(br, decoded_->IsJPEG(), dec_state_, pool_)
+./lib/jxl/decode.cc:1182: frame processing failed
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/modular/transform/transform.cc:80: JXL_FAILURE: Invalid channel range: 7633..7633 (there are only 3 channels)
+./lib/jxl/modular/transform/palette.h:265: JXL_RETURN_IF_ERROR code=1: CheckEqualChannels(input, begin_c, end_c)
+./lib/jxl/modular/encoding/encoding.cc:474: JXL_RETURN_IF_ERROR code=1: transform.MetaApply(image)
+./lib/jxl/modular/encoding/encoding.cc:597: JXL_RETURN_IF_ERROR code=1: dec_status
+./lib/jxl/dec_modular.cc:413: JXL_FAILURE: Failed to decode modular DC group
+./lib/jxl/dec_frame.cc:308: JXL_RETURN_IF_ERROR code=1: modular_frame_decoder_.DecodeVarDCTDC(dc_group_id, br, dec_state_)
+./lib/jxl/dec_frame.cc:644: JXL_FAILURE: Error in DC group
+./lib/jxl/decode.cc:1182: frame processing failed
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/dec_group.cc:772: JXL_FAILURE: ANS checksum failure.
+./lib/jxl/dec_frame.cc:472: JXL_RETURN_IF_ERROR code=1: DecodeGroup(br, num_passes, ac_group_id, dec_state_, &group_dec_caches_[thread], thread, render_pipeline_input, decoded_, decoded_passes_per_ac_group_[ac_group_id], force_draw, dc_only, &should_run_pipeline)
+./lib/jxl/dec_frame.cc:717: JXL_FAILURE: Error in AC group
+./lib/jxl/decode.cc:1182: frame processing failed
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:1899: the second box must be the ftyp box
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:1899: the second box must be the ftyp box
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/dec_context_map.cc:95: JXL_FAILURE: Invalid context map
+./lib/jxl/dec_ans.cc:345: JXL_RETURN_IF_ERROR code=1: DecodeContextMap(context_map, &num_histograms, br)
+./lib/jxl/dec_modular.cc:199: JXL_RETURN_IF_ERROR code=1: DecodeHistograms(reader, (tree.size() + 1) / 2, &code, &context_map)
+./lib/jxl/decode.cc:1182: frame processing failed
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/dec_context_map.cc:54: JXL_FAILURE: Incomplete context map.
+./lib/jxl/entropy_coder.cc:61: JXL_RETURN_IF_ERROR code=1: DecodeContextMap(&ctx_map, &block_ctx_map->num_ctxs, br)
+./lib/jxl/dec_frame.cc:65: JXL_RETURN_IF_ERROR code=1: DecodeBlockCtxMap(reader, &state->shared_storage.block_ctx_map)
+./lib/jxl/dec_frame.cc:283: JXL_RETURN_IF_ERROR code=1: jxl::DecodeGlobalDCInfo(br, decoded_->IsJPEG(), dec_state_, pool_)
+./lib/jxl/decode.cc:1182: frame processing failed
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/modular/encoding/dec_ma.cc:127: JXL_FAILURE: ANS decode final state failed
+./lib/jxl/modular/encoding/encoding.cc:536: JXL_RETURN_IF_ERROR code=1: DecodeTree(br, &tree_storage, max_tree_size)
+./lib/jxl/modular/encoding/encoding.cc:597: JXL_RETURN_IF_ERROR code=1: dec_status
+./lib/jxl/dec_modular.cc:413: JXL_FAILURE: Failed to decode modular DC group
+./lib/jxl/dec_frame.cc:308: JXL_RETURN_IF_ERROR code=1: modular_frame_decoder_.DecodeVarDCTDC(dc_group_id, br, dec_state_)
+./lib/jxl/dec_frame.cc:644: JXL_FAILURE: Error in DC group
+./lib/jxl/decode.cc:1182: frame processing failed
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/dec_ans.cc:208: JXL_FAILURE: Invalid huffman tree number 0, alphabet size 8
+./lib/jxl/dec_ans.cc:358: JXL_RETURN_IF_ERROR code=1: DecodeANSCodes(num_histograms, max_alphabet_size, br, code)
+./lib/jxl/dec_context_map.cc:81: JXL_RETURN_IF_ERROR code=1: DecodeHistograms(input, 1, &code, &dummy_ctx_map, context_map->size() <= 2)
+./lib/jxl/entropy_coder.cc:61: JXL_RETURN_IF_ERROR code=1: DecodeContextMap(&ctx_map, &block_ctx_map->num_ctxs, br)
+./lib/jxl/dec_frame.cc:65: JXL_RETURN_IF_ERROR code=1: DecodeBlockCtxMap(reader, &state->shared_storage.block_ctx_map)
+./lib/jxl/dec_frame.cc:283: JXL_RETURN_IF_ERROR code=1: jxl::DecodeGlobalDCInfo(br, decoded_->IsJPEG(), dec_state_, pool_)
+./lib/jxl/decode.cc:1182: frame processing failed
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/modular/encoding/encoding.cc:575: JXL_FAILURE: ANS decode final state failed
+./lib/jxl/modular/encoding/encoding.cc:597: JXL_RETURN_IF_ERROR code=1: dec_status
+./lib/jxl/dec_modular.cc:413: JXL_FAILURE: Failed to decode modular DC group
+./lib/jxl/dec_frame.cc:308: JXL_RETURN_IF_ERROR code=1: modular_frame_decoder_.DecodeVarDCTDC(dc_group_id, br, dec_state_)
+./lib/jxl/dec_frame.cc:644: JXL_FAILURE: Error in DC group
+./lib/jxl/decode.cc:1182: frame processing failed
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/dec_context_map.cc:54: JXL_FAILURE: Incomplete context map.
+./lib/jxl/dec_ans.cc:345: JXL_RETURN_IF_ERROR code=1: DecodeContextMap(context_map, &num_histograms, br)
+./lib/jxl/dec_modular.cc:199: JXL_RETURN_IF_ERROR code=1: DecodeHistograms(reader, (tree.size() + 1) / 2, &code, &context_map)
+./lib/jxl/decode.cc:1182: frame processing failed
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/dec_group.cc:772: JXL_FAILURE: ANS checksum failure.
+./lib/jxl/dec_frame.cc:472: JXL_RETURN_IF_ERROR code=1: DecodeGroup(br, num_passes, ac_group_id, dec_state_, &group_dec_caches_[thread], thread, render_pipeline_input, decoded_, decoded_passes_per_ac_group_[ac_group_id], force_draw, dc_only, &should_run_pipeline)
+./lib/jxl/dec_frame.cc:717: JXL_FAILURE: Error in AC group
+./lib/jxl/decode.cc:1182: frame processing failed
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/field_encodings.h:121: JXL_FAILURE: Value 67 too large for RenderingIntent
+./lib/jxl/field_encodings.h:121: JXL_FAILURE: Value 67 too large for RenderingIntent
+./lib/jxl/fields.cc:619: JXL_RETURN_IF_ERROR code=1: visitor.Visit(fields)
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2150: codestream never finished
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:1972: file type box major brand must be "jxl "
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/dec_group.cc:772: JXL_FAILURE: ANS checksum failure.
+./lib/jxl/dec_frame.cc:472: JXL_RETURN_IF_ERROR code=1: DecodeGroup(br, num_passes, ac_group_id, dec_state_, &group_dec_caches_[thread], thread, render_pipeline_input, decoded_, decoded_passes_per_ac_group_[ac_group_id], force_draw, dc_only, &should_run_pipeline)
+./lib/jxl/dec_frame.cc:717: JXL_FAILURE: Error in AC group
+./lib/jxl/decode.cc:1179: frame out of bounds
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/modular/encoding/encoding.cc:575: JXL_FAILURE: ANS decode final state failed
+./lib/jxl/modular/encoding/encoding.cc:597: JXL_RETURN_IF_ERROR code=1: dec_status
+./lib/jxl/dec_modular.cc:442: JXL_FAILURE: Failed to decode AC metadata
+./lib/jxl/dec_frame.cc:318: JXL_RETURN_IF_ERROR code=1: modular_frame_decoder_.DecodeAcMetadata(dc_group_id, br, dec_state_)
+./lib/jxl/dec_frame.cc:644: JXL_FAILURE: Error in DC group
+./lib/jxl/decode.cc:1182: frame processing failed
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/modular/encoding/encoding.cc:566: JXL_FAILURE: Truncated input
+./lib/jxl/modular/encoding/encoding.cc:597: JXL_RETURN_IF_ERROR code=1: dec_status
+./lib/jxl/dec_modular.cc:413: JXL_FAILURE: Failed to decode modular DC group
+./lib/jxl/dec_frame.cc:308: JXL_RETURN_IF_ERROR code=1: modular_frame_decoder_.DecodeVarDCTDC(dc_group_id, br, dec_state_)
+./lib/jxl/dec_frame.cc:644: JXL_FAILURE: Error in DC group
+./lib/jxl/decode.cc:1179: frame out of bounds
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:990: invalid signature
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2150: codestream never finished
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/dec_ans.cc:179: JXL_FAILURE: Invalid histogram count.
+./lib/jxl/dec_ans.cc:233: JXL_FAILURE: Invalid histogram bitstream.
+./lib/jxl/dec_ans.cc:358: JXL_RETURN_IF_ERROR code=1: DecodeANSCodes(num_histograms, max_alphabet_size, br, code)
+./lib/jxl/dec_frame.cc:379: JXL_RETURN_IF_ERROR code=1: DecodeHistograms( br, num_contexts, &dec_state_->code[i], &dec_state_->context_map[i])
+./lib/jxl/dec_frame.cc:663: JXL_RETURN_IF_ERROR code=1: ProcessACGlobal(sections[ac_global_sec].br)
+./lib/jxl/decode.cc:1182: frame processing failed
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:1899: the second box must be the ftyp box
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:990: invalid signature
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/modular/encoding/encoding.cc:575: JXL_FAILURE: ANS decode final state failed
+./lib/jxl/modular/encoding/encoding.cc:597: JXL_RETURN_IF_ERROR code=1: dec_status
+./lib/jxl/dec_modular.cc:413: JXL_FAILURE: Failed to decode modular DC group
+./lib/jxl/dec_frame.cc:308: JXL_RETURN_IF_ERROR code=1: modular_frame_decoder_.DecodeVarDCTDC(dc_group_id, br, dec_state_)
+./lib/jxl/dec_frame.cc:644: JXL_FAILURE: Error in DC group
+./lib/jxl/decode.cc:1182: frame processing failed
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/modular/encoding/encoding.cc:575: JXL_FAILURE: ANS decode final state failed
+./lib/jxl/modular/encoding/encoding.cc:597: JXL_RETURN_IF_ERROR code=1: dec_status
+./lib/jxl/dec_modular.cc:413: JXL_FAILURE: Failed to decode modular DC group
+./lib/jxl/dec_frame.cc:308: JXL_RETURN_IF_ERROR code=1: modular_frame_decoder_.DecodeVarDCTDC(dc_group_id, br, dec_state_)
+./lib/jxl/dec_frame.cc:644: JXL_FAILURE: Error in DC group
+./lib/jxl/decode.cc:1182: frame processing failed
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/modular/encoding/encoding.cc:575: JXL_FAILURE: ANS decode final state failed
+./lib/jxl/modular/encoding/encoding.cc:597: JXL_RETURN_IF_ERROR code=1: dec_status
+./lib/jxl/dec_modular.cc:413: JXL_FAILURE: Failed to decode modular DC group
+./lib/jxl/dec_frame.cc:308: JXL_RETURN_IF_ERROR code=1: modular_frame_decoder_.DecodeVarDCTDC(dc_group_id, br, dec_state_)
+./lib/jxl/dec_frame.cc:644: JXL_FAILURE: Error in DC group
+./lib/jxl/decode.cc:1182: frame processing failed
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/dec_context_map.cc:95: JXL_FAILURE: Invalid context map
+./lib/jxl/dec_ans.cc:345: JXL_RETURN_IF_ERROR code=1: DecodeContextMap(context_map, &num_histograms, br)
+./lib/jxl/dec_modular.cc:199: JXL_RETURN_IF_ERROR code=1: DecodeHistograms(reader, (tree.size() + 1) / 2, &code, &context_map)
+./lib/jxl/decode.cc:1182: frame processing failed
+./lib/jxl/decode.cc:2143: missing input
+./lib/jxl/decode.cc:2143: missing input
+done /tmp/claude-0/-home-user-image-pipe/d50ad5e9-8a8c-51d3-9791-b10ebb68545c/scratchpad/fuzz_modern/inputs/m_grey.jxl
+procexit=0

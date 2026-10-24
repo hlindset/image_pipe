@@ -1,0 +1,22 @@
+    │
+ 21 │           <<pre::binary-size(pos), _::8, post::binary>> = acc
+    │                              ~
+    │
+    └─ /tmp/claude-0/-home-user-image-pipe/d50ad5e9-8a8c-51d3-9791-b10ebb68545c/scratchpad/fuzz_modern/scripts/mutfuzz.exs:21:30
+    │
+ 28 │         <<pre::binary-size(pos), _::binary-size(len), post::binary>> = b
+    │                            ~
+    │
+    └─ /tmp/claude-0/-home-user-image-pipe/d50ad5e9-8a8c-51d3-9791-b10ebb68545c/scratchpad/fuzz_modern/scripts/mutfuzz.exs:28:28
+    │
+ 28 │         <<pre::binary-size(pos), _::binary-size(len), post::binary>> = b
+    │                                                 ~
+    │
+    └─ /tmp/claude-0/-home-user-image-pipe/d50ad5e9-8a8c-51d3-9791-b10ebb68545c/scratchpad/fuzz_modern/scripts/mutfuzz.exs:28:49
+STATUS500 k=120 pipe="" {:status, 500} 1ms m120.avif
+STATUS500 k=145 pipe="blur=5/format=png/" {:status, 500} 2ms m145.avif
+STATUS404 k=146 pipe="pad=5/bg=00ff00/format=png/" {:status, 404} 1ms m146.avif
+STATUS500 k=148 pipe="pad=5/bg=00ff00/format=png/" {:status, 500} 2ms m148.avif
+STATUS500 k=149 pipe="pad=5/bg=00ff00/format=png/" {:status, 500} 1ms m149.avif
+done /tmp/claude-0/-home-user-image-pipe/d50ad5e9-8a8c-51d3-9791-b10ebb68545c/scratchpad/fuzz_modern/inputs/m_cmyk.avif
+procexit=0

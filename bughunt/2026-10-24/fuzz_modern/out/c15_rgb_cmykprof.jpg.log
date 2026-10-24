@@ -1,0 +1,11 @@
+=== /tmp/claude-0/-home-user-image-pipe/d50ad5e9-8a8c-51d3-9791-b10ebb68545c/scratchpad/fuzz_modern/inputs/c15_rgb_cmykprof.jpg
+[] 200 image/jpeg 972B 105ms 96x64x3 VIPS_INTERPRETATION_sRGB icc=0 p00=[200, 30, 39] pc=[90, 132, 180]
+[w=300/] 200 image/jpeg 972B 8ms 96x64x3 VIPS_INTERPRETATION_sRGB icc=0 p00=[200, 30, 39] pc=[90, 132, 180]
+[crop=50pct,50pct/rotate=90/] 200 image/jpeg 874B 18ms 32x48x3 VIPS_INTERPRETATION_sRGB icc=0 p00=[200, 30, 39] pc=[93, 131, 178]
+[blur=5/] 200 image/jpeg 1051B 7ms 96x64x3 VIPS_INTERPRETATION_sRGB icc=0 p00=[200, 30, 39] pc=[99, 101, 139]
+[pad=10/bg=00ff00/format=png/] 200 image/png 499B 18ms 116x84x3 VIPS_INTERPRETATION_sRGB icc=0 p00=[0, 255, 0] pc=[76, 138, 187]
+[format=webp/] 200 image/webp 352B 4ms 96x64x3 VIPS_INTERPRETATION_sRGB icc=0 p00=[201, 29, 37] pc=[86, 134, 175]
+[format=avif/] 200 image/avif 594B 6ms 96x64x3 VIPS_INTERPRETATION_sRGB icc=0 p00=[200, 30, 39] pc=[76, 138, 187]
+[format=png/] 200 image/png 407B 6ms 96x64x3 VIPS_INTERPRETATION_sRGB icc=0 p00=[200, 30, 39] pc=[76, 138, 187]
+[format=jpeg/] 200 image/jpeg 972B 5ms 96x64x3 VIPS_INTERPRETATION_sRGB icc=0 p00=[200, 30, 39] pc=[90, 132, 180]
+EXIT=0 T=1.059398477

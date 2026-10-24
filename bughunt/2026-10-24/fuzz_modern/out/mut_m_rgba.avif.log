@@ -1,0 +1,37 @@
+    │
+ 21 │           <<pre::binary-size(pos), _::8, post::binary>> = acc
+    │                              ~
+    │
+    └─ /tmp/claude-0/-home-user-image-pipe/d50ad5e9-8a8c-51d3-9791-b10ebb68545c/scratchpad/fuzz_modern/scripts/mutfuzz.exs:21:30
+    │
+ 28 │         <<pre::binary-size(pos), _::binary-size(len), post::binary>> = b
+    │                            ~
+    │
+    └─ /tmp/claude-0/-home-user-image-pipe/d50ad5e9-8a8c-51d3-9791-b10ebb68545c/scratchpad/fuzz_modern/scripts/mutfuzz.exs:28:28
+    │
+ 28 │         <<pre::binary-size(pos), _::binary-size(len), post::binary>> = b
+    │                                                 ~
+    │
+    └─ /tmp/claude-0/-home-user-image-pipe/d50ad5e9-8a8c-51d3-9791-b10ebb68545c/scratchpad/fuzz_modern/scripts/mutfuzz.exs:28:49
+STATUS500 k=50 pipe="w=300/" {:status, 500} 1ms m50.avif
+STATUS404 k=68 pipe="blur=5/format=png/" {:status, 404} 1ms m68.avif
+STATUS500 k=69 pipe="pad=5/bg=00ff00/format=png/" {:status, 500} 4ms m69.avif
+STATUS404 k=70 pipe="format=avif/" {:status, 404} 1ms m70.avif
+STATUS404 k=71 pipe="pad=5/bg=00ff00/format=png/" {:status, 404} 1ms m71.avif
+STATUS404 k=76 pipe="" {:status, 404} 1ms m76.avif
+STATUS500 k=78 pipe="blur=5/format=png/" {:status, 500} 1ms m78.avif
+STATUS404 k=80 pipe="pad=5/bg=00ff00/format=png/" {:status, 404} 3ms m80.avif
+STATUS500 k=88 pipe="blur=5/format=png/" {:status, 500} 4ms m88.avif
+STATUS500 k=89 pipe="pad=5/bg=00ff00/format=png/" {:status, 500} 3ms m89.avif
+STATUS404 k=91 pipe="w=300/" {:status, 404} 2ms m91.avif
+STATUS404 k=92 pipe="pad=5/bg=00ff00/format=png/" {:status, 404} 2ms m92.avif
+STATUS404 k=93 pipe="pad=5/bg=00ff00/format=png/" {:status, 404} 1ms m93.avif
+STATUS500 k=95 pipe="pad=5/bg=00ff00/format=png/" {:status, 500} 3ms m95.avif
+STATUS404 k=96 pipe="w=300/" {:status, 404} 1ms m96.avif
+STATUS404 k=97 pipe="w=300/" {:status, 404} 1ms m97.avif
+STATUS404 k=98 pipe="blur=5/format=png/" {:status, 404} 2ms m98.avif
+STATUS404 k=99 pipe="w=300/" {:status, 404} 2ms m99.avif
+STATUS500 k=100 pipe="" {:status, 500} 4ms m100.avif
+STATUS404 k=101 pipe="" {:status, 404} 3ms m101.avif
+done /tmp/claude-0/-home-user-image-pipe/d50ad5e9-8a8c-51d3-9791-b10ebb68545c/scratchpad/fuzz_modern/inputs/m_rgba.avif
+procexit=0

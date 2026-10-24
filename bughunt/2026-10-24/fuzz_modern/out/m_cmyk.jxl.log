@@ -1,0 +1,11 @@
+=== /tmp/claude-0/-home-user-image-pipe/d50ad5e9-8a8c-51d3-9791-b10ebb68545c/scratchpad/fuzz_modern/inputs/m_cmyk.jxl
+[] 415 text/plain; charset=utf-8 40B 133ms "source response is not a supported image"
+[w=300/] 415 text/plain; charset=utf-8 40B 25ms "source response is not a supported image"
+[crop=50pct,50pct/rotate=90/] 415 text/plain; charset=utf-8 40B 23ms "source response is not a supported image"
+[blur=5/] 415 text/plain; charset=utf-8 40B 19ms "source response is not a supported image"
+[pad=10/bg=00ff00/format=png/] 415 text/plain; charset=utf-8 40B 20ms "source response is not a supported image"
+[format=webp/] 415 text/plain; charset=utf-8 40B 18ms "source response is not a supported image"
+[format=avif/] 415 text/plain; charset=utf-8 40B 27ms "source response is not a supported image"
+[format=png/] 415 text/plain; charset=utf-8 40B 20ms "source response is not a supported image"
+[format=jpeg/] 415 text/plain; charset=utf-8 40B 20ms "source response is not a supported image"
+EXIT=0 T=1.220242008

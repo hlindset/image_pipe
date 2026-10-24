@@ -1,0 +1,6 @@
+#!/bin/bash
+cd /home/user/image_pipe/image_pipe
+F=/tmp/claude-0/-home-user-image-pipe/d50ad5e9-8a8c-51d3-9791-b10ebb68545c/scratchpad/fuzz_modern
+echo "=== $(basename $1)"
+timeout ${TO:-120} mix run --no-compile $F/scripts/svg.exs "$@" 2>&1 | grep -aE "^\[|RAISE|Segmentation"
+echo "exit=${PIPESTATUS:-$?}"
