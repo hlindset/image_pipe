@@ -80,6 +80,19 @@ defmodule ImagePipe.Transform.InputColorManagementTest do
       assert VixImage.interpretation(out.image) == :VIPS_INTERPRETATION_sRGB
     end
 
+    test "profile-less CMYK lands sRGB without libvips' fallback profile" do
+      {:ok, cmyk} = Operation.black(16, 16, bands: 4)
+      {:ok, cmyk} = Operation.cast(cmyk, :VIPS_FORMAT_UCHAR)
+      {:ok, cmyk} = Operation.copy(cmyk, interpretation: :VIPS_INTERPRETATION_CMYK)
+      assert VixImage.header_value(cmyk, "icc-profile-data") == {:error, "No such field"}
+
+      {:ok, out} = ICM.condition(%State{image: cmyk}, supports_hdr?: false)
+      assert out.color_imported? == false
+      assert out.source_color_profile == nil
+      assert VixImage.interpretation(out.image) == :VIPS_INTERPRETATION_sRGB
+      assert VixImage.header_value(out.image, "icc-profile-data") == {:error, "No such field"}
+    end
+
     test "tagged 16-bit RGB with alpha keeps its profile and alpha band", %{open: open} do
       {:ok, profile} = VixImage.header_value(open.(@p3_fixture), "icc-profile-data")
       img = open.(@rgba16_fixture)

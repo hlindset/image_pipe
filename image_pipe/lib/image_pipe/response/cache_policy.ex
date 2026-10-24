@@ -65,9 +65,13 @@ defmodule ImagePipe.Response.CachePolicy do
         config,
         degraded? \\ false
       ) do
+    denied? = Map.get(source_facts, :storage) == :deny
+
     {prepared, fallback_reason} =
       case prepare(conn, representation, source_facts, mode, config) do
         {prepared, _reason} when degraded? -> {no_store(prepared), :detection_failed}
+        # Denied storage overrides a host `Cache-Control` or `Set-Cookie`.
+        {prepared, reason} when denied? -> {no_store(prepared), reason}
         prepared_and_reason -> prepared_and_reason
       end
 
@@ -377,21 +381,11 @@ defmodule ImagePipe.Response.CachePolicy do
       host_has_no_store?(conn) ->
         {[], nil, nil}
 
-      Map.get(source_facts, :storage) == :deny ->
-        denied_storage_headers(conn)
-
       has_host_cache_control?(conn) ->
         generated_etag_only(conn, representation)
 
       true ->
         generated_cache_control_and_etag(conn, representation, source_facts)
-    end
-  end
-
-  defp denied_storage_headers(conn) do
-    case has_host_cache_control?(conn) do
-      true -> {[], nil, nil}
-      false -> {[{"cache-control", @no_store}], nil, nil}
     end
   end
 

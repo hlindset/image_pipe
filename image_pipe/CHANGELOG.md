@@ -5,6 +5,18 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- A response from a source configured to deny storage gets
+  `Cache-Control: no-store` even when an earlier Plug set `Cache-Control`
+  or `Set-Cookie`. Before, it kept the earlier Plug's caching headers and
+  sent no `no-store`.
+- On a CMYK source without a usable embedded ICC profile, colors from the
+  request, such as `bg`, `colorize` and `duotone`, come out as requested.
+  Before, `pad=5/bg=00ff00` painted `(192, 208, 11)` instead of
+  `(0, 255, 0)`, and a progressive blur or several blur groups could
+  crash the BEAM.
+
 ## [0.4.0] - 2026-10-23
 
 ### Added

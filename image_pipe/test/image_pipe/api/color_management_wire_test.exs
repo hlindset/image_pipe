@@ -374,6 +374,27 @@ defmodule ImagePipe.API.ColorManagementWireTest do
     assert fallback.status == 200
   end
 
+  test "request colors on a profile-less CMYK source stay sRGB" do
+    {:ok, cmyk} = Operation.black(16, 16, bands: 4)
+    {:ok, cmyk} = Operation.cast(cmyk, :VIPS_FORMAT_UCHAR)
+    {:ok, cmyk} = Operation.copy(cmyk, interpretation: :VIPS_INTERPRETATION_CMYK)
+    {:ok, jpeg} = VipsImage.write_to_buffer(cmyk, ".jpg")
+    assert header(Image.from_binary!(jpeg), "icc-profile-data") == nil
+
+    config =
+      jpeg
+      |> body_source("image/jpeg")
+      |> Keyword.put(:allow_unsigned, true)
+      |> ImagePipe.Plug.init()
+
+    padded =
+      conn(:get, "/pad=5/bg=00ff00/format=png/src/cmyk.jpg")
+      |> ImagePipe.Plug.call(config)
+      |> decoded()
+
+    assert Image.get_pixel!(padded, 0, 0) == [0, 255, 0]
+  end
+
   test "a truncated tagged source fails as a decode error when its profile changes" do
     cmyk = File.read!(Path.join(@sources, "cmyk.jpg"))
     beach = File.read!("priv/static/images/beach.jpg")
