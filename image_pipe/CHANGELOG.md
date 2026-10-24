@@ -7,6 +7,14 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- PNG output is 15-35% smaller and encodes 7-29% faster. A PNG that isn't
+  a palette image is saved at zlib compression 3, with the `paeth` row
+  filter unless it is grayscale at `bitdepth` `1`, `2`, or `4`, instead of
+  compression 6 with no filter. A `filter` set in
+  [`png-options`](docs/processing/output.md#png-options) still wins.
+- JPEG output is up to 18% smaller, with the same pixels. The encoder
+  optimizes the entropy coding for each image, which adds 1 to 4 ms to an
+  encode of 1-2 megapixels.
 - A FileSystem cache's startup scan is several times faster and uses a
   quarter of the memory. On a 12-core machine, a cache of 1M entries is
   scanned in 3.5 s instead of 19 s, with a memory peak of 0.6 GB instead of
