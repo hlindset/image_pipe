@@ -28,6 +28,9 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - With `stages: true`, the default Logger logs a watermark that failed, a
   failed transform operation, and a failed `[:transform, :execute]` at
   `:warning`. Before, it logged them at the configured level.
+- The tracer ends an `image_pipe.http.client` span with an error status
+  when the HTTP request raises, such as when connecting crashes. Before,
+  the span stayed open and the trace lacked it.
 
 ## [0.4.0] - 2026-10-23
 
