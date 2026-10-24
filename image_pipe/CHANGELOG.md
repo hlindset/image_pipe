@@ -34,6 +34,9 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - An HTTP or S3 source whose response declares a `Content-Length` over
   `max_body_bytes` fails as soon as the headers arrive. Before, the body
   kept arriving into memory until ImagePipe read past the limit.
+- The filesystem cache deletes an entry's temporary metadata file when
+  writing it fails, such as on a full disk. Before, the file stayed until
+  the daily sweep.
 
 ## [0.4.0] - 2026-10-23
 

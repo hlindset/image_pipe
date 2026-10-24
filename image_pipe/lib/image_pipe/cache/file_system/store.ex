@@ -518,8 +518,13 @@ defmodule ImagePipe.Cache.FileSystem.Store do
     temp_path = temp_path(paths)
 
     case :file.write_file(temp_path, encoded_metadata, [:raw, :binary, :exclusive]) do
-      :ok -> {:ok, temp_path}
-      {:error, reason} -> {:error, reason}
+      :ok ->
+        {:ok, temp_path}
+
+      # A failed write leaves a partial file behind.
+      {:error, _reason} = error ->
+        RawFile.delete(temp_path)
+        error
     end
   end
 
