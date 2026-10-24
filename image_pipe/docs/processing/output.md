@@ -261,6 +261,10 @@ Accepts these fields. Default: the host's JPEG encoder settings.
 | `optimize-scans` | boolean | Optimizes progressive scans |
 | `quant-table` | `0` to `8` | Quantization table |
 
+`trellis-quant`, `overshoot-deringing`, `optimize-scans`, and `quant-table`
+take effect only when libvips is built with mozjpeg. Otherwise they are
+ignored. The `image_pipe_server` image isn't built with mozjpeg.
+
 <!-- tabs-open -->
 
 ### URL
@@ -287,7 +291,7 @@ Accepts these fields. Default: the host's PNG encoder settings.
 | `interlace` | boolean | Interlaced PNG |
 | `palette` | boolean | Palette (indexed color) PNG, except at `bitdepth` `16`. [`q`](#q) sets its quantization quality |
 | `bitdepth` | `1`, `2`, `4`, `8`, `16` | Bits per channel. `1`, `2`, and `4` apply to grayscale without alpha and to a palette. Other images use `8`. A grayscale result splits its range into 2, 4, or 16 equal bands, one per level, so at `1` values below 128 turn black |
-| `filter` | `none`, `sub`, `up`, `avg`, `paeth`, `all` | Row filter |
+| `filter` | `none`, `sub`, `up`, `avg`, `paeth`, `all` | Row filter. Default: `paeth`, or `none` for a palette and for a grayscale result at `bitdepth` `1`, `2`, or `4`. `all` picks a filter for each row |
 
 <!-- tabs-open -->
 
