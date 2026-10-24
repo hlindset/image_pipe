@@ -1,0 +1,20 @@
+[server]
+port = 18081
+bind = "127.0.0.1"
+shutdown_delay = 0
+[url]
+allow_unsigned = true
+[sources.static]
+adapter = "file"
+match = "path"
+root = "/tmp/claude-0/-home-user-image-pipe/d9301eaf-e830-533b-9e40-eef149fee684/scratchpad/images"
+root_id = "static"
+[sources.web]
+adapter = "http"
+match = { prefix = "web" }
+base_url = "https://example.com"
+[cache.output]
+root = "/tmp/claude-0/-home-user-image-pipe/d9301eaf-e830-533b-9e40-eef149fee684/scratchpad/cache"
+max_size_bytes = 10_000_000_000
+[telemetry]
+log_requests = false

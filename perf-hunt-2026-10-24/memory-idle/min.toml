@@ -1,0 +1,13 @@
+[server]
+port = 18080
+bind = "127.0.0.1"
+shutdown_delay = 0
+[url]
+allow_unsigned = true
+[sources.static]
+adapter = "file"
+match = "path"
+root = "/tmp/claude-0/-home-user-image-pipe/d9301eaf-e830-533b-9e40-eef149fee684/scratchpad/images"
+root_id = "static"
+[telemetry]
+log_requests = false
