@@ -209,6 +209,23 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
     refute_received {:cache_put, _hash, _body}
   end
 
+  test "denied source storage sends no-store over a host Cache-Control or Set-Cookie" do
+    opts = mount(source_cache_policy: [storage: :deny])
+
+    host_control =
+      conn(:get, @image_path)
+      |> put_resp_header("cache-control", "public, max-age=3600")
+      |> call_pipe(opts)
+
+    cookie = conn(:get, @image_path) |> put_resp_cookie("session", "a") |> call_pipe(opts)
+
+    for response <- [host_control, cookie] do
+      assert response.status == 200
+      assert get_resp_header(response, "cache-control") == ["no-store"]
+      assert get_resp_header(response, "etag") == []
+    end
+  end
+
   test "stable public route emits cache-control and a stable etag", %{opts: opts} do
     conn = call_pipe(conn(:get, @image_path), opts)
 

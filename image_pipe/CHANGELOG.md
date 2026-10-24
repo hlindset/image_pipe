@@ -5,6 +5,13 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- A response from a source configured to deny storage gets
+  `Cache-Control: no-store` even when an earlier Plug set `Cache-Control`
+  or `Set-Cookie`. Before, it kept the earlier Plug's caching headers and
+  sent no `no-store`.
+
 ## [0.4.0] - 2026-10-23
 
 ### Added
