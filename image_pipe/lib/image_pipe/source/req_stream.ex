@@ -428,8 +428,7 @@ defmodule ImagePipe.Source.ReqStream do
   defp redirect_options(req_options, previous, next) do
     opts = Keyword.put(req_options, :url, URI.to_string(next))
 
-    case {previous.scheme, String.downcase(previous.host), previous.port} ==
-           {next.scheme, String.downcase(next.host || ""), next.port} do
+    case origin(previous) == origin(next) do
       true ->
         opts
 
@@ -439,6 +438,10 @@ defmodule ImagePipe.Source.ReqStream do
         |> Keyword.update(:headers, [], &conditional_headers/1)
     end
   end
+
+  # URI.merge leaves the port of a protocol-relative Location unset.
+  defp origin(uri),
+    do: {uri.scheme, String.downcase(uri.host || ""), uri.port || URI.default_port(uri.scheme)}
 
   defp conditional_headers(headers) do
     Enum.filter(headers, fn {name, _value} ->

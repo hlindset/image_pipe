@@ -153,6 +153,36 @@ defmodule ImagePipe.Source.ReqStreamTest do
     end
   end
 
+  test "a protocol-relative redirect to the same host keeps authorization and headers" do
+    plug = fn conn ->
+      assert Plug.Conn.get_req_header(conn, "authorization") == ["Bearer private"]
+      assert Plug.Conn.get_req_header(conn, "x-api-key") == ["private"]
+
+      case conn.request_path do
+        "/image" ->
+          conn
+          |> Plug.Conn.put_resp_header("location", "//first.test/moved")
+          |> Plug.Conn.send_resp(302, "")
+
+        "/moved" ->
+          Plug.Conn.send_resp(conn, 200, "bytes")
+      end
+    end
+
+    stream =
+      open_body!(
+        [
+          url: "https://first.test/image",
+          plug: plug,
+          auth: {:bearer, "private"},
+          headers: [{"x-api-key", "private"}]
+        ],
+        max_redirects: 1
+      )
+
+    assert Enum.join(stream) == "bytes"
+  end
+
   test "a redirect from https to http is refused" do
     plug = fn conn ->
       case conn.scheme do
