@@ -1,0 +1,11 @@
+format=png
+w=300
+crop=50pct,50pct/rotate=90
+blur=5
+format=webp
+format=jpeg
+format=avif
+output=info
+trim=auto
+w=50/h=50/fit=cover/anchor=smart
+page=2/format=png

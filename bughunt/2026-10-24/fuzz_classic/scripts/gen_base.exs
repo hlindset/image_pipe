@@ -1,0 +1,57 @@
+[out] = System.argv()
+alias Vix.Vips.Image, as: V
+alias Vix.Vips.MutableImage
+alias Vix.Vips.Operation, as: Op
+w = fn img, name, fmt ->
+  {:ok, bin} = V.write_to_buffer(img, fmt)
+  File.write!(Path.join(out, name), bin)
+end
+{:ok, base} = Op.xyz(200, 150)
+{:ok, base} = Op.linear(base, [1.2], [10])
+{:ok, base} = Op.cast(base, :VIPS_FORMAT_UCHAR)
+{:ok, g} = Op.extract_band(base, 0)
+{:ok, rgb} = Op.bandjoin([g, base |> then(fn b -> {:ok, x} = Op.extract_band(b, 1); x end), g])
+{:ok, rgb} = Op.copy(rgb, interpretation: :VIPS_INTERPRETATION_sRGB)
+{:ok, rgba} = Op.bandjoin_const(rgb, [200.0])
+w.(rgb, "base.jpg", ".jpg[Q=80]")
+w.(rgb, "prog.jpg", ".jpg[Q=80,interlace=true]")
+w.(rgb, "base.png", ".png")
+w.(rgba, "rgba.png", ".png")
+w.(rgb, "interlace.png", ".png[interlace=true]")
+w.(rgb, "palette.png", ".png[palette=true]")
+{:ok, r16} = Op.cast(rgb, :VIPS_FORMAT_USHORT); {:ok, r16} = Op.linear(r16, [256.0], [0.0]); {:ok, r16} = Op.cast(r16, :VIPS_FORMAT_USHORT); {:ok, r16} = Op.copy(r16, interpretation: :VIPS_INTERPRETATION_RGB16)
+w.(r16, "rgb16.png", ".png")
+w.(rgb, "lossy.webp", ".webp[Q=70]")
+w.(rgba, "lossless.webp", ".webp[lossless=true]")
+w.(rgb, "base.gif", ".gif")
+w.(rgb, "base.tif", ".tif")
+w.(rgb, "lzw.tif", ".tif[compression=lzw]")
+w.(rgb, "deflate.tif", ".tif[compression=deflate]")
+w.(rgb, "jpeg.tif", ".tif[compression=jpeg]")
+w.(rgb, "tiled.tif", ".tif[tile=true,tile_width=64,tile_height=64]")
+w.(r16, "rgb16.tif", ".tif")
+{:ok, f} = Op.cast(rgb, :VIPS_FORMAT_FLOAT); w.(f, "float.tif", ".tif")
+{:ok, two} = Op.bandjoin([g, g]); {:ok, two} = Op.copy(two, interpretation: :VIPS_INTERPRETATION_B_W); w.(two, "2band.tif", ".tif")
+{:ok, five} = Op.bandjoin([rgb, g, g]); w.(five, "5band.tif", ".tif")
+{:ok, bw} = Op.copy(g, interpretation: :VIPS_INTERPRETATION_B_W); w.(bw, "1bit.tif", ".tif[bitdepth=1]")
+{:ok, cpx} = Op.cast(g, :VIPS_FORMAT_COMPLEX); w.(cpx, "complex.tif", ".tif")
+{:ok, d} = Op.cast(rgb, :VIPS_FORMAT_DOUBLE); w.(d, "double.tif", ".tif")
+{:ok, i8} = Op.cast(rgb, :VIPS_FORMAT_CHAR); w.(i8, "char.tif", ".tif")
+{:ok, i32} = Op.cast(rgb, :VIPS_FORMAT_INT); w.(i32, "int.tif", ".tif")
+# animated
+anim = fn n, fw, fh ->
+  frames = for i <- 0..(n - 1), do: Image.new!(fw, fh, color: [rem(i * 40, 255), 100, 200 - rem(i * 30, 200)])
+  {:ok, s} = Image.join(frames, across: 1)
+  {:ok, s} = V.mutate(s, fn m ->
+    :ok = MutableImage.set(m, "page-height", :gint, fh)
+    :ok = MutableImage.set(m, "delay", :VipsArrayInt, List.duplicate(50, n))
+    :ok = MutableImage.set(m, "loop", :gint, 0)
+  end)
+  s
+end
+a = anim.(4, 64, 48)
+w.(a, "anim.gif", ".gif")
+w.(a, "anim.webp", ".webp[lossless=true]")
+w.(a, "anim_lossy.webp", ".webp[Q=50]")
+w.(a, "multipage.tif", ".tif")
+IO.puts("ok")
