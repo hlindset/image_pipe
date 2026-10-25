@@ -80,6 +80,19 @@ defmodule ImagePipe.Transform.InputColorManagementTest do
       assert VixImage.interpretation(out.image) == :VIPS_INTERPRETATION_sRGB
     end
 
+    # A crop can then cut the frame before the conversion runs, and a resize,
+    # whose overlapping reads would repeat the conversion, buffers it first.
+    test "a CMYK import stays lazy and asks a later resize to buffer it", %{open: open} do
+      {:ok, out} = ICM.condition(%State{image: open.(@cmyk_fixture)}, supports_hdr?: false)
+      refute out.materialized?
+      assert out.rebuffer?
+    end
+
+    test "an RGB source isn't marked for buffering", %{open: open} do
+      {:ok, out} = ICM.condition(%State{image: open.(@plain_srgb_fixture)}, supports_hdr?: false)
+      refute out.rebuffer?
+    end
+
     test "profile-less CMYK lands sRGB without libvips' fallback profile" do
       {:ok, cmyk} = Operation.black(16, 16, bands: 4)
       {:ok, cmyk} = Operation.cast(cmyk, :VIPS_FORMAT_UCHAR)

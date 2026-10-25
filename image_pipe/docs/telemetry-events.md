@@ -762,8 +762,9 @@ computed at least once, at the latest just before encoding.
 Where the span nests depends on why the image is computed:
 
 - Before an operation that needs the whole image at once (trim, rotation by
-  an arbitrary angle, smart or detection crops, or a resize after such a
-  rotation): in that `[:transform, :operation]`.
+  an arbitrary angle, smart or detection crops, a resize after such a
+  rotation, or a resize of an image with alpha): in that
+  `[:transform, :operation]`.
 - When EXIF orientation, rotation, or flips are applied: directly in
   `[:transform, :execute]`.
 - Just before encoding: in the request span, or in

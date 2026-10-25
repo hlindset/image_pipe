@@ -14,23 +14,29 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
-- A full-size output of an image with an ICC profile other than sRGB, such
-  as a Display P3 phone photo, converted to sRGB uses about 45 MB less
-  memory for an 18.7 megapixel image, and is up to 8% faster. Removing the
-  old profile and stripping metadata no longer copies the converted image
-  to memory. This applies when the libvips operation cache is off
-  (`Vix.Vips.cache_set_max(0)`), as `image_pipe_server` sets it.
+- A CMYK image, or another one whose ICC profile is converted to sRGB on
+  input, is converted after a crop instead of before it. On Apple Silicon,
+  cropping a 2000x2000 region from an 18.7 megapixel CMYK JPEG takes 230 ms
+  instead of 430 ms, with a memory peak of 49 MB instead of 153 MB.
+  Converting the whole image takes 370 ms instead of 500 ms. This needs the
+  libvips operation cache off (`Vix.Vips.cache_set_max(0)`), as
+  `image_pipe_server` sets it.
+- Converting an image with an ICC profile other than sRGB, such as a Display
+  P3 phone photo, to sRGB at full size takes up to 8% less time and, for an
+  18.7 megapixel image on Apple Silicon, uses about 45 MB less memory. This
+  needs the libvips operation cache off (`Vix.Vips.cache_set_max(0)`), as
+  `image_pipe_server` sets it. With the cache on, a metadata edit copies the
+  image to memory, as before.
 - An image whose alpha channel is opaque everywhere, as in many PNG and
   WebP files, is encoded without the alpha channel. The pixels don't
   change, but a PNG output is saved as RGB instead of RGBA, or as gray
   instead of gray with alpha. On Apple Silicon, an 18.7 megapixel PNG
   output encodes 9% faster and is 9% smaller, and an AVIF output encodes
   7% faster.
-- Resizing an image with transparency is up to 40% faster. The decoded
-  image is copied to memory before it is resized. Resizing a 3368x2872 PNG
-  to 800 pixels wide takes 111 ms instead of 188 ms on Apple Silicon, with
-  half the memory peak. Resizing it to 2000 pixels wide takes 261 ms
-  instead of 377 ms, with a peak 25 MB higher.
+- Resizing an image with transparency takes up to 40% less time. On Apple
+  Silicon, resizing a 3368x2872 PNG to 800 pixels wide takes 111 ms instead
+  of 188 ms, with half the memory peak. Resizing it to 2000 pixels wide
+  takes 261 ms instead of 377 ms, with a peak 25 MB higher.
 - PNG output is 15-35% smaller and encodes 7-29% faster. A PNG that isn't
   a palette image is saved at zlib compression 3, with the `paeth` row
   filter unless it is grayscale at `bitdepth` `1`, `2`, or `4`, instead of

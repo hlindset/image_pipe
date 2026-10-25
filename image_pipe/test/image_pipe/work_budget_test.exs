@@ -103,6 +103,12 @@ defmodule ImagePipe.WorkBudgetTest do
     assert_budget(config, "/format=png/src/icc_p3.png", copies: 4)
   end
 
+  # The import and the conversion to sRGB stay lazy, so only the cropped
+  # frame is buffered, by delivery.
+  test "a CMYK source is cropped before it is buffered", %{config: config} do
+    assert_budget(config, "/crop=60,40/format=jpeg/src/cmyk.jpg", copies: 4)
+  end
+
   test "a CMYK source imports its profile once", %{config: config} do
     assert_budget(config, "/w=200/format=jpeg/src/cmyk.jpg", icc: 1)
   end

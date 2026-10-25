@@ -9,8 +9,8 @@ defmodule ImagePipe.Transform.InputColorManagement do
 
   alias ImagePipe.BitDepth
   alias ImagePipe.Telemetry
-  alias ImagePipe.Transform.Materializer
   alias ImagePipe.Transform.State
+  alias ImagePipe.VipsHeader
   alias Vix.Vips.Image, as: VixImage
   alias Vix.Vips.Operation
 
@@ -36,16 +36,18 @@ defmodule ImagePipe.Transform.InputColorManagement do
   5. Converts to the working space, including when no profile was imported,
      and drops any profile left on the converted image.
 
-  Preserves dimensions, `source_dimensions`, and `decode_shrink`. Returns a
-  failure to buffer the source as `Materializer` classifies it, and other
-  failures as `{:error, {__MODULE__, reason}}`.
+  Preserves dimensions, `source_dimensions`, and `decode_shrink`, and leaves
+  the image lazy. Returns a failure to buffer the source (only with the
+  libvips operation cache on, see `ImagePipe.VipsHeader`) as
+  `{:error, {:decode, reason}}`, and other failures as
+  `{:error, {__MODULE__, reason}}`.
 
   Emits `[:transform, :input_color_management]` through `state.telemetry_opts`,
   with stop metadata `%{result:, working_space:, imported?:}`. Skipped imports
   report `imported?: false`; the already-imported early return emits no span.
   """
   @spec condition(State.t(), keyword()) ::
-          {:ok, State.t()} | {:error, {__MODULE__, term()} | Materializer.error()}
+          {:ok, State.t()} | {:error, {__MODULE__, term()} | {:decode, term()}}
   def condition(state, opts \\ [])
 
   def condition(%State{color_imported?: true} = state, _opts), do: {:ok, state}
@@ -75,10 +77,9 @@ defmodule ImagePipe.Transform.InputColorManagement do
 
   # Linear-light: drop the profile (no backup, no flag) but still convert.
   defp do_condition(state, image, :VIPS_INTERPRETATION_scRGB, target) do
-    with {:ok, state} <- materialize_tagged(State.set_image(state, image)),
-         {:ok, image} <- remove_profile(state.image),
+    with {:ok, image} <- remove_profile(image),
          {:ok, image} <- to_colorspace(image, target) do
-      {:ok, State.set_image(state, image)}
+      {:ok, converted(state, image)}
     end
   end
 
@@ -96,30 +97,28 @@ defmodule ImagePipe.Transform.InputColorManagement do
     if importable?(image, profile) do
       # The imported pixels no longer match the embedded profile, so drop it from
       # the image; the backup on `State` is what the output step exports to.
-      with {:ok, %State{image: image} = state} <-
-             materialize_tagged(State.set_image(state, image)),
-           {:ok, imported} <- icc_import(image, profile),
+      with {:ok, imported} <- icc_import(image, profile),
            {:ok, image} <- to_colorspace(imported, target),
            {:ok, image} <- remove_profile(image) do
         {:ok,
-         %State{
-           State.set_image(state, image)
-           | source_color_profile: profile,
-             color_imported?: true
-         }}
+         %State{converted(state, image) | source_color_profile: profile, color_imported?: true}}
       end
     else
       # libvips converts profile-less CMYK through its fallback profile and
       # leaves that profile on the sRGB result, where it no longer describes
       # the pixels.
       with {:ok, image} <- to_colorspace(image, target),
-           {:ok, %State{image: image} = state} <-
-             materialize_tagged(State.set_image(state, image)),
            {:ok, image} <- remove_profile(image) do
-        {:ok, State.set_image(state, image)}
+        {:ok, converted(state, image)}
       end
     end
   end
+
+  # The conversion stays lazy, so a crop cuts the frame before it runs. A
+  # resize's overlapping reads would repeat it, so a resize buffers it first:
+  # a CMYK source cropped to 2000x2000 took 230 ms instead of 430 ms, with a
+  # libvips peak of 49 MiB instead of 153 MiB.
+  defp converted(state, image), do: %State{State.set_image(state, image) | rebuffer?: true}
 
   # Import supported uncoded input with an embedded profile.
   defp importable?(image, profile) do
@@ -147,26 +146,12 @@ defmodule ImagePipe.Transform.InputColorManagement do
 
   defp to_colorspace(image, target), do: Operation.colourspace(image, target)
 
-  # Workaround for `image`: removing a profile goes through Vix's mutable
-  # image, which copies the image to memory in a linked process, so a corrupt
-  # lazy source crashes the request there. Buffer it first, so the failure is
-  # a decode error.
-  defp materialize_tagged(%State{materialized?: true} = state), do: {:ok, state}
-
-  defp materialize_tagged(%State{image: image} = state) do
-    case profile_data(image) do
-      nil -> {:ok, state}
-      _profile -> Materializer.materialize(state)
-    end
-  end
-
+  # Lazy, so the conversion runs only on the pixels later steps keep, such
+  # as a crop's.
   defp remove_profile(image) do
     case profile_data(image) do
-      nil ->
-        {:ok, image}
-
-      _profile ->
-        Image.remove_metadata(image, ["icc-profile-data"])
+      nil -> {:ok, image}
+      _profile -> VipsHeader.edit(image, [{:remove, "icc-profile-data"}])
     end
   end
 
