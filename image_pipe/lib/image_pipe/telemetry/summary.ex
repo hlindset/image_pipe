@@ -52,7 +52,10 @@ defmodule ImagePipe.Telemetry.Summary do
     outer = {current(), Process.delete(@fields_key)}
     Process.put(@outer_key, [outer | Process.get(@outer_key, [])])
 
-    case :telemetry.list_handlers(prefix ++ [:request, :summary]) do
+    # `:telemetry.list_handlers/1` matches by prefix, which scans every
+    # handler in the VM: 4.6 us with ImagePipe's own logger and tracer
+    # attached. This is the exact-event lookup `:telemetry.execute/3` uses.
+    case :telemetry_handler_table.list_for_event(prefix ++ [:request, :summary]) do
       [] ->
         adopt(nil)
 

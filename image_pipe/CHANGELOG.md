@@ -37,6 +37,10 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   for an image 4 directories deep is about 10% faster. A request that
   doesn't check the file, such as one within a fallback lifetime, can be
   answered from the cache after the path starts to leave the root.
+- A request no longer reads every attached telemetry handler to find out
+  whether to build its [request summary](docs/telemetry-events.md#request-summary).
+  With the default Logger and the tracer attached, that took 4.6 µs per
+  request, and it took longer the more handlers a host attached.
 
 ### Fixed
 
