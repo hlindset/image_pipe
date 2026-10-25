@@ -217,6 +217,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     refute_boundary_deps(delivery, [ImagePipe.API, ImagePipe.Plug, ImagePipe.Response])
 
     assert_boundary_exports(delivery, [
+      ImagePipe.Delivery.Budget,
       ImagePipe.Delivery.PreparedStream,
       ImagePipe.Delivery.StreamPull
     ])
@@ -249,6 +250,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
 
     assert_boundary_deps(application, [
       ImagePipe.Cache,
+      ImagePipe.Delivery,
       ImagePipe.Execution,
       ImagePipe.Output,
       ImagePipe.Source,

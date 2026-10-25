@@ -39,14 +39,16 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - A streamed image gives back its processing turn when its encode ends,
   instead of when the client has read the last byte. The part of the
   response the client hasn't read yet waits in memory, up to 4 MB, and the
-  rest in a file in the system temporary directory, which needs room for
-  the largest responses slow clients read at once (see
+  rest in a file in the system temporary directory. All requests on a node
+  together keep at most 256 MB in memory and 2 GB in files this way, so the
+  temporary directory needs room for 2 GB (see
   [slow clients](docs/deployment.md#slow-clients)). Before, a few slow
   clients downloading large images could hold every turn, so other requests
   got `503`, and identical requests waited for the slowest client.
-  When the system temporary directory is private to ImagePipe's user and
-  has room, `processing_timeout` no longer counts the client's download, so
-  a slow download of a large image is no longer cut short at the deadline.
+  While ImagePipe has room to hold what the client hasn't read (see
+  [deadlines](docs/processing-controls.md#deadlines)), `processing_timeout`
+  no longer counts the client's download, so a slow download of a large
+  image is no longer cut short at the deadline.
 - On a CMYK source without a usable embedded ICC profile, colors from the
   request, such as `bg`, `colorize` and `duotone`, come out as requested.
   Before, `pad=5/bg=00ff00` painted `(192, 208, 11)` instead of

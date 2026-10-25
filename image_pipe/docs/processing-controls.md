@@ -140,10 +140,15 @@ reading the original, processing, and encoding the response. The turn ends
 when the encode does, even if the client is still downloading. Up to 4 MB of
 the response that the client hasn't read yet waits in memory, and the rest in
 a temporary file in the directory that
-[downloaded originals](cache.md#downloaded-originals) use. When that
-directory isn't private to ImagePipe's user, or a write to the file fails, a
-slow client keeps the turn once 4 MB are waiting, and its download counts
-toward the deadline.
+[downloaded originals](cache.md#downloaded-originals) use. All requests on a
+node together keep at most 256 MB in memory and 2 GB in temporary files this
+way. A slow client keeps the turn, and its download counts toward the
+deadline, while both of these hold:
+
+- No room in a temporary file: the directory isn't private to ImagePipe's
+  user, a write to the file failed, or the node's 2 GB are in use.
+- No room in memory: 4 MB are waiting for this request, or the node's 256 MB
+  are in use.
 
 When the deadline passes before the response starts, the request gets a
 `503`. When the response has already started, ImagePipe cuts it short, as

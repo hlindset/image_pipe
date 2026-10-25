@@ -23,12 +23,16 @@ defmodule ImagePipe.Delivery.Coordinator do
   # spool file at the session's `:spool_path`, deleted as soon as it's open,
   # so the VM closes it and frees its space however this process stops.
   # Without a spool path, or once a spool write fails, the coordinator stops
-  # pulling at `@window` and resumes as the client drains the buffer.
+  # pulling at `@window` and resumes as the client drains the buffer. It does
+  # the same when the VM holds as much for slow clients as `Budget` allows.
+  # The session counts what it holds in `Budget` and gives it back in
+  # `terminate/2`, which every stop runs.
 
   use GenServer
 
   alias ImagePipe.Cache
   alias ImagePipe.Debug.Info
+  alias ImagePipe.Delivery.Budget
   alias ImagePipe.Delivery.Producer
   alias ImagePipe.ProcessingPool
   alias ImagePipe.Telemetry.RequestContext
@@ -55,8 +59,8 @@ defmodule ImagePipe.Delivery.Coordinator do
     :cache_sink,
     :fetch_started_at,
     :failure,
-    # A path to open the spool at, `{fd, size}` once open, `{:read_only, fd}`
-    # after a write to it fails, or `:failed` when it can't be opened.
+    # A path to open the spool at, `{fd, size}` once open, `{:read_only, fd,
+    # size}` after a write to it fails, or `:failed` when it can't be opened.
     :spool,
     phase: :new,
     # Unsent chunks in order: `{:memory, binary}` or `{:spool, offset, size}`.
@@ -284,24 +288,29 @@ defmodule ImagePipe.Delivery.Coordinator do
   end
 
   @impl GenServer
-  def terminate(:normal, _state), do: :ok
+  def terminate(reason, state) do
+    give_back(state)
+    stop(reason, state)
+  end
 
-  def terminate(reason, state) when reason in [:shutdown] do
+  defp stop(:normal, _state), do: :ok
+
+  defp stop(reason, state) when reason in [:shutdown] do
     cleanup_shutdown(state, :cancelled)
     :ok
   end
 
-  def terminate({:shutdown, {:owner_down, _reason}}, state) do
+  defp stop({:shutdown, {:owner_down, _reason}}, state) do
     cleanup_shutdown(state, :owner_down)
     :ok
   end
 
-  def terminate({:shutdown, _reason}, state) do
+  defp stop({:shutdown, _reason}, state) do
     cleanup_shutdown(state, :cancelled)
     :ok
   end
 
-  def terminate(_reason, state) do
+  defp stop(_reason, state) do
     cleanup_shutdown(state, :stream_error)
     :ok
   end
@@ -438,7 +447,7 @@ defmodule ImagePipe.Delivery.Coordinator do
   # has ended, or the buffer is full.
   defp pull(%{producer: producer, producer_request_ref: nil, phase: phase} = state)
        when is_pid(producer) and phase in [:prepared, :streaming] do
-    if room?(state) do
+    if match?({:next, _from}, state.pending) or room?(state) do
       %{state | producer_request_ref: Producer.request_next(producer, self())}
     else
       state
@@ -447,21 +456,31 @@ defmodule ImagePipe.Delivery.Coordinator do
 
   defp pull(state), do: state
 
-  defp room?(state), do: state.buffered < @window or spool?(state)
+  defp room?(state), do: memory_room?(state) or spool_room?(state)
+
+  defp memory_room?(state), do: state.buffered < @window and Budget.room?(:memory)
+  defp spool_room?(state), do: spool?(state) and Budget.room?(:spool)
 
   defp spool?(%{spool: path}) when is_binary(path), do: true
   defp spool?(%{spool: {_fd, size}}) when is_integer(size), do: true
   defp spool?(_state), do: false
 
   defp put(state, chunk) do
-    if state.buffered + byte_size(chunk) <= @window or not spool?(state) do
-      put_memory(state, chunk)
-    else
-      put_spool(state, chunk)
+    cond do
+      state.buffered + byte_size(chunk) <= @window and Budget.room?(:memory) ->
+        put_memory(state, chunk)
+
+      spool_room?(state) ->
+        put_spool(state, chunk)
+
+      true ->
+        put_memory(state, chunk)
     end
   end
 
   defp put_memory(state, chunk) do
+    Budget.add(:memory, byte_size(chunk))
+
     %{
       state
       | buffer: :queue.in({:memory, chunk}, state.buffer),
@@ -483,17 +502,19 @@ defmodule ImagePipe.Delivery.Coordinator do
   defp put_spool(%{spool: {fd, size}} = state, chunk) do
     case :file.pwrite(fd, size, chunk) do
       :ok ->
+        Budget.add(:spool, byte_size(chunk))
         item = {:spool, size, byte_size(chunk)}
         %{state | buffer: :queue.in(item, state.buffer), spool: {fd, size + byte_size(chunk)}}
 
       {:error, _reason} ->
-        put_memory(%{state | spool: {:read_only, fd}}, chunk)
+        put_memory(%{state | spool: {:read_only, fd, size}}, chunk)
     end
   end
 
   defp take(state) do
     case :queue.out(state.buffer) do
       {{:value, {:memory, chunk}}, buffer} ->
+        Budget.add(:memory, -byte_size(chunk))
         {:ok, chunk, %{state | buffer: buffer, buffered: state.buffered - byte_size(chunk)}}
 
       {{:value, {:spool, offset, size}}, buffer} ->
@@ -536,8 +557,19 @@ defmodule ImagePipe.Delivery.Coordinator do
     {:stop, :normal, {:error, {:session, {:spool, reason}}}, mark_failed(state)}
   end
 
-  defp spool_fd({:read_only, fd}), do: fd
+  defp spool_fd({:read_only, fd, _size}), do: fd
   defp spool_fd({fd, _size}), do: fd
+
+  # Gives back what the session holds: its buffered chunks, and its spool
+  # file, whose space returns only when the file closes as this process ends.
+  defp give_back(state) do
+    Budget.add(:memory, -state.buffered)
+    Budget.add(:spool, -spooled(state.spool))
+  end
+
+  defp spooled({:read_only, _fd, size}), do: size
+  defp spooled({_fd, size}) when is_integer(size), do: size
+  defp spooled(_path_or_failed), do: 0
 
   defp with_owner_check(state, fun) when is_function(fun, 1) do
     case receive_owner_down_message(state) do
@@ -650,7 +682,10 @@ defmodule ImagePipe.Delivery.Coordinator do
   defp producer_down_reason({:shutdown, {:processing, _} = reason}), do: reason
   defp producer_down_reason(reason), do: {:session, {:producer_down, reason}}
 
-  defp mark_failed(state), do: %{state | phase: :failed, buffer: :queue.new(), buffered: 0}
+  defp mark_failed(state) do
+    Budget.add(:memory, -state.buffered)
+    %{state | phase: :failed, buffer: :queue.new(), buffered: 0}
+  end
 
   # A source delivered unchanged has no debug info and isn't stored.
   defp cost(nil, _skipped), do: 0
