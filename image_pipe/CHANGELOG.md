@@ -40,7 +40,7 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   instead of when the client has read the last byte. The part of the
   response the client hasn't read yet waits in memory, up to 4 MB, and the
   rest in a file in the system temporary directory. All requests on a node
-  together keep at most 256 MB in memory and 2 GB in files this way, so the
+  together keep about 256 MB in memory and 2 GB in files this way, so the
   temporary directory needs room for 2 GB (see
   [slow clients](docs/deployment.md#slow-clients)). Before, a few slow
   clients downloading large images could hold every turn, so other requests

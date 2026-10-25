@@ -63,6 +63,39 @@ defmodule ImagePipe.Delivery.BudgetTest do
   end
 
   @tag :tmp_dir
+  test "a session that times out mid-encode gives back what it holds",
+       %{tmp_dir: dir} = context do
+    test = self()
+
+    chunks =
+      Stream.map(1..12, fn
+        9 ->
+          send(test, {:gated, self()})
+          receive do: (:continue -> chunk(9))
+
+        index ->
+          chunk(index)
+      end)
+
+    {_owner, coordinator} = start_owned(context, chunks, Path.join(dir, "spool.tmp"))
+    assert_receive {:gated, worker}
+    assert Budget.held(:spool) > elem(context.held, 1)
+
+    [{token, %{deadline: deadline}}] = Map.to_list(:sys.get_state(context.pool).jobs)
+    send(context.pool, {:deadline, token, :active, deadline})
+    # The pool tells the coordinator, which handles it before the next call.
+    _pool = :sys.get_state(context.pool)
+    _coordinator = :sys.get_state(coordinator)
+
+    ref = Process.monitor(coordinator)
+    assert Coordinator.next(coordinator) == {:error, {:processing, :timeout}}
+    assert_receive {:DOWN, ^ref, :process, ^coordinator, _reason}
+    assert {Budget.held(:memory), Budget.held(:spool)} == context.held
+    send(worker, :continue)
+    assert_receive {:processing_stopped, :timeout}
+  end
+
+  @tag :tmp_dir
   test "past the memory limit, a session spools what it can't send", %{tmp_dir: dir} = context do
     hold(:memory, Budget.limit(:memory))
     chunks = ["one", :binary.copy("a", @mb)]
@@ -89,8 +122,7 @@ defmodule ImagePipe.Delivery.BudgetTest do
 
     # With no room in the VM, the encode waits after the first chunk.
     assert_receive {:pulled, 1}
-    _state = :sys.get_state(coordinator)
-    refute_received {:pulled, 2}
+    assert %{producer_request_ref: nil} = :sys.get_state(coordinator)
     assert Budget.held(:spool) == elem(context.held, 1) + Budget.limit(:spool)
     assert %{active: 1} = ProcessingPool.stats(context.pool)
 

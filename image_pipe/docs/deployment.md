@@ -217,10 +217,11 @@ processing slot when the encode ends. The part of the response that a client
 hasn't read yet waits in memory, up to 4 MB per request, and anything beyond
 that in a file in the system temporary directory, kept until the download
 ends (see [deadlines](processing-controls.md#deadlines)). Across all
-requests, a node keeps at most 256 MB in memory and 2 GB in those files.
-Give that directory room for a little more than 2 GB, and point `TMPDIR` elsewhere if it can't
-hold that (see [downloaded originals](cache.md#downloaded-originals)). When
-it is a `tmpfs`, those files use memory.
+requests, a node keeps about 256 MB in memory and 2 GB in those files at
+most, plus up to one chunk per response. Give that directory room for a
+little more than 2 GB, and point `TMPDIR` elsewhere if it can't hold that
+(see [downloaded originals](cache.md#downloaded-originals)). When it is a
+`tmpfs`, those files use memory.
 
 When the encode has nowhere left to put what a slow client hasn't read, it
 waits for the client (see [deadlines](processing-controls.md#deadlines) for

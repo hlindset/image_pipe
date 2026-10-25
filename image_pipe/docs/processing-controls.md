@@ -141,8 +141,8 @@ when the encode does, even if the client is still downloading. Up to 4 MB of
 the response that the client hasn't read yet waits in memory, and the rest in
 a temporary file in the directory that
 [downloaded originals](cache.md#downloaded-originals) use. All requests on a
-node together keep at most 256 MB in memory and 2 GB in temporary files this
-way. A slow client keeps the turn, and its download counts toward the
+node together keep about 256 MB in memory and 2 GB in temporary files this
+way at most. A slow client keeps the turn, and its download counts toward the
 deadline, while both of these hold:
 
 - No room in a temporary file: the directory isn't private to ImagePipe's

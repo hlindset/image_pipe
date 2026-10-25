@@ -9,8 +9,16 @@ defmodule ImagePipe.Delivery.Budget do
   @limits %{memory: 256 * 1024 * 1024, spool: 2 * 1024 * 1024 * 1024}
   @index %{memory: 1, spool: 2}
 
-  @doc "Creates the counts. Called once, when the application starts."
-  def init, do: :persistent_term.put(__MODULE__, :atomics.new(2, signed: true))
+  @doc """
+  Creates the counts when the application first starts. A restart keeps
+  them, since sessions from before it still give back what they hold.
+  """
+  def init do
+    case :persistent_term.get(__MODULE__, nil) do
+      nil -> :persistent_term.put(__MODULE__, :atomics.new(2, signed: true))
+      _counts -> :ok
+    end
+  end
 
   @spec add(:memory | :spool, integer()) :: :ok
   def add(_kind, 0), do: :ok
