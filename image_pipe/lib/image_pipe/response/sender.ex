@@ -134,9 +134,11 @@ defmodule ImagePipe.Response.Sender do
     conn |> put_resp_header("content-length", Integer.to_string(size)) |> send_resp(200, "")
   end
 
-  # The kernel copies the body to the socket. send_file reopens the body by
-  # path, so a body evicted since it was opened fails there, before any
-  # headers go out. The open descriptor still reads it.
+  # The kernel copies the body to the socket. send_file opens the body by
+  # path, so a body evicted since the lookup fails there, before any headers
+  # go out. An open descriptor still reads it. A remembered body has none:
+  # it's forgotten, and the conn is marked for the caller to look the entry
+  # up again.
   def send_body(conn, %ImagePipe.Cache.File{} = file) do
     conn = send_file(conn, 200, file.path, 0, file.size)
     Summary.add_bytes(file.size)
@@ -153,6 +155,11 @@ defmodule ImagePipe.Response.Sender do
           Logger.error("cached_body_read_error: #{Exception.message(exception)}")
           # The conn is the one from before send_file, so it has no status.
           mark_send_processing_error(%{conn | state: :file, status: 200})
+
+        file.io == nil ->
+          Logger.info("cached_body_gone: #{Exception.message(exception)}")
+          ImagePipe.Cache.File.forget(file)
+          Plug.Conn.put_private(conn, :image_pipe_cached_body_gone, true)
 
         true ->
           send_open_file(conn, file)

@@ -384,25 +384,23 @@ defmodule ImagePipe.Cache.FileSystem.Store do
     do: {:invalid_option, key, message}
 
   # A hit reads the entry from the memo when it's there: the decoded entry
-  # and the body file's name, size, and cost. A remembered entry whose body
-  # won't open is read again from disk, so the memo never turns a hit into
-  # anything a read from disk wouldn't.
+  # and the body file's name, size, and cost. Its body isn't opened here:
+  # delivery sends it by path, and a body that's gone by then is forgotten
+  # and the request reads the entry again (see `ImagePipe.Cache.File`).
   defp read_entry(paths, decode) do
     case Memo.get(paths.root, paths.hash) do
-      {entry, hit} -> read_remembered(paths, decode, entry, hit)
+      {entry, hit} -> {:hit, %{entry | body: remembered_body(paths, hit)}, hit}
       nil -> read_stored(paths, decode)
     end
   end
 
-  defp read_remembered(paths, decode, entry, hit) do
-    case CacheFile.open(Path.join(paths.dir, hit.body_filename), hit.body_byte_size) do
-      {:ok, file} ->
-        {:hit, %{entry | body: file}, hit}
-
-      _gone_or_changed ->
-        Memo.drop(paths.root, paths.hash)
-        read_stored(paths, decode)
-    end
+  defp remembered_body(paths, hit) do
+    CacheFile.remembered(
+      Path.join(paths.dir, hit.body_filename),
+      hit.body_byte_size,
+      paths.root,
+      paths.hash
+    )
   end
 
   defp read_stored(paths, decode) do

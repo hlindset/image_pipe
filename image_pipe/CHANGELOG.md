@@ -24,6 +24,10 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   while it counts the entries, so `:counting?` in the cache's
   [usage](docs/cache.md#usage-and-hit-rate) stays `true` until the scan
   finishes.
+- A cache hit whose metadata is in memory no longer opens its body before
+  sending it, which makes a warm `GET` about 15% faster and a `HEAD` about
+  40% faster. A body deleted after the lookup is noticed when the response
+  is sent, before any headers, and the image is generated again.
 
 ### Fixed
 

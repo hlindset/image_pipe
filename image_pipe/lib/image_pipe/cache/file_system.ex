@@ -78,10 +78,14 @@ defmodule ImagePipe.Cache.FileSystem do
   end
 
   defp materialize(entry) do
-    {:hit,
-     %{entry | body: entry.body |> CacheFile.stream() |> Enum.to_list() |> IO.iodata_to_binary()}}
-  after
-    Entry.close(entry)
+    with {:ok, file} <- CacheFile.ensure_open(entry.body) do
+      try do
+        {:hit,
+         %{entry | body: file |> CacheFile.stream() |> Enum.to_list() |> IO.iodata_to_binary()}}
+      after
+        CacheFile.close(file)
+      end
+    end
   end
 
   @doc false
