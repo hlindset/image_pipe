@@ -416,6 +416,40 @@ defmodule ImagePipe.Output.EncodeSearchTest do
     end
   end
 
+  describe "score_setup" do
+    test "builds the score function once, right before the first score" do
+      rs = %RQS.Ssimulacra2{
+        target: 90.0,
+        min_quality: 10,
+        max_quality: 80,
+        allowed_error: 0.0
+      }
+
+      test_pid = self()
+
+      enc = fn q ->
+        send(test_pid, {:encoded, q})
+        {:ok, :binary.copy(<<0>>, q * 100)}
+      end
+
+      setup = fn ->
+        send(test_pid, :setup)
+        fn bin -> byte_size(bin) / 100 + 20.0 end
+      end
+
+      assert {:ok, _b, %{quality: 70}} =
+               EncodeSearch.search(rs, nil,
+                 encode_fun: enc,
+                 score_setup: setup,
+                 max_iterations: 8
+               )
+
+      {:messages, messages} = Process.info(self(), :messages)
+      assert [{:encoded, _first}, :setup | rest] = messages
+      refute :setup in rest
+    end
+  end
+
   describe "max_search_pixels" do
     defp target_search,
       do: %RQS.Ssimulacra2{target: 90.0, min_quality: 10, max_quality: 80, allowed_error: 0.0}

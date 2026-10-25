@@ -32,6 +32,7 @@ defmodule ImagePipe.Telemetry.Catalog do
     # Probe cost spans time eager work: the encode, then the decode and score.
     # They fire for every probe, so they're traced but not logged.
     {[:encode, :search, :probe, :encode], :span, :request, :trace_only},
+    {[:encode, :search, :probe, :ssimulacra2, :reference], :span, :request, :trace_only},
     {[:encode, :search, :probe, :ssimulacra2, :decode], :span, :request, :trace_only},
     {[:encode, :search, :probe, :ssimulacra2, :metric], :span, :request, :trace_only},
     {[:encode, :search, :probe, :chosen], :oneshot, :request},

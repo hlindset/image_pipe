@@ -5,6 +5,13 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- An `[:encode, :search, :probe, :ssimulacra2, :reference]` span times
+  how long autoquality waits for its comparison image (see
+  [probe cost spans](docs/telemetry-events.md#probe-cost-spans)). The
+  default Logger doesn't log it.
+
 ### Changed
 
 - PNG output is 15-35% smaller and encodes 7-29% faster. A PNG that isn't
@@ -15,6 +22,10 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - JPEG output is up to 18% smaller, with the same pixels. The encoder
   optimizes the entropy coding for each image, which adds 1 to 4 ms to an
   encode of 1-2 megapixels.
+- WebP and AVIF autoquality on outputs of up to 6 megapixels is about 5-10%
+  faster, with the same output: 110-260 ms on a 4-core x86 machine and
+  30-50 ms on Apple Silicon. The search builds its comparison image while
+  it encodes the first quality, instead of before.
 - A FileSystem cache's startup scan is several times faster and uses a
   quarter of the memory. On a 12-core machine, a cache of 1M entries is
   scanned in 3.5 s instead of 19 s, with a memory peak of 0.6 GB instead of

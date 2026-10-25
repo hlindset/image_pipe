@@ -104,7 +104,7 @@ defmodule ImagePipe.Output.EncoderCropScoringTest do
     assert crop.score >= resolved.quality_search.target - resolved.quality_search.allowed_error
   end
 
-  test "run/3 emits the probe spans and their encode/decode/metric cost legs (crop mode)" do
+  test "run/3 emits the probe spans and their encode/reference/decode/metric cost legs (crop mode)" do
     prefix = [:"ip_crop_legs_#{System.unique_integer([:positive])}"]
     test_pid = self()
     handler_id = "crop-legs-#{System.unique_integer([:positive])}"
@@ -113,6 +113,7 @@ defmodule ImagePipe.Output.EncoderCropScoringTest do
       for stage <- [
             [:encode, :search, :probe],
             [:encode, :search, :probe, :encode],
+            [:encode, :search, :probe, :ssimulacra2, :reference],
             [:encode, :search, :probe, :ssimulacra2, :decode],
             [:encode, :search, :probe, :ssimulacra2, :metric]
           ],
@@ -147,6 +148,10 @@ defmodule ImagePipe.Output.EncoderCropScoringTest do
     encode_legs = Map.fetch!(by_stage, [:encode, :search, :probe, :encode])
     assert encode_legs != []
     assert Enum.all?(encode_legs, &(&1.result == :ok and is_integer(&1.bytes)))
+
+    # The search waits for the tile references once, before its first score.
+    assert [%{result: :ok}] =
+             Map.fetch!(by_stage, [:encode, :search, :probe, :ssimulacra2, :reference])
 
     # ssim2 scoring legs: a decode and an aggregate metric per probe.
     assert Map.fetch!(by_stage, [:encode, :search, :probe, :ssimulacra2, :decode]) != []

@@ -965,6 +965,9 @@ doesn't log them.
 - `[:encode, :search, :probe, :encode]`: the encode, for every objective.
   Start metadata `:quality`, stop metadata `:result` and `:bytes`, or
   `:result` and `:error` on failure.
+- `[:encode, :search, :probe, :ssimulacra2, :reference]`: waiting for the
+  comparison image, which is built while the first candidate is encoded.
+  Once per search, in the first probe that scores. Stop metadata `:result`.
 - `[:encode, :search, :probe, :ssimulacra2, :decode]`: decoding the encoded
   candidate. Start metadata `:bytes`, stop metadata `:result`.
 - `[:encode, :search, :probe, :ssimulacra2, :metric]`: computing one score, over

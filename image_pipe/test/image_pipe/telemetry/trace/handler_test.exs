@@ -695,10 +695,14 @@ defmodule ImagePipe.Telemetry.Trace.HandlerTest do
     assert parse.attributes[:limit] == "svg_bytes"
   end
 
-  test "nests the ssimulacra2 probe cost legs (encode/decode/metric) under the probe span" do
+  test "nests the ssimulacra2 probe cost legs (encode/reference/decode/metric) under the probe span" do
     Telemetry.span([], [:encode, :search, :probe], %{quality: 62, phase: :objective}, fn ->
       Telemetry.span([], [:encode, :search, :probe, :encode], %{quality: 62}, fn ->
         {:ok, %{result: :ok, bytes: 12_345}}
+      end)
+
+      Telemetry.span([], [:encode, :search, :probe, :ssimulacra2, :reference], %{}, fn ->
+        {:ok, %{result: :ok}}
       end)
 
       Telemetry.span(
@@ -723,11 +727,15 @@ defmodule ImagePipe.Telemetry.Trace.HandlerTest do
     end)
 
     assert_receive {:span, %Span{name: "image_pipe.encode.search.probe.encode"} = enc}
+
+    assert_receive {:span,
+                    %Span{name: "image_pipe.encode.search.probe.ssimulacra2.reference"} = ref}
+
     assert_receive {:span, %Span{name: "image_pipe.encode.search.probe.ssimulacra2.decode"} = dec}
     assert_receive {:span, %Span{name: "image_pipe.encode.search.probe.ssimulacra2.metric"} = met}
     assert_receive {:span, %Span{name: "image_pipe.encode.search.probe"} = probe}
 
-    for leg <- [enc, dec, met] do
+    for leg <- [enc, ref, dec, met] do
       assert leg.parent_span_id == probe.span_id
       assert leg.trace_id == probe.trace_id
     end
