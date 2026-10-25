@@ -14,13 +14,24 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
-- An image that EXIF orientation turns is copied to memory once instead
-  of twice when no later step needs the turned image, and an image without
-  alpha isn't copied again before encoding. A full-size 18.7 megapixel
-  EXIF-rotated JPEG uses 40 MB less memory, and resizing or cropping an
-  EXIF-rotated image takes 13-24% less time. This applies when the libvips
-  operation cache is off (`Vix.Vips.cache_set_max(0)`), as
-  `image_pipe_server` sets it.
+- A JPEG, WebP, or AVIF output without alpha that no earlier step copied to
+  memory, such as a plain re-encode, a crop, or a resize, is encoded in full
+  before the response starts, instead of being copied to memory first. The
+  first byte arrives no later. On Apple Silicon, an 18.7 megapixel JPEG
+  re-encode takes 130 ms instead of 200 ms, with half the memory peak, and
+  WebP and AVIF outputs of that size take the same time and use 30-40 MB
+  less memory. This needs the libvips operation cache off
+  (`Vix.Vips.cache_set_max(0)`), as `image_pipe_server` sets it. PNG and
+  progressive JPEG outputs still stream. A corrupt original still returns
+  `415`, and so does any other failure while such an output is encoded. The
+  [`[:transform, :materialize]`](docs/telemetry-events.md#transform-materialize)
+  span no longer runs for these outputs, and
+  [`[:encode]`](docs/telemetry-events.md#encode) times the whole encode.
+- EXIF-rotated images use less memory and are faster to resize or crop. On
+  Apple Silicon, a full-size 18.7 megapixel EXIF-rotated JPEG uses 40 MB
+  less memory, and resizing or cropping an EXIF-rotated image takes 13-24%
+  less time. This needs the libvips operation cache off
+  (`Vix.Vips.cache_set_max(0)`), as `image_pipe_server` sets it.
 - A CMYK image, or another one whose ICC profile is converted to sRGB on
   input, is converted after a crop instead of before it. On Apple Silicon,
   cropping a 2000x2000 region from an 18.7 megapixel CMYK JPEG takes 230 ms

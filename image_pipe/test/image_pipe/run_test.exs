@@ -180,7 +180,7 @@ defmodule ImagePipe.RunTest do
     shared = IP.config(owned_source(bytes))
     config = Keyword.put(shared.options, :image_module, LateFailureEncoder)
 
-    assert {:ok, request} = Plan.to_spec(IP.URL.output(IP.URL.new(), format: :jpeg).plan)
+    assert {:ok, request} = Plan.to_spec(IP.URL.output(IP.URL.new(), format: :png).plan)
     assert {:ok, policy} = Processing.prepare(request, config, "")
     assert {:ok, source, config} = Source.from_input({:source, "photo.png"}, config)
 

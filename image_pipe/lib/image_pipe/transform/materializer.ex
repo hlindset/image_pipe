@@ -8,7 +8,9 @@ defmodule ImagePipe.Transform.Materializer do
   #
   # `ImagePipe.Transform.Executor.Step.run/3` materializes before the first operation requiring
   # random access, allowing earlier operations to stream. Delivery materializes
-  # before encoding if the state has not materialized.
+  # before encoding if the state has not materialized, unless the encoder
+  # encodes the output in full before the response starts
+  # (`ImagePipe.Output.Encoder.encode_ahead?/1`).
   #
   # Both `materialize/1` and `flush/1` emit `[:transform, :materialize]` spans
   # that measure the pixel work at each boundary. Both return a copy or decode

@@ -365,7 +365,7 @@ defmodule ImagePipe.APIErrorPathsTest do
           # response can't become a 500. Raising makes the server drop the
           # connection instead of ending the body as if it were complete.
           assert_raise ImagePipe.Plug.StreamAbortedError, fn ->
-            get("/w=64/src/images/cat.jpg", config)
+            get("/w=64/jpeg-options=progressive/src/images/cat.jpg", config)
           end
         end)
 
@@ -403,7 +403,7 @@ defmodule ImagePipe.APIErrorPathsTest do
           on_bracket_exit: fn -> send(test_pid, :bracket_cleanup) end
         )
 
-      conn = get("/w=64/src/images/cat.jpg", config)
+      conn = get("/w=64/jpeg-options=progressive/src/images/cat.jpg", config)
 
       assert conn.status == 500
       assert conn.state == :sent

@@ -109,7 +109,8 @@ defmodule ImagePipe.API.RequestIdWireTest do
     test "encode", context do
       mount = Keyword.put(mount(context, @image), :image_module, RaisingEncoderImage)
 
-      {conn, _log} = with_log(fn -> request(mount, "w=32/format=jpeg") end)
+      {conn, _log} =
+        with_log(fn -> request(mount, "w=32/format=jpeg/jpeg-options=progressive") end)
 
       assert conn.status == 500
       id = response_id(conn)

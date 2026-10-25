@@ -62,7 +62,7 @@ defmodule ImagePipe.WorkBudgetTest do
   test "a JPEG resized down opens it twice: header, then shrink-on-load", %{config: config} do
     assert_budget(config, "/w=300/format=jpeg/src/high_freq.jpg",
       loads: 2,
-      copies: 3,
+      copies: 0,
       reads: {"high_freq.jpg", 1}
     )
   end
@@ -103,16 +103,31 @@ defmodule ImagePipe.WorkBudgetTest do
     assert_budget(config, "/format=png/src/icc_p3.png", copies: 3)
   end
 
-  # The import and the conversion to sRGB stay lazy, so only the cropped
-  # frame is buffered, by delivery, as for an RGB source.
+  # The import and the conversion to sRGB stay lazy, so the encoder reads
+  # only the cropped region, as for an RGB source.
   test "a CMYK source is cropped before it is buffered", %{config: config} do
-    assert_budget(config, "/crop=60,40/format=jpeg/src/cmyk.jpg", copies: 3)
+    assert_budget(config, "/crop=60,40/format=jpeg/src/cmyk.jpg", copies: 0)
   end
 
   # The stored frame is buffered so it can be turned. Nothing but the encoder
   # reads the turned frame, so it isn't buffered again.
   test "an EXIF-rotated source is buffered once", %{config: config} do
     assert_budget(config, "/format=jpeg/src/exif_6.jpg", copies: 3)
+  end
+
+  # Nothing buffers the frame before the encoder: a JPEG, WebP or AVIF
+  # encoder writes its output only once it has read every pixel, so the
+  # output is encoded in full before the response starts.
+  for format <- ~w(jpeg webp avif) do
+    test "a #{format} re-encode of a streamed source copies no frame", %{config: config} do
+      assert_budget(config, "/format=#{unquote(format)}/src/high_freq.jpg", copies: 0)
+    end
+  end
+
+  # PNG and progressive JPEG write rows as they go, so the frame is buffered
+  # first and the output streams.
+  test "a PNG re-encode buffers the frame and streams", %{config: config} do
+    assert_budget(config, "/format=png/src/high_freq.jpg", copies: 3)
   end
 
   test "a CMYK source imports its profile once", %{config: config} do

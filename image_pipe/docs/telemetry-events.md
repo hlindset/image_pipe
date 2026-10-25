@@ -748,8 +748,11 @@ The default Logger logs `:error` at `:warning`.
 
 ### `[:transform, :materialize]`
 
-Span. Wraps computing the image into memory. Every generated image is
-computed at least once, at the latest just before encoding.
+Span. Wraps computing the image into memory. A JPEG, WebP, or AVIF output
+that no earlier step computed is computed while it is encoded, in
+`[:encode]`, instead, unless it is a progressive JPEG or has a quality
+search. Any other generated image is computed in this span at least once, at
+the latest just before encoding.
 
 - Start metadata: none.
 - Stop metadata:
@@ -767,7 +770,8 @@ Where the span nests depends on why the image is computed:
   `[:transform, :operation]`.
 - When EXIF orientation, rotation, or flips are applied: directly in
   `[:transform, :execute]`.
-- Just before encoding: in the request span, or in
+- Just before encoding a PNG, a progressive JPEG, or an output with a quality
+  search (`autoquality` or `max_bytes`): in the request span, or in
   `[:processing, :execute]` under a processing pool.
 
 ### `[:transform, :detect]`
@@ -890,13 +894,17 @@ pixels per side, AVIF 16384, and JPEG 65500. The default result limit of
 ### `[:encode]`
 
 Span. Wraps building the encoder and producing the first encoded chunk, which
-forces the image's pixel work. Nested in the request span, or in
-`[:processing, :execute]` under a processing pool.
+forces the image's pixel work. For an output computed while it is encoded
+(see [`[:transform, :materialize]`](#transform-materialize)), it wraps the
+whole encode, which also runs the decode and the earlier steps. Nested in the request span, or in `[:processing, :execute]` under
+a processing pool.
 
 - Start metadata: `:output_format` (atom).
 - Stop metadata:
   - `:result` (atom): `:ok`, or `:processing_error` when encoding failed
-    before the first chunk (the response is `500`).
+    before the first chunk. The response is `500`. For an output computed
+    while it is encoded, any failure, including corrupt original data, is a
+    `415` with `:error` `:decode`.
   - `:output_format` (atom).
   - `:error` (atom): the error category, such as `:empty_stream`, on failure.
 
