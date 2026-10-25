@@ -425,7 +425,8 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Format,
       ImagePipe.Plan,
       ImagePipe.SrgbProfile,
-      ImagePipe.Telemetry
+      ImagePipe.Telemetry,
+      ImagePipe.VipsHeader
     ])
 
     refute_boundary_deps(output, [

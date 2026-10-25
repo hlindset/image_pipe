@@ -14,6 +14,12 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- A full-size output of an image with an ICC profile other than sRGB, such
+  as a Display P3 phone photo, converted to sRGB uses about 45 MB less
+  memory for an 18.7 megapixel image, and is up to 8% faster. Removing the
+  old profile and stripping metadata no longer copies the converted image
+  to memory. This applies when the libvips operation cache is off
+  (`Vix.Vips.cache_set_max(0)`), as `image_pipe_server` sets it.
 - An image whose alpha channel is opaque everywhere, as in many PNG and
   WebP files, is encoded without the alpha channel. The pixels don't
   change, but a PNG output is saved as RGB instead of RGBA, or as gray

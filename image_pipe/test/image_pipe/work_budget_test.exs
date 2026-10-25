@@ -54,7 +54,7 @@ defmodule ImagePipe.WorkBudgetTest do
   test "a crop that needs no shrink-on-load opens the source once", %{config: config} do
     assert_budget(config, "/crop=120,90/anchor=top-left/format=png/src/placement.png",
       loads: 1,
-      copies: 8,
+      copies: 4,
       reads: {"placement.png", 1}
     )
   end
@@ -62,7 +62,7 @@ defmodule ImagePipe.WorkBudgetTest do
   test "a JPEG resized down opens it twice: header, then shrink-on-load", %{config: config} do
     assert_budget(config, "/w=300/format=jpeg/src/high_freq.jpg",
       loads: 2,
-      copies: 10,
+      copies: 4,
       reads: {"high_freq.jpg", 1}
     )
   end
@@ -97,6 +97,12 @@ defmodule ImagePipe.WorkBudgetTest do
     )
   end
 
+  # Delivery buffers the frame once. The conversion to sRGB and the header
+  # edits after it stay lazy, so the frame isn't copied again.
+  test "a profiled source converted to sRGB is buffered once", %{config: config} do
+    assert_budget(config, "/format=png/src/icc_p3.png", copies: 4)
+  end
+
   test "a CMYK source imports its profile once", %{config: config} do
     assert_budget(config, "/w=200/format=jpeg/src/cmyk.jpg", icc: 1)
   end
@@ -111,11 +117,11 @@ defmodule ImagePipe.WorkBudgetTest do
   # overlapping regions. Without a buffered blur result, each region
   # recomputes the blur, past what `max_blur_work` allows.
   test "a blur's result is buffered before a later enlarge", %{config: config} do
-    assert_budget(config, "/blur=20/-/w=1000/enlarge/format=jpeg/src/high_freq.jpg", copies: 11)
+    assert_budget(config, "/blur=20/-/w=1000/enlarge/format=jpeg/src/high_freq.jpg", copies: 5)
   end
 
   test "a blur's result is buffered before a later pixelate", %{config: config} do
-    assert_budget(config, "/blur=20/-/pixelate=4/format=jpeg/src/high_freq.jpg", copies: 11)
+    assert_budget(config, "/blur=20/-/pixelate=4/format=jpeg/src/high_freq.jpg", copies: 5)
   end
 
   test "output=info reads the header and copies no pixels", %{config: config} do

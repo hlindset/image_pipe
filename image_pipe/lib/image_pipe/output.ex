@@ -8,7 +8,8 @@ defmodule ImagePipe.Output do
       ImagePipe.Format,
       ImagePipe.Plan,
       ImagePipe.SrgbProfile,
-      ImagePipe.Telemetry
+      ImagePipe.Telemetry,
+      ImagePipe.VipsHeader
     ],
     exports: [
       Capabilities,
