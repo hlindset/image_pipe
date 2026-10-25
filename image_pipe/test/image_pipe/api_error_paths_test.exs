@@ -496,7 +496,10 @@ defmodule ImagePipe.APIErrorPathsTest do
   describe "row 8: producer cancellation (cache-sink ownership, beyond T15's process-only coverage)" do
     test "explicit cancel/0 after the first chunk: sink aborts (never commits), cleanup once, both children terminate" do
       test_pid = self()
-      build_fun = bracketed_build_fun(["a", "b", "c"], test_pid)
+      # The large chunk fills the session's memory buffer, so the encode stays
+      # suspended until the cancel.
+      large = :binary.copy("b", 4 * 1024 * 1024 + 1)
+      build_fun = bracketed_build_fun(["a", large, "c"], test_pid)
 
       config = CacheObserver.observe([])
 

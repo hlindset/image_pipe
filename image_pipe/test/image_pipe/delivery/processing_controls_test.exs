@@ -24,55 +24,33 @@ defmodule ImagePipe.Delivery.ProcessingControlsTest do
     %{tasks: tasks, prefix: prefix}
   end
 
-  test "retains a slot until EOF cleanup and explicit cancellation", context do
+  test "retains a slot through the encode and its cleanup, past cancellation", context do
     pool = start_supervised!({ProcessingPool, max_concurrency: 1, max_queue: 0})
     config = [processing_pool: pool, telemetry_prefix: context.prefix]
     test = self()
 
-    for action <- [:eof, :cancel] do
-      build = fn pump ->
-        try do
-          pump.(["one", "two"], "image/jpeg", resolved(), nil)
-        after
-          send(test, :cleanup)
-        end
+    source = gated(["one", "two"])
+
+    build = fn pump ->
+      try do
+        pump.(source, "image/jpeg", resolved(), nil)
+      after
+        send(test, :cleanup)
       end
-
-      assert {:ok, stream} = Delivery.stream(build, nil, config)
-      assert %{active: 1} = ProcessingPool.stats(pool)
-
-      assert {:error, {:processing, :overloaded}} =
-               ProcessingPool.run(pool, fn -> flunk() end, [])
-
-      case action do
-        :eof ->
-          assert stream.next.() == {:chunk, "two"}
-          assert stream.next.() == :done
-
-        :cancel ->
-          assert stream.cancel.() == :ok
-      end
-
-      assert_receive :cleanup
-      assert_receive {:processing_stopped, _result}
-      assert %{active: 0} = ProcessingPool.stats(pool)
     end
-  end
 
-  test "an idle prepared stream retains the processing timeout for its next pull", context do
-    pool = start_supervised!({ProcessingPool, max_concurrency: 1})
-    config = [processing_pool: pool, telemetry_prefix: context.prefix]
-    build = fn pump -> pump.(["one", "two"], "image/jpeg", resolved(), nil) end
     assert {:ok, stream} = Delivery.stream(build, nil, config)
-    assert stream.first_chunk == "one"
+    assert_receive {:gated, worker}
+    assert %{active: 1} = ProcessingPool.stats(pool)
 
-    # Expire the idle stream's budget now instead of racing a short timeout
-    # against stream preparation.
-    [{token, %{deadline: deadline}}] = Map.to_list(:sys.get_state(pool).jobs)
-    send(pool, {:deadline, token, :active, deadline})
+    assert {:error, {:processing, :overloaded}} =
+             ProcessingPool.run(pool, fn -> flunk() end, [])
 
-    assert_receive {:processing_stopped, :timeout}
-    assert stream.next.() == {:error, {:processing, :timeout}}
+    assert stream.cancel.() == :ok
+    assert %{active: 1} = ProcessingPool.stats(pool)
+    send(worker, :continue)
+    assert_receive :cleanup
+    assert_receive {:processing_stopped, :cancelled}
     assert %{active: 0} = ProcessingPool.stats(pool)
   end
 
@@ -80,8 +58,10 @@ defmodule ImagePipe.Delivery.ProcessingControlsTest do
        context do
     pool = start_supervised!({ProcessingPool, max_concurrency: 1})
     config = [processing_pool: pool, telemetry_prefix: context.prefix]
-    build = fn pump -> pump.(["one", "two"], "image/jpeg", resolved(), nil) end
+    source = gated(["one", "two"])
+    build = fn pump -> pump.(source, "image/jpeg", resolved(), nil) end
     assert {:ok, stream} = Delivery.stream(build, nil, config)
+    assert_receive {:gated, worker}
 
     # Move the deadline into the past without firing its timer, as when the
     # pool is busy at the moment the deadline passes.
@@ -92,6 +72,7 @@ defmodule ImagePipe.Delivery.ProcessingControlsTest do
       %{state | jobs: jobs}
     end)
 
+    send(worker, :continue)
     assert stream.next.() == {:chunk, "two"}
     assert stream.next.() == {:error, {:processing, :timeout}}
     assert_receive {:processing_stopped, :timeout}
@@ -103,11 +84,13 @@ defmodule ImagePipe.Delivery.ProcessingControlsTest do
     config = [processing_pool: pool, telemetry_prefix: context.prefix]
     test = self()
 
+    source = gated(["one", "two"])
+
     owner =
       Task.Supervisor.async_nolink(context.tasks, fn ->
         build = fn pump ->
           try do
-            pump.(["one", "two"], "image/jpeg", resolved(), nil)
+            pump.(source, "image/jpeg", resolved(), nil)
           after
             send(test, :cleanup)
           end
@@ -122,7 +105,9 @@ defmodule ImagePipe.Delivery.ProcessingControlsTest do
       end)
 
     assert_receive :prepared
+    assert_receive {:gated, worker}
     Task.shutdown(owner, :brutal_kill)
+    send(worker, :continue)
     assert_receive :cleanup
     assert_receive {:processing_stopped, :cancelled}
     assert %{active: 0} = ProcessingPool.stats(pool)
@@ -306,8 +291,10 @@ defmodule ImagePipe.Delivery.ProcessingControlsTest do
        context do
     pool = start_supervised!({ProcessingPool, max_concurrency: 1, max_queue: 1})
     config = [processing_pool: pool, telemetry_prefix: context.prefix]
-    build = fn pump -> pump.(["one"], "image/jpeg", resolved(), nil) end
+    source = gated(["one", "two"])
+    build = fn pump -> pump.(source, "image/jpeg", resolved(), nil) end
     assert {:ok, stream} = Delivery.stream(build, nil, config)
+    assert_receive {:gated, worker}
 
     {:ok, coordinator} =
       Coordinator.start(
@@ -337,7 +324,25 @@ defmodule ImagePipe.Delivery.ProcessingControlsTest do
     assert Task.await(job) == {:error, {:session, :cancelled}}
     assert %{active: 1, queued: 0} = ProcessingPool.stats(pool)
     assert stream.cancel.() == :ok
+    send(worker, :continue)
     assert_receive {:processing_stopped, :cancelled}
+  end
+
+  # Holds the encode before every chunk after the first until the producer
+  # gets `:continue`.
+  defp gated(chunks) do
+    test = self()
+
+    chunks
+    |> Stream.with_index()
+    |> Stream.map(fn
+      {chunk, 0} ->
+        chunk
+
+      {chunk, _index} ->
+        send(test, {:gated, self()})
+        receive do: (:continue -> chunk)
+    end)
   end
 
   defp resolved do

@@ -212,15 +212,25 @@ as well.
 
 ## Slow clients
 
-ImagePipe streams each image as it is encoded. A client that reads slowly
-keeps that request's processing slot and memory until it finishes, and the
-processing pool's deadline counts that time too.
+ImagePipe streams each image as it is encoded, and frees the request's
+processing slot when the encode ends. The part of the response that a client
+hasn't read yet waits in memory, up to 4 MB per request, and anything beyond
+that in a file in the system temporary directory, kept until the download
+ends (see
+[deadlines](processing-controls.md#deadlines)). Give that directory room for
+the largest responses your slow clients read at the same time. When it is a
+`tmpfs`, those files use memory.
 
-Put a proxy or CDN in front that reads the whole response from ImagePipe and
-sends it to the client itself, such as nginx with response buffering or the
+When the temporary directory isn't private to ImagePipe's user, or a write to
+it fails, the encode pauses whenever 4 MB of a slow client's response is
+waiting. The client then holds its processing slot until the encode ends, and
+that waiting counts toward `processing_timeout`.
+[Downloaded originals](cache.md#downloaded-originals) covers setting
+`TMPDIR`.
+
+A proxy or CDN in front that reads the whole response at once keeps that
+memory and disk use low. Examples are nginx with response buffering or the
 CDN described in [serving images through a CDN](serving-through-a-cdn.md).
-Set `processing_timeout` well above the time your largest images take to
-make and send to that proxy.
 
 A response cut short by the deadline ends the
 [`[:deliver]` span](telemetry-events.md#deliver) with

@@ -76,7 +76,7 @@ defmodule ImagePipe.Cache.OutputWorkTest do
 
   test "capacity saturation bypasses coordination", context do
     leases =
-      for key <- 1..64 do
+      for key <- 1..4096 do
         assert {:leader, lease} =
                  OutputWork.join(context.cache, Integer.to_string(key), context.opts)
 

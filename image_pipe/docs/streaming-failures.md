@@ -105,10 +105,11 @@ second to clean up before it is killed.
 
 The processing pool's `processing_timeout` (default 30 seconds) limits how
 long one request may hold a processing slot. It starts when the slot is
-granted and runs until the last chunk has been sent, including the time spent
-waiting for the client to accept data. A slow client can therefore make a
-large image run out of time mid-stream. When the deadline expires, ImagePipe
-stops the encoder, frees the slot, and ends the response as described above.
+granted and runs until the image is encoded. A slow client's download counts
+only when the temporary directory isn't usable or a write to it fails (see
+[deadlines](processing-controls.md#deadlines)). When the deadline expires,
+ImagePipe stops the encoder, frees the slot, and ends the response as
+described above.
 A request whose deadline expires before the first bytes go out gets a `503`
 instead.
 

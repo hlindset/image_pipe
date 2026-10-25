@@ -277,8 +277,10 @@ Span. Emitted for requests that generate an image under a
 ### `[:processing, :execute]`
 
 Span. Follows a successful admission and measures the admitted job until its
-stream is cleaned up, including pauses while the client reads. The pool stops
-the span when the worker dies, too. Spans of the generation stages nest in it.
+encode ends and its stream is cleaned up. It includes pauses while the client
+reads only when the rest of the response can't be written to a temporary file
+(see [deadlines](processing-controls.md#deadlines)). The pool stops the span
+when the worker dies, too. Spans of the generation stages nest in it.
 After a timeout or cancellation, the span remains open until the worker
 finishes, matching the lifetime of its processing slot.
 

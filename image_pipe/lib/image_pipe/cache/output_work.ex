@@ -12,7 +12,7 @@ defmodule ImagePipe.Cache.OutputWork do
 
   alias ImagePipe.Telemetry
 
-  @max_flights 64
+  @max_flights 4096
   @max_waiters 1024
   @wait_timeout 60_000
 

@@ -790,7 +790,10 @@ defmodule ImagePipe.APIWireTest do
   describe "delivery lifecycle" do
     test "owner-kill: coordinator observes owner :DOWN, halts the producer gracefully, aborts the sink, bracket cleanup runs exactly once, both children terminate" do
       test_pid = self()
-      build_fun = bracketed_build_fun(["a", "b", "c"], test_pid)
+      # The large chunk fills the session's memory buffer, so the encode stays
+      # suspended until the owner is killed.
+      large = :binary.copy("b", 4 * 1024 * 1024 + 1)
+      build_fun = bracketed_build_fun(["a", large, "c"], test_pid)
 
       owner =
         spawn(fn ->
@@ -805,8 +808,6 @@ defmodule ImagePipe.APIWireTest do
       coordinator_ref = Process.monitor(coordinator)
 
       assert {:ok, %{first_chunk: "a"}} = Coordinator.prepare(coordinator)
-      assert {:chunk, "b"} = Coordinator.next(coordinator)
-
       refute_received :bracket_cleanup
 
       Process.exit(owner, :kill)
@@ -817,7 +818,7 @@ defmodule ImagePipe.APIWireTest do
       assert_receive {:DOWN, ^coordinator_ref, :process, ^coordinator, _reason}
     end
 
-    test "bracket cleanup has NOT run after prepare and after the first Coordinator.next/1, and HAS run exactly once at EOF" do
+    test "bracket cleanup runs exactly once, when the encode ends, before the client reads on" do
       test_pid = self()
       build_fun = bracketed_build_fun(["a", "b", "c"], test_pid)
       owner = self()
@@ -826,22 +827,20 @@ defmodule ImagePipe.APIWireTest do
         Coordinator.start(build_fun, owner, fake_cache_key(), [], RequestContext.capture(), [])
 
       assert {:ok, %{first_chunk: "a"}} = Coordinator.prepare(coordinator)
-      refute_received :bracket_cleanup
+      assert_receive :bracket_cleanup
 
       assert {:chunk, "b"} = Coordinator.next(coordinator)
-      refute_received :bracket_cleanup
-
       assert {:chunk, "c"} = Coordinator.next(coordinator)
-      refute_received :bracket_cleanup
-
       assert :done = Coordinator.next(coordinator)
-      assert_receive :bracket_cleanup
       refute_received :bracket_cleanup
     end
 
     test "bracket cleanup runs exactly once after an explicit mid-stream cancel" do
       test_pid = self()
-      build_fun = bracketed_build_fun(["a", "b", "c"], test_pid)
+      # The large chunks fill the session's memory buffer, so the encode stays
+      # suspended until the cancel.
+      large = :binary.copy("b", 4 * 1024 * 1024 + 1)
+      build_fun = bracketed_build_fun(["a", large, large, "c"], test_pid)
       owner = self()
 
       {:ok, coordinator} =
@@ -850,7 +849,7 @@ defmodule ImagePipe.APIWireTest do
       assert {:ok, %{first_chunk: "a"}} = Coordinator.prepare(coordinator)
       refute_received :bracket_cleanup
 
-      assert {:chunk, "b"} = Coordinator.next(coordinator)
+      assert {:chunk, ^large} = Coordinator.next(coordinator)
       refute_received :bracket_cleanup
 
       assert :ok = Coordinator.cancel(coordinator)
