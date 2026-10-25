@@ -3,6 +3,7 @@ defmodule ImagePipe.Transform.ResizeExecuteTest do
 
   alias ImagePipe.Transform.Operation.Resize
   alias ImagePipe.Transform.State
+  alias Vix.Vips.Image, as: VipsImage
 
   test "execute resizes decoded pixels and clears the preshrink coordinate frame" do
     {:ok, shrunk_image} = Image.new(375, 250, color: [128, 128, 128])
@@ -33,5 +34,34 @@ defmodule ImagePipe.Transform.ResizeExecuteTest do
     assert Image.width(new_state.image) == 300
     assert Image.height(new_state.image) == 200
     assert new_state.source_dimensions == nil
+  end
+
+  describe "buffering a streamed source before resampling" do
+    # A premultiplied float resample reading straight from a sequential
+    # decode is much slower and holds more memory than one reading a buffered
+    # copy.
+    test "an RGBA downscale buffers the source and keeps its pixels" do
+      {:ok, image} = Image.new(64, 48, color: [200, 120, 37, 100])
+      state = %State{image: image}
+
+      {:ok, new_state} = Resize.execute(%Resize{width: 32, height: 24}, state)
+      {:ok, expected} = Resize.resample(image, 0.5, 0.5, :lanczos3)
+
+      assert new_state.materialized?
+      assert pixels(new_state.image) == pixels(expected)
+    end
+
+    test "an opaque 8-bit downscale keeps streaming" do
+      {:ok, image} = Image.new(64, 48, color: [128, 128, 128])
+
+      {:ok, new_state} = Resize.execute(%Resize{width: 32, height: 24}, %State{image: image})
+
+      refute new_state.materialized?
+    end
+  end
+
+  defp pixels(image) do
+    {:ok, binary} = VipsImage.write_to_binary(image)
+    binary
   end
 end

@@ -14,6 +14,11 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Resizing an image with transparency is up to 40% faster. The decoded
+  image is copied to memory before it is resized. Resizing a 3368x2872 PNG
+  to 800 pixels wide takes 111 ms instead of 188 ms on Apple Silicon, with
+  half the memory peak. Resizing it to 2000 pixels wide takes 261 ms
+  instead of 377 ms, with a peak 25 MB higher.
 - PNG output is 15-35% smaller and encodes 7-29% faster. A PNG that isn't
   a palette image is saved at zlib compression 3, with the `paeth` row
   filter unless it is grayscale at `bitdepth` `1`, `2`, or `4`, instead of

@@ -105,5 +105,14 @@ defmodule ImagePipe.Transform.Operation.Resize do
   defp prepare_resize(%State{rebuffer?: true} = state),
     do: Materializer.materialize(state)
 
+  # The premultiplied float resample of an image with alpha is faster and
+  # holds less memory reading a buffered copy than reading straight from a
+  # sequential decode: a 3368x2872 RGBA PNG to w=800 took 111 ms instead of
+  # 188 ms, with a libvips peak of 86 MiB instead of 177 MiB. An opaque or
+  # 16-bit resample gains nothing from the copy.
+  defp prepare_resize(%State{materialized?: false, image: image} = state) do
+    if Image.has_alpha?(image), do: Materializer.materialize(state), else: {:ok, state}
+  end
+
   defp prepare_resize(%State{} = state), do: {:ok, state}
 end
