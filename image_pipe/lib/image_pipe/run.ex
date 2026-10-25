@@ -129,9 +129,9 @@ defmodule ImagePipe.Run do
   defp render(context) do
     with {:ok, output} <- Execution.open(context) do
       try do
-        with {:ok, data, type, debug} <- Output.buffer(output),
+        with {:ok, data, type, dimensions} <- Output.buffer(output),
              {:ok, %Result{} = result} <-
-               result(context.request.output.terminal, data, type, debug) do
+               result(context.request.output.terminal, data, type, dimensions) do
           {:ok, %{result | degraded?: output.degraded?}}
         end
       after
@@ -140,8 +140,8 @@ defmodule ImagePipe.Run do
     end
   end
 
-  defp result(:image, data, content_type, debug) do
-    with {:ok, {width, height}} <- dimensions(data, debug) do
+  defp result(:image, data, content_type, dimensions) do
+    with {:ok, {width, height}} <- dimensions(data, dimensions) do
       {:ok,
        %Result{
          terminal: :image,
@@ -154,7 +154,7 @@ defmodule ImagePipe.Run do
     end
   end
 
-  defp result(:info, data, content_type, _debug) do
+  defp result(:info, data, content_type, _dimensions) do
     case JSON.decode(data) do
       {:ok, info} when is_map(info) ->
         {:ok, %Result{terminal: :info, content_type: content_type, data: info}}
@@ -164,17 +164,16 @@ defmodule ImagePipe.Run do
     end
   end
 
-  defp result(terminal, data, content_type, _debug),
+  defp result(terminal, data, content_type, _dimensions),
     do: {:ok, %Result{terminal: terminal, content_type: content_type, data: data}}
 
   # A skipped source keeps its own format, which may be a source-only one.
   defp format(content_type),
     do: Enum.find(Format.source_formats(), &(Format.mime_type!(&1) == content_type))
 
-  defp dimensions(_data, %{output_width: width, output_height: height})
-       when is_integer(width) and is_integer(height), do: {:ok, {width, height}}
+  defp dimensions(_data, {_width, _height} = dimensions), do: {:ok, dimensions}
 
-  defp dimensions(data, _debug) do
+  defp dimensions(data, nil) do
     case Image.from_binary(data) do
       {:ok, image} -> {:ok, {Image.width(image), Image.height(image)}}
       {:error, reason} -> {:error, {:decode, reason}}

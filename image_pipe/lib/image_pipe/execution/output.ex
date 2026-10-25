@@ -5,8 +5,11 @@ defmodule ImagePipe.Execution.Output do
   defstruct @enforce_keys ++ [extra_lease: nil, degraded?: false]
 
   alias ImagePipe.Cache
+  alias ImagePipe.Debug.Info
   alias ImagePipe.Delivery.StreamPull
 
+  # The bytes, their content type, and the image's width and height when
+  # the request recorded them.
   def buffer(%__MODULE__{} = output), do: buffer_value(output.value)
 
   defp buffer_value({:entry, entry}) do
@@ -20,15 +23,16 @@ defmodule ImagePipe.Execution.Output do
             bytes
         end
 
-      {:ok, bytes, entry.content_type, entry.debug}
+      {:ok, bytes, entry.content_type, entry.dimensions}
     end)
   end
 
-  defp buffer_value({:body, bytes, type, debug}), do: {:ok, bytes, type, debug}
+  defp buffer_value({:body, bytes, type, debug}), do: {:ok, bytes, type, Info.dimensions(debug)}
 
   defp buffer_value({:stream, stream}) do
     with {:ok, chunks} <- collect(stream, [stream.first_chunk]) do
-      {:ok, chunks |> Enum.reverse() |> IO.iodata_to_binary(), stream.content_type, stream.debug}
+      {:ok, chunks |> Enum.reverse() |> IO.iodata_to_binary(), stream.content_type,
+       Info.dimensions(stream.debug)}
     end
   end
 

@@ -123,11 +123,13 @@ defmodule ImagePipe.Cache.FileSystem.Store do
 
   # `sighting?: false` reads without counting a hit for admission, for a
   # request that already counted when it missed.
+  # `remembered?: false` reads the metadata from disk even when it's in
+  # memory, for a request that needs the debug facts the memory leaves out.
   # `decode` builds the entry, without its body, from stored metadata.
-  def get(%Key{} = key, opts, sighting?, decode) when is_list(opts) do
+  def get(%Key{} = key, opts, sighting?, remembered?, decode) when is_list(opts) do
     case paths(key, opts) do
       {:ok, paths} ->
-        case read_entry(paths, decode) do
+        case read_entry(paths, remembered?, decode) do
           {:hit, entry, hit} ->
             sight_hit(sighting?, opts, key, hit)
             {:hit, entry}
@@ -383,11 +385,14 @@ defmodule ImagePipe.Cache.FileSystem.Store do
   defp options_validation_error(%NimbleOptions.ValidationError{key: key, message: message}),
     do: {:invalid_option, key, message}
 
-  # A hit reads the entry from the memo when it's there: the decoded entry
-  # and the body file's name, size, and cost. A remembered entry whose body
-  # won't open is read again from disk, so the memo never turns a hit into
-  # anything a read from disk wouldn't.
-  defp read_entry(paths, decode) do
+  # A hit reads the entry from the memo when it's there: the decoded entry,
+  # without its debug facts, and the body file's name, size, and cost. The
+  # body is stat'ed rather than opened, since delivery sends it by path. A
+  # remembered entry whose body is gone or changed is read again from disk,
+  # so the memo never turns a hit into anything a read from disk wouldn't.
+  defp read_entry(paths, false, decode), do: read_stored(paths, decode)
+
+  defp read_entry(paths, true, decode) do
     case Memo.get(paths.root, paths.hash) do
       {entry, hit} -> read_remembered(paths, decode, entry, hit)
       nil -> read_stored(paths, decode)
@@ -395,11 +400,13 @@ defmodule ImagePipe.Cache.FileSystem.Store do
   end
 
   defp read_remembered(paths, decode, entry, hit) do
-    case CacheFile.open(Path.join(paths.dir, hit.body_filename), hit.body_byte_size) do
+    path = Path.join(paths.dir, hit.body_filename)
+
+    case CacheFile.remembered(path, hit.body_byte_size, paths.root, paths.hash) do
       {:ok, file} ->
         {:hit, %{entry | body: file}, hit}
 
-      _gone_or_changed ->
+      :gone ->
         Memo.drop(paths.root, paths.hash)
         read_stored(paths, decode)
     end
@@ -413,7 +420,7 @@ defmodule ImagePipe.Cache.FileSystem.Store do
          {:ok, entry} <- decode.(metadata),
          {:ok, file} <- CacheFile.open(body_path, metadata.body_byte_size) do
       hit = Map.take(metadata, [:body_filename, :body_byte_size, :cost_us])
-      Memo.remember(paths.root, paths.hash, epoch, {entry, hit})
+      Memo.remember(paths.root, paths.hash, epoch, {%{entry | debug: nil}, hit})
       {:hit, %{entry | body: file}, hit}
     end
   end

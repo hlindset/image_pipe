@@ -97,9 +97,10 @@ defmodule ImagePipe.Source.File do
   end
 
   @impl Source
+  # Only `fetch/3` reads the file, so it alone checks the path for symlinks
+  # that leave the root, right before the stat.
   def resolve(%SourcePath{segments: segments}, opts, _runtime_opts) do
-    with :ok <- validate_segments(segments),
-         {:ok, _path} <- safe_path(opts, segments) do
+    with :ok <- validate_segments(segments) do
       identity = [
         kind: :path,
         adapter: :path,

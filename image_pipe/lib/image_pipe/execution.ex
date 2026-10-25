@@ -314,7 +314,9 @@ defmodule ImagePipe.Execution do
     case storable?(context) do
       true ->
         {result, time} =
-          Timing.measure(fn -> lookup.(context.representation.cache_key, context.config) end)
+          Timing.measure(fn ->
+            lookup.(context.representation.cache_key, lookup_config(context))
+          end)
 
         checked_hit(result, context, time)
 
@@ -322,6 +324,13 @@ defmodule ImagePipe.Execution do
         :miss
     end
   end
+
+  # The cache keeps entries in memory without their debug facts, so a debug
+  # request reads its hit from disk.
+  defp lookup_config(%Context{request: %{debug?: true}} = context),
+    do: Keyword.put(context.config, :debug?, true)
+
+  defp lookup_config(context), do: context.config
 
   defp checked_hit({:hit, entry}, context, time) do
     case {context.request.output.terminal, entry.representation} do

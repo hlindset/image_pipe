@@ -15,7 +15,7 @@ defmodule ImagePipe.Cache.Entry do
 
   defguardp control?(byte) when byte < 0x20 or byte == 0x7F
 
-  defstruct @enforce_keys ++ [representation: nil, debug: nil]
+  defstruct @enforce_keys ++ [representation: nil, debug: nil, dimensions: nil]
 
   @type header :: {String.t(), String.t()}
   # `representation` tags what an entry's `content_type`/`body` mean:
@@ -24,6 +24,8 @@ defmodule ImagePipe.Cache.Entry do
   # body (e.g. a BlurHash string). `nil` is treated identically to
   # `{:image, _}`: `validate/1` falls back to the
   # `Format`-based content-type check.
+  # `dimensions` is the image's width and height from `debug`, which a hit
+  # the cache remembers keeps without the rest of `debug`.
   @type representation :: {:image, atom()} | {:complete_body, String.t()}
   @type t :: %__MODULE__{
           body: binary() | ImagePipe.Cache.File.t(),
@@ -31,7 +33,8 @@ defmodule ImagePipe.Cache.Entry do
           headers: [header()],
           created_at: DateTime.t(),
           representation: representation() | nil,
-          debug: Info.t() | nil
+          debug: Info.t() | nil,
+          dimensions: {pos_integer(), pos_integer()} | nil
         }
 
   @doc false

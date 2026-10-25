@@ -104,21 +104,20 @@ defmodule ImagePipe.RepresentationTest do
     )
   end
 
-  property "the key and ETag digest the key data, the ETag without storage_only" do
+  # The key digests the ETag's digest with storage_only, so the large shared
+  # part of the key data is serialized once.
+  property "the ETag digests the key data without storage_only, and the key adds it back" do
     check all storage_only <- storage_only_generator(), max_runs: 50 do
       rep = build(source_identity(), material(storage_only: storage_only))
       key_data = rep.cache_key.data
+      shared = key_data |> Keyword.delete(:storage_only) |> ImagePipe.MaterialDigest.of()
+
+      assert rep.etag == ~s("ipr1-#{Base.url_encode64(shared, padding: false)}")
 
       assert rep.cache_key.hash ==
-               key_data |> ImagePipe.MaterialDigest.of() |> Base.encode16(case: :lower)
-
-      etag_digest =
-        key_data
-        |> Keyword.delete(:storage_only)
-        |> ImagePipe.MaterialDigest.of()
-        |> Base.url_encode64(padding: false)
-
-      assert rep.etag == ~s("ipr1-#{etag_digest}")
+               [shared: shared, storage_only: key_data[:storage_only]]
+               |> ImagePipe.MaterialDigest.of()
+               |> Base.encode16(case: :lower)
     end
   end
 end

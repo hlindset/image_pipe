@@ -63,13 +63,16 @@ defmodule ImagePipe.Representation do
       storage_only: material.storage_only
     ]
 
-    # The ETag digests the key data without storage_only, so both come from one
-    # canonical form.
-    canonical = MaterialDigest.canonical(key_data)
+    # The ETag digests the key data without storage_only. The key digests
+    # that digest with storage_only, so the large shared part is serialized
+    # once. `canonical/1` sorts keys, and the pair below is already in order.
+    {storage_only, shared} = key_data |> MaterialDigest.canonical() |> Keyword.pop!(:storage_only)
+    shared = MaterialDigest.of_canonical(shared)
+    key_hash = MaterialDigest.of_canonical(shared: shared, storage_only: storage_only)
 
     %__MODULE__{
-      cache_key: %Key{hash: hex(canonical), data: key_data},
-      etag: etag(Keyword.delete(canonical, :storage_only)),
+      cache_key: %Key{hash: Base.encode16(key_hash, case: :lower), data: key_data},
+      etag: ~s("#{@etag_schema}-#{Base.url_encode64(shared, padding: false)}"),
       vary: material.vary_header_names
     }
   end
@@ -101,9 +104,4 @@ defmodule ImagePipe.Representation do
 
   defp hex(canonical),
     do: canonical |> MaterialDigest.of_canonical() |> Base.encode16(case: :lower)
-
-  defp etag(canonical) do
-    digest = canonical |> MaterialDigest.of_canonical() |> Base.url_encode64(padding: false)
-    ~s("#{@etag_schema}-#{digest}")
-  end
 end

@@ -78,10 +78,14 @@ defmodule ImagePipe.Cache.FileSystem do
   end
 
   defp materialize(entry) do
-    {:hit,
-     %{entry | body: entry.body |> CacheFile.stream() |> Enum.to_list() |> IO.iodata_to_binary()}}
-  after
-    Entry.close(entry)
+    with {:ok, file} <- CacheFile.ensure_open(entry.body) do
+      try do
+        {:hit,
+         %{entry | body: file |> CacheFile.stream() |> Enum.to_list() |> IO.iodata_to_binary()}}
+      after
+        CacheFile.close(file)
+      end
+    end
   end
 
   @doc false
@@ -89,7 +93,8 @@ defmodule ImagePipe.Cache.FileSystem do
   def missed(key, opts), do: Store.miss(key, opts)
 
   @doc false
-  def open(key, opts, sighting? \\ true), do: Store.get(key, opts, sighting?, &decode_entry/1)
+  def open(key, opts, sighting? \\ true, remembered? \\ true),
+    do: Store.get(key, opts, sighting?, remembered?, &decode_entry/1)
 
   # The entry, without its body, that stored metadata describes. The cache
   # remembers it, so a hit from memory doesn't validate the metadata again.
@@ -103,7 +108,8 @@ defmodule ImagePipe.Cache.FileSystem do
          headers: meta.headers,
          created_at: created_at,
          representation: meta.representation,
-         debug: meta.debug
+         debug: meta.debug,
+         dimensions: Info.dimensions(meta.debug)
        }}
     else
       {:error, reason} -> handle_invalid_metadata(reason)

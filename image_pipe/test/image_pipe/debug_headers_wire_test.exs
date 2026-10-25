@@ -399,6 +399,29 @@ defmodule ImagePipe.DebugHeadersWireTest do
       end
     end
 
+    test "a debug hit on an entry plain hits keep in memory replays its stored facts" do
+      {opts, cache_root} = cached_opts([])
+
+      try do
+        miss = call(with_debug(request_path()), opts)
+        assert_received :origin_fetch
+
+        for _plain_hit <- 1..2, do: assert(call(request_path(), opts).status == 200)
+
+        hit = call(with_debug(request_path()), opts)
+        assert hit.resp_body == miss.resp_body
+        refute_received :origin_fetch
+        assert header(hit, "x-imagepipe-cache") == "hit"
+
+        assert header(hit, "x-imagepipe-source-format") ==
+                 header(miss, "x-imagepipe-source-format")
+
+        assert header(hit, "x-imagepipe-output-width") == header(miss, "x-imagepipe-output-width")
+      after
+        File.rm_rf!(cache_root)
+      end
+    end
+
     test "debug and a plain request share one cache entry; a plain hit emits no debug headers" do
       {opts, cache_root} = cached_opts([])
 

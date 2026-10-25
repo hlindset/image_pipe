@@ -144,7 +144,7 @@ defmodule ImagePipe.Plug.Runner do
 
   # The headers built here only answer an early 304, so a request without
   # `If-None-Match` skips them. `serve_output/2` builds the response's own.
-  defp serve_context(conn, context) do
+  defp serve_context(conn, context, retry? \\ true) do
     headers = not context.stale? and conditional?(conn) and context_headers(conn, context)
 
     case headers && Conditional.not_modified?(conn, headers.etag) do
@@ -154,7 +154,7 @@ defmodule ImagePipe.Plug.Runner do
       _no_early_match ->
         case Execution.open(context) do
           {:ok, output} ->
-            serve_output(conn, output)
+            conn |> serve_output(output) |> retry_gone_body(conn, context, retry?)
 
           {:error, reason} ->
             conn
@@ -164,6 +164,23 @@ defmodule ImagePipe.Plug.Runner do
         end
     end
   end
+
+  # A hit read from memory whose body was evicted between the lookup and the
+  # send sent nothing, and its entry is forgotten, so a second lookup reads
+  # it from disk or misses. A second such failure needs a second eviction in
+  # between.
+  defp retry_gone_body(
+         {%Plug.Conn{private: %{image_pipe_cached_body_gone: true}}, _metadata},
+         conn,
+         context,
+         retry?
+       ) do
+    if retry?,
+      do: serve_context(conn, context, false),
+      else: send_error(conn, {:cache_read, :body_gone}, context.config)
+  end
+
+  defp retry_gone_body(served, _conn, _context, _retry?), do: served
 
   defp conditional?(conn), do: Plug.Conn.get_req_header(conn, "if-none-match") != []
 
