@@ -24,23 +24,26 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   while it counts the entries, so `:counting?` in the cache's
   [usage](docs/cache.md#usage-and-hit-rate) stays `true` until the scan
   finishes.
-- A cache hit whose metadata is in memory no longer opens its body before
+- A hit on a recently served cache entry no longer opens the body before
   sending it, which makes a warm `GET` about 15% faster and a `HEAD` about
-  40% faster. A body deleted after the lookup is noticed when the response
-  is sent, before any headers, and the image is generated again.
-- The cache keeps the entries it remembers in memory without their
-  [debug headers](docs/debug_headers.md), so each takes about 1.1 KB instead
-  of 1.8 KB, at most about 55 MB instead of 90 MB. A `debug` request reads
-  its entry from disk.
-- A file source checks the path for symlinks that leave its root only when
-  it reads or stats the file, instead of on every request as well. A `304`
-  for an image 4 directories deep is about 10% faster. A request that
-  doesn't check the file, such as one within a fallback lifetime, can be
-  answered from the cache after the path starts to leave the root.
-- A request no longer reads every attached telemetry handler to find out
-  whether to build its [request summary](docs/telemetry-events.md#request-summary).
-  With the default Logger and the tracer attached, that took 4.6 µs per
-  request, and it took longer the more handlers a host attached.
+  45% faster. A `GET` whose body was deleted after the lookup stops before
+  sending any headers and generates the image again.
+- The cache keeps recently served entries in memory without the facts
+  behind their [debug headers](docs/debug_headers.md), so each takes about
+  1.1 KB instead of 1.8 KB, at most about 55 MB by default instead of
+  90 MB. A `debug` request reads its entry from disk.
+- A file source checks its path for symlinks that leave the root when it
+  checks or reads the file, not on every request. A `304` for an image four
+  directories deep is about 10% faster. A request within a
+  [fallback lifetime](docs/caching-and-freshness.md#local-file-sources), or
+  for an [immutable source](docs/caching-and-freshness.md#immutable-sources),
+  can still be served from the cache after a symlink in its path is changed
+  to point outside the root.
+- Checking whether to build a
+  [request summary](docs/telemetry-events.md#request-summary) no longer
+  gets slower as more telemetry handlers are attached. With
+  `ImagePipe.Telemetry.attach_default_logger/1` and
+  `ImagePipe.Telemetry.attach_tracer/1`, it took 4.6 µs per request.
 - A request computes its cache key and `ETag` in 7 µs instead of 12 µs.
   The cache key is computed differently, so after the upgrade each
   processed image in the cache misses once and is generated again.
