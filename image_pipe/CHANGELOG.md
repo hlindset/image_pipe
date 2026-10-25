@@ -32,6 +32,11 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   [debug headers](docs/debug_headers.md), so each takes about 1.1 KB instead
   of 1.8 KB, at most about 55 MB instead of 90 MB. A `debug` request reads
   its entry from disk.
+- A file source checks the path for symlinks that leave its root only when
+  it reads or stats the file, instead of on every request as well. A `304`
+  for an image 4 directories deep is about 10% faster. A request that
+  doesn't check the file, such as one within a fallback lifetime, can be
+  answered from the cache after the path starts to leave the root.
 
 ### Fixed
 

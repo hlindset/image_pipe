@@ -39,7 +39,8 @@ defmodule ImagePipe.Source.FileTest do
              {:error, {:source, :denied_path}}
   end
 
-  test "resolve rejects symlinks that escape the configured root", %{root: root} do
+  # Only fetch reads bytes, so only fetch walks the path.
+  test "a symlink that escapes the configured root is refused when fetched", %{root: root} do
     outside =
       Path.join(System.tmp_dir!(), "image-pipe-outside-#{System.unique_integer([:positive])}")
 
@@ -50,12 +51,13 @@ defmodule ImagePipe.Source.FileTest do
 
     assert {:ok, opts} = SourceFile.validate_options(root: root, root_id: "fixture-root")
 
-    assert SourceFile.resolve(
-             %SourcePath{segments: ["images", "outside", "secret.jpg"]},
-             opts,
-             []
-           ) ==
-             {:error, {:source, :denied_path}}
+    File.mkdir_p!(Path.join(root, "images/a/b"))
+    File.ln_s!(outside, Path.join(root, "images/a/b/outside"))
+
+    for segments <- [~w(images outside secret.jpg), ~w(images a b outside secret.jpg)] do
+      assert {:ok, resolved} = SourceFile.resolve(%SourcePath{segments: segments}, opts, [])
+      assert SourceFile.fetch(resolved, opts, []) == {:error, {:source, :denied_path}}
+    end
   end
 
   test "fetch rechecks path safety after cache lookup can delay the open", %{root: root} do
