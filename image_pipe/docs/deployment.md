@@ -216,17 +216,17 @@ ImagePipe streams each image as it is encoded, and frees the request's
 processing slot when the encode ends. The part of the response that a client
 hasn't read yet waits in memory, up to 4 MB per request, and anything beyond
 that in a file in the system temporary directory, kept until the download
-ends (see
-[deadlines](processing-controls.md#deadlines)). Give that directory room for
-the largest responses your slow clients read at the same time. When it is a
+ends (see [deadlines](processing-controls.md#deadlines)). Across all
+requests, a node keeps about 256 MB in memory and 2 GB in those files at
+most, plus up to one chunk per response. Give that directory room for a
+little more than 2 GB, and point `TMPDIR` elsewhere if it can't hold that
+(see [downloaded originals](cache.md#downloaded-originals)). When it is a
 `tmpfs`, those files use memory.
 
-When the temporary directory isn't private to ImagePipe's user, or a write to
-it fails, the encode pauses whenever 4 MB of a slow client's response is
-waiting. The client then holds its processing slot until the encode ends, and
+When the encode has nowhere left to put what a slow client hasn't read, it
+waits for the client (see [deadlines](processing-controls.md#deadlines) for
+when). The client then holds its processing slot until the encode ends, and
 that waiting counts toward `processing_timeout`.
-[Downloaded originals](cache.md#downloaded-originals) covers setting
-`TMPDIR`.
 
 A proxy or CDN in front that reads the whole response at once keeps that
 memory and disk use low. Examples are nginx with response buffering or the

@@ -39,7 +39,7 @@ defmodule ImagePipe.Delivery do
     ],
     # Processing uses first_chunk/1 to keep the first pull inside its encode
     # span, then hands the chunk to pump.
-    exports: [PreparedStream, StreamPull]
+    exports: [Budget, PreparedStream, StreamPull]
 
   alias ImagePipe.Cache.Key
   alias ImagePipe.Delivery.Coordinator
