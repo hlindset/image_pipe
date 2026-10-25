@@ -31,8 +31,8 @@ defmodule ImagePipe.Output.EncodeSearch do
   alias ImagePipe.Telemetry
 
   # The span segment qualifying the probe's scoring legs
-  # (`[:encode, :search, :probe, :ssimulacra2, :decode | :metric]`), so a backend
-  # can group the decode and score legs by metric.
+  # (`[:encode, :search, :probe, :ssimulacra2, :reference | :decode | :metric]`),
+  # so a backend can group the scoring legs by metric.
   @metric_leg :ssimulacra2
 
   @default_max_iterations 6
@@ -85,6 +85,7 @@ defmodule ImagePipe.Output.EncodeSearch do
     @enforce_keys [:encode_fun]
     defstruct encode_fun: nil,
               score_fun: nil,
+              score_setup: nil,
               scorer: :full,
               scorer_tiles: nil,
               encode_memo: %{},
@@ -105,6 +106,10 @@ defmodule ImagePipe.Output.EncodeSearch do
   @doc """
   Searches with injected encoding/scoring callbacks and a bounded iteration count.
 
+  `:score_setup`, given in place of `:score_fun`, is a function that returns
+  the score function. The search calls it once, right before it first scores,
+  so work it waits on can overlap the first encode.
+
   Every encode counts `:frame_pixels` against `:max_search_pixels`. A probe
   that would pass the limit stops the search like the iteration cap. The
   encodes that bound the `max_bytes` phase and the delivered quality still
@@ -122,6 +127,7 @@ defmodule ImagePipe.Output.EncodeSearch do
     ctx = %Ctx{
       encode_fun: Keyword.fetch!(opts, :encode_fun),
       score_fun: Keyword.get(opts, :score_fun),
+      score_setup: Keyword.get(opts, :score_setup),
       scorer: Keyword.get(opts, :scorer, :full),
       scorer_tiles: Keyword.get(opts, :scorer_tiles),
       max_iterations: Keyword.get(opts, :max_iterations, @default_max_iterations),
@@ -215,26 +221,25 @@ defmodule ImagePipe.Output.EncodeSearch do
     telemetry_opts = Keyword.get(opts, :telemetry_opts, [])
     encode_fun = fn quality -> encode_leg(finalized_image, resolved, quality, telemetry_opts) end
     scorer = Keyword.get(opts, :scorer, :full)
+    {scoring, search_opts} = start_scoring(finalized_image, resolved, scorer, telemetry_opts)
 
-    with {:ok, search_opts} <- score_opts(finalized_image, resolved, scorer, telemetry_opts) do
-      base_quality = base_quality(resolved)
-
-      try do
-        search(
-          resolved.quality_search,
-          resolved.max_bytes,
-          [
-            encode_fun: encode_fun,
-            base_quality: base_quality,
-            scorer: scorer,
-            frame_pixels: Image.width(finalized_image) * Image.height(finalized_image),
-            max_search_pixels: resolved.max_search_pixels,
-            telemetry_opts: telemetry_opts
-          ] ++ search_opts
-        )
-      catch
-        {:image_pipe_score_error, reason} -> {:error, {:encode, reason}}
-      end
+    try do
+      search(
+        resolved.quality_search,
+        resolved.max_bytes,
+        [
+          encode_fun: encode_fun,
+          base_quality: base_quality(resolved),
+          scorer: scorer,
+          frame_pixels: Image.width(finalized_image) * Image.height(finalized_image),
+          max_search_pixels: resolved.max_search_pixels,
+          telemetry_opts: telemetry_opts
+        ] ++ search_opts
+      )
+    catch
+      {:image_pipe_score_error, reason} -> {:error, {:encode, reason}}
+    after
+      if scoring, do: Task.shutdown(scoring, :brutal_kill)
     end
   end
 
@@ -611,7 +616,11 @@ defmodule ImagePipe.Output.EncodeSearch do
   # The max_bytes phase picks by size alone, so its probes go unscored.
   # build_result/3 scores the quality it ships.
   defp maybe_score(_q, _binary, :cap, ctx), do: ctx
-  defp maybe_score(_q, _binary, _phase, %Ctx{score_fun: nil} = ctx), do: ctx
+
+  defp maybe_score(_q, _binary, _phase, %Ctx{score_fun: nil, score_setup: nil} = ctx), do: ctx
+
+  defp maybe_score(q, binary, phase, %Ctx{score_fun: nil, score_setup: setup} = ctx),
+    do: maybe_score(q, binary, phase, %{ctx | score_fun: setup.(), score_setup: nil})
 
   defp maybe_score(q, binary, _phase, %Ctx{score_fun: score_fun} = ctx) do
     %{ctx | score_memo: Map.put(ctx.score_memo, q, score_fun.(binary))}
@@ -701,12 +710,41 @@ defmodule ImagePipe.Output.EncodeSearch do
 
   # --- run/3 helpers --------------------------------------------------------
 
-  # Build the objective score_fun (crop estimate or full-frame) for the resolved
-  # objective and the chosen scorer. Returns extra search/3 opts. The score
-  # closures emit the `:decode`/`:metric` cost legs; the core only sees an opaque
-  # float-returning closure, never the decode/metric structure.
-  defp score_opts(_image, %Resolved{quality_search: :none}, _scorer, _telemetry_opts),
-    do: {:ok, []}
+  # Start building the objective score_fun (crop estimate or full-frame) for
+  # the resolved objective and the chosen scorer. Returns the build task and
+  # extra search/3 opts. The references don't depend on any encode, so they
+  # build in a task while the first probe encodes, and the search awaits the
+  # task right before it first scores. The score closures emit the
+  # `:decode`/`:metric` cost legs; the core only sees an opaque float-returning
+  # closure, never the decode/metric structure.
+  defp start_scoring(_image, %Resolved{quality_search: :none}, _scorer, _telemetry_opts),
+    do: {nil, []}
+
+  defp start_scoring(image, %Resolved{quality_search: %RQS.Ssimulacra2{}}, scorer, t) do
+    task = Task.async(fn -> capture(fn -> score_fun(image, scorer, t) end) end)
+    {task, [score_setup: fn -> reference_leg(task, t) end] ++ scorer_opts(image, scorer)}
+  end
+
+  defp scorer_opts(image, :crop),
+    do: [scorer_tiles: length(CropScore.sample_tiles(Image.width(image), Image.height(image)))]
+
+  defp scorer_opts(_image, _scorer), do: []
+
+  # A raise while building is raised again in the search, so its spans see it
+  # as they would a raise in the search's own process.
+  defp await_score_fun(task) do
+    case Task.await(task, :infinity) do
+      {:ok, score_fun} -> score_fun
+      {:error, reason} -> throw({:image_pipe_score_error, reason})
+      {:raised, kind, reason, stacktrace} -> :erlang.raise(kind, reason, stacktrace)
+    end
+  end
+
+  defp capture(fun) do
+    fun.()
+  catch
+    kind, reason -> {:raised, kind, reason, __STACKTRACE__}
+  end
 
   # Crop mode (above the crossover): crop score_fun (estimate) only (#369).
   # `@crop_offset` baked into the estimate is the crop→full correction. The
@@ -715,35 +753,26 @@ defmodule ImagePipe.Output.EncodeSearch do
   # built: the per-tile references are built once here and every probe's
   # `crop_estimate` reuses them, so the O(pixels) full-frame reference (the very
   # cost this path avoids) never runs.
-  defp score_opts(image, %Resolved{quality_search: %RQS.Ssimulacra2{}}, :crop, t) do
-    case CropScore.references(image) do
-      {:ok, refs} ->
-        tiles = length(refs)
-        crop = fn bytes -> crop_estimate(refs, bytes, tiles, @crop_offset, t) end
-        {:ok, [score_fun: crop, scorer_tiles: tiles]}
-
-      {:error, reason} ->
-        {:error, {:encode, reason}}
+  defp score_fun(image, :crop, t) do
+    with {:ok, refs} <- CropScore.references(image) do
+      tiles = length(refs)
+      {:ok, fn bytes -> crop_estimate(refs, bytes, tiles, @crop_offset, t) end}
     end
   end
 
-  # Below the crop crossover the metric scores the full frame. `:none` is matched
-  # above and never reaches here.
-  defp score_opts(image, %Resolved{quality_search: %RQS.Ssimulacra2{}}, _scorer, t) do
-    case Ssim2Metric.reference(image) do
-      {:ok, ref} ->
-        {:ok, [score_fun: fn bytes -> full_frame_score(ref, bytes, t) end]}
-
-      {:error, reason} ->
-        {:error, {:encode, reason}}
+  # Below the crop crossover the metric scores the full frame.
+  defp score_fun(image, _scorer, t) do
+    with {:ok, ref} <- Ssim2Metric.reference(image) do
+      {:ok, fn bytes -> full_frame_score(ref, bytes, t) end}
     end
   end
 
-  # The score_fun contract is float-returning, but Image.from_binary and
-  # `Ssim2Metric.score/2` can fail. We surface such failures by throwing a tagged
-  # tuple that run/3 catches around the search/3 call, mapping it to
-  # {:error, {:encode, reason}}. A throw propagates through the leg span (→
-  # `:exception`) and the enclosing probe span before reaching the catch.
+  # The score_fun contract is float-returning, but building the references,
+  # Image.from_binary, and `Ssim2Metric.score/2` can fail. We surface such
+  # failures by throwing a tagged tuple that run/3 catches around the search/3
+  # call, mapping it to {:error, {:encode, reason}}. A throw propagates through
+  # the leg span (→ `:exception`) and the enclosing probe span before reaching
+  # the catch.
 
   # Decode the candidate once and score the whole frame against the reference,
   # each as a cost leg nested under the active probe span, or under the search
@@ -792,6 +821,18 @@ defmodule ImagePipe.Output.EncodeSearch do
             {err, %{result: :processing_error, error: Telemetry.error_tag(reason)}}
         end
       end
+    )
+  end
+
+  # The wait for the references built alongside the first encode, as a
+  # metric-namespaced leg under the first scored probe. A build failure throws
+  # and surfaces as the leg's `:exception`.
+  defp reference_leg(task, telemetry_opts) do
+    Telemetry.span(
+      telemetry_opts,
+      [:encode, :search, :probe, @metric_leg, :reference],
+      %{},
+      fn -> {await_score_fun(task), %{result: :ok}} end
     )
   end
 
