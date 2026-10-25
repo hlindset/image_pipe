@@ -25,11 +25,11 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   [usage](docs/cache.md#usage-and-hit-rate) stays `true` until the scan
   finishes.
 - A hit on a recently served cache entry checks its body's size without
-  opening it, which makes a warm `GET` about 10% faster and a `HEAD` about
-  8% faster. A `GET` whose body is evicted after that check stops before
-  sending any headers and generates the image again.
-- The cache keeps recently served entries in memory without the facts
-  behind their [debug headers](docs/debug_headers.md), so each takes about
+  opening it, which makes a warm `GET` about 11% faster and a `HEAD` about
+  8% faster. A `GET` whose body is evicted after that check sends nothing
+  and looks the entry up again, which usually generates the image again.
+- The cache keeps recently served entries in memory without their
+  [debug header](docs/debug_headers.md) details, so each takes about
   1.1 KB instead of 1.8 KB, at most about 55 MB by default instead of
   90 MB. A `debug` request reads its entry from disk.
 - A file source checks its path for symlinks that leave the root when it
@@ -43,7 +43,8 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   [request summary](docs/telemetry-events.md#request-summary) no longer
   gets slower as more telemetry handlers are attached. With
   `ImagePipe.Telemetry.attach_default_logger/1` and
-  `ImagePipe.Telemetry.attach_tracer/1`, it took 4.6 µs per request.
+  `ImagePipe.Telemetry.attach_tracer/1`, it took 4.6 µs per request and
+  now takes 0.13 µs.
 - A request computes its cache key and `ETag` in 7 µs instead of 12 µs.
   The cache key is computed differently, so after the upgrade each
   processed image in the cache misses once and is generated again.

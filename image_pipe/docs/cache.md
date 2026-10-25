@@ -310,12 +310,12 @@ that took the least work for their size first, until they are requested
 again.
 
 The process also keeps the metadata of recently served entries in memory, so
-a repeated hit reads only the body file from disk. A request with
-[debug headers](debug_headers.md) reads the metadata from disk too. The
-process holds one entry's metadata for each 50 KB of `max_size_bytes`, from
-1,000 to 50,000 entries, at about 1.1 KB each: about 22 MB for a 1 GB cache, and at most about
-55 MB. Set `max_remembered_entries` to change the number of entries. This
-memory isn't counted against `max_size_bytes`. A restart empties it.
+a repeated hit reads only the body file from disk. The process holds one
+entry's metadata for each 50 KB of `max_size_bytes`, from 1,000 to 50,000
+entries, at about 1.1 KB each: about 22 MB for a 1 GB cache, and at most
+about 55 MB. Set `max_remembered_entries` to change the number of entries.
+This memory isn't counted against `max_size_bytes`. A restart empties it. A
+request with [debug headers](debug_headers.md) reads its metadata from disk.
 
 ### Work to make an entry
 
