@@ -165,18 +165,19 @@ defmodule ImagePipe.Plug.Runner do
     end
   end
 
-  # A hit read from memory whose body was deleted before it was sent sent
-  # nothing, and its entry is forgotten, so the lookup reads it from disk
-  # or misses. A second such failure needs a second deletion in between.
+  # A hit read from memory whose body was evicted between the lookup and the
+  # send sent nothing, and its entry is forgotten, so a second lookup reads
+  # it from disk or misses. A second such failure needs a second eviction in
+  # between.
   defp retry_gone_body(
-         {%Plug.Conn{private: %{image_pipe_cached_body_gone: true}} = gone, metadata},
+         {%Plug.Conn{private: %{image_pipe_cached_body_gone: true}}, _metadata},
          conn,
          context,
          retry?
        ) do
     if retry?,
       do: serve_context(conn, context, false),
-      else: {Plug.Conn.put_private(gone, :image_pipe_send_result, :processing_error), metadata}
+      else: send_error(conn, {:cache_read, :body_gone}, context.config)
   end
 
   defp retry_gone_body(served, _conn, _context, _retry?), do: served

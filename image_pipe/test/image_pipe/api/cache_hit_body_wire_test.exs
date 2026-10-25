@@ -22,6 +22,7 @@ defmodule ImagePipe.API.CacheHitBodyWireTest do
     File.mkdir_p!(sources)
     File.cp!("priv/static/images/beach.jpg", Path.join(sources, "beach.jpg"))
     cache_root = Path.join(root, "output")
+    prefix = [:"cache_hit_body_#{System.unique_integer([:positive])}"]
 
     opts =
       Caches.start!(
@@ -32,12 +33,13 @@ defmodule ImagePipe.API.CacheHitBodyWireTest do
             options: [root: sources, root_id: "hit-body"]
           ]
         ],
-        cache: [root: cache_root, max_size_bytes: 50_000_000]
+        cache: [root: cache_root, max_size_bytes: 50_000_000],
+        telemetry_prefix: prefix
       )
 
     [{pid, _value}] = Registry.lookup(Store.registry_name(cache_root), cache_root)
     :ok = Admission.await_scan(pid)
-    %{opts: opts, cache_root: cache_root}
+    %{opts: opts, cache_root: cache_root, prefix: prefix}
   end
 
   # The third request reads the entry from memory, so it has no descriptor
@@ -55,6 +57,55 @@ defmodule ImagePipe.API.CacheHitBodyWireTest do
     assert again.resp_body == first.resp_body
     assert bodies(ctx.cache_root) != []
     assert request(:get, ctx.opts).resp_body == first.resp_body
+  end
+
+  # The body goes between the lookup, which stats it, and the send. The
+  # handler runs in the request process, which is the test's.
+  test "a remembered body evicted after its lookup is generated again", ctx do
+    first = request(:get, ctx.opts)
+    _hit = request(:get, ctx.opts)
+    handler = make_ref()
+    root = ctx.cache_root
+
+    :telemetry.attach(
+      handler,
+      ctx.prefix ++ [:cache, :lookup, :stop],
+      fn _event, _measurements, _metadata, _config ->
+        if Process.delete(:delete_bodies), do: delete_bodies(root)
+      end,
+      nil
+    )
+
+    on_exit(fn -> :telemetry.detach(handler) end)
+    Process.put(:delete_bodies, true)
+
+    again = request(:get, ctx.opts)
+    assert again.status == 200
+    assert again.resp_body == first.resp_body
+    refute Process.get(:delete_bodies)
+    assert bodies(ctx.cache_root) != []
+  end
+
+  test "a run whose remembered body is deleted renders the image again", ctx do
+    name = Caches.instance(ctx.opts)
+
+    builder =
+      ImagePipe.URL.new(ImagePipe.url_config(name))
+      |> ImagePipe.URL.group(resize: [width: 12])
+      |> ImagePipe.URL.output(format: :png)
+
+    run = fn ->
+      assert {:ok, result} = ImagePipe.run(name, builder, {:source, "beach.jpg"})
+      Caches.await_writes(ctx.opts)
+      result.data
+    end
+
+    first = run.()
+    assert run.() == first
+    assert run.() == first
+
+    delete_bodies(ctx.cache_root)
+    assert run.() == first
   end
 
   test "a HEAD for a remembered entry reports the body's length", ctx do

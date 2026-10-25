@@ -24,9 +24,9 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   while it counts the entries, so `:counting?` in the cache's
   [usage](docs/cache.md#usage-and-hit-rate) stays `true` until the scan
   finishes.
-- A hit on a recently served cache entry no longer opens the body before
-  sending it, which makes a warm `GET` about 15% faster and a `HEAD` about
-  45% faster. A `GET` whose body was deleted after the lookup stops before
+- A hit on a recently served cache entry checks its body's size without
+  opening it, which makes a warm `GET` about 10% faster and a `HEAD` about
+  8% faster. A `GET` whose body is evicted after that check stops before
   sending any headers and generates the image again.
 - The cache keeps recently served entries in memory without the facts
   behind their [debug headers](docs/debug_headers.md), so each takes about
