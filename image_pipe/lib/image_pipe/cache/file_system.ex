@@ -108,7 +108,8 @@ defmodule ImagePipe.Cache.FileSystem do
          headers: meta.headers,
          created_at: created_at,
          representation: meta.representation,
-         debug: meta.debug
+         debug: meta.debug,
+         dimensions: Info.dimensions(meta.debug)
        }}
     else
       {:error, reason} -> handle_invalid_metadata(reason)

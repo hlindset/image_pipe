@@ -97,6 +97,7 @@ defmodule ImagePipe.API.CacheHitBodyWireTest do
     run = fn ->
       assert {:ok, result} = ImagePipe.run(name, builder, {:source, "beach.jpg"})
       Caches.await_writes(ctx.opts)
+      assert {result.width, result.height} == {12, 8}
       result.data
     end
 

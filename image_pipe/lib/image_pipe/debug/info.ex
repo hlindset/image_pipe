@@ -66,4 +66,12 @@ defmodule ImagePipe.Debug.Info do
           rotations: non_neg_integer(),
           timings: %{optional(atom()) => non_neg_integer()}
         }
+
+  # The output's width and height, when both were recorded.
+  @spec dimensions(t() | nil) :: {pos_integer(), pos_integer()} | nil
+  def dimensions(%__MODULE__{output_width: width, output_height: height})
+      when is_integer(width) and is_integer(height),
+      do: {width, height}
+
+  def dimensions(_debug), do: nil
 end
