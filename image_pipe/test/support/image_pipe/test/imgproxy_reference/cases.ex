@@ -26,6 +26,8 @@ defmodule ImagePipe.Test.ImgproxyReference.Cases do
           tolerance: {non_neg_integer(), non_neg_integer()}
         }
 
+  @opaque_alpha_dropped "ImagePipe drops an alpha band that is opaque everywhere, imgproxy keeps it"
+
   @spec all() :: [t()]
   def all do
     [
@@ -1163,7 +1165,11 @@ defmodule ImagePipe.Test.ImgproxyReference.Cases do
         source: "rgba16.png",
         native: "hdr=preserve/w=200/h=200/fit=contain",
         imgproxy: "ph:1/rs:fit:200:200",
-        tolerance: {2, 64}
+        tolerance: {2, 64},
+        structure_differs: %{
+          bands: @opaque_alpha_dropped,
+          alpha?: @opaque_alpha_dropped
+        }
       },
       %{
         id: "rgba16_tonemap_8bit",
@@ -1171,7 +1177,11 @@ defmodule ImagePipe.Test.ImgproxyReference.Cases do
         source: "rgba16.png",
         native: "hdr=tonemap/w=200/h=200/fit=contain",
         imgproxy: "ph:0/rs:fit:200:200",
-        tolerance: {2, 64}
+        tolerance: {2, 64},
+        structure_differs: %{
+          bands: @opaque_alpha_dropped,
+          alpha?: @opaque_alpha_dropped
+        }
       },
       # Each is a PRODUCT of two independently-correct compensations; the halves are
       # covered in isolation but their interaction is not.
@@ -2006,7 +2016,11 @@ defmodule ImagePipe.Test.ImgproxyReference.Cases do
         source: "rgba16.png",
         native: "w=128/h=128/fit=contain/blur=2",
         imgproxy: "rs:fit:128:128/bl:2",
-        tolerance: {2, 64}
+        tolerance: {2, 64},
+        structure_differs: %{
+          bands: @opaque_alpha_dropped,
+          alpha?: @opaque_alpha_dropped
+        }
       },
       %{
         id: "webp_cover_offset",
@@ -2279,7 +2293,11 @@ defmodule ImagePipe.Test.ImgproxyReference.Cases do
         source: "alpha_border.png",
         native: "trim=auto",
         imgproxy: "t:10",
-        tolerance: {2, 64}
+        tolerance: {2, 64},
+        structure_differs: %{
+          bands: @opaque_alpha_dropped,
+          alpha?: @opaque_alpha_dropped
+        }
       },
       # Padding after trim stays transparent.
       %{
@@ -2296,7 +2314,11 @@ defmodule ImagePipe.Test.ImgproxyReference.Cases do
         source: "alpha_border.png",
         native: "trim=auto/trim-symmetry=hv",
         imgproxy: "t:10::1:1",
-        tolerance: {2, 64}
+        tolerance: {2, 64},
+        structure_differs: %{
+          bands: @opaque_alpha_dropped,
+          alpha?: @opaque_alpha_dropped
+        }
       },
       # Edge cases: degenerate sizes.
       # A block larger than the image.

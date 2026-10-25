@@ -45,8 +45,8 @@ defmodule ImagePipe.API.SVGSourceWireTest do
 
     assert dimensions(response) == {400, 200}
     # A raster upscale blends the colours across several pixels at the edge.
-    assert pixel(response, 198, 100) == [255, 0, 0, 255]
-    assert pixel(response, 201, 100) == [0, 0, 255, 255]
+    assert pixel(response, 198, 100) == [255, 0, 0]
+    assert pixel(response, 201, 100) == [0, 0, 255]
   end
 
   test "renders a fractional size straight at the requested size" do
@@ -59,8 +59,8 @@ defmodule ImagePipe.API.SVGSourceWireTest do
     response = request("w=400/format=png", mount(fractional))
 
     assert dimensions(response) == {400, 200}
-    assert pixel(response, 199, 100) == [255, 0, 0, 255]
-    assert pixel(response, 200, 100) == [0, 0, 255, 255]
+    assert pixel(response, 199, 100) == [255, 0, 0]
+    assert pixel(response, 200, 100) == [0, 0, 255]
   end
 
   test "renders a one-axis stretch and a minimum past the intrinsic size" do
@@ -79,8 +79,8 @@ defmodule ImagePipe.API.SVGSourceWireTest do
 
     # Rendered at the requested width, not enlarged from the 40-pixel raster.
     response = request("w=400/fit=stretch/format=png", mount(@svg))
-    assert pixel(response, 198, 10) == [255, 0, 0, 255]
-    assert pixel(response, 201, 10) == [0, 0, 255, 255]
+    assert pixel(response, 198, 10) == [255, 0, 0]
+    assert pixel(response, 201, 10) == [0, 0, 255]
   end
 
   test "applies DPR past the intrinsic size" do
@@ -91,16 +91,16 @@ defmodule ImagePipe.API.SVGSourceWireTest do
     response = request("region=20,0,20,20/w=100/format=png", mount(@svg))
 
     assert dimensions(response) == {100, 100}
-    assert pixel(response, 2, 50) == [0, 0, 255, 255]
-    assert pixel(response, 97, 50) == [0, 0, 255, 255]
+    assert pixel(response, 2, 50) == [0, 0, 255]
+    assert pixel(response, 97, 50) == [0, 0, 255]
   end
 
   test "rotates before resizing past the intrinsic size" do
     turned = request("rotate=90/w=40/format=png", mount(@svg))
 
     assert dimensions(turned) == {40, 80}
-    assert pixel(turned, 20, 10) == [255, 0, 0, 255]
-    assert pixel(turned, 20, 70) == [0, 0, 255, 255]
+    assert pixel(turned, 20, 10) == [255, 0, 0]
+    assert pixel(turned, 20, 70) == [0, 0, 255]
 
     assert {width, _height} = dimensions(request("rotate=30/w=200/format=png", mount(@svg)))
     assert width == 200

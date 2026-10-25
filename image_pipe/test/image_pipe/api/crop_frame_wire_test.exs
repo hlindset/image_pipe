@@ -89,7 +89,7 @@ defmodule ImagePipe.API.CropFrameWireTest do
     assert conn.status == 200
     actual = Image.from_binary!(conn.resp_body)
     assert {Image.width(actual), Image.height(actual)} == {3, 3}
-    assert Image.get_pixel!(actual, 0, 0) == [0, 0, 0, 255]
+    assert Image.get_pixel!(actual, 0, 0) == [0, 0, 0]
   end
 
   test "a region under half a pixel keeps one pixel" do
@@ -155,7 +155,7 @@ defmodule ImagePipe.API.CropFrameWireTest do
       assert conn.status == 200, "#{region}: HTTP #{conn.status}"
       actual = Image.from_binary!(conn.resp_body)
       assert {Image.width(actual), Image.height(actual)} == {1, 1}
-      assert Image.get_pixel!(actual, 0, 0) == [0, 0, 0, 255]
+      assert Image.get_pixel!(actual, 0, 0) == [0, 0, 0]
     end
 
     conn = conn(:get, "/region=10,0,1,1/format=png/src/image.png") |> ImagePipe.Plug.call(config)
@@ -166,6 +166,7 @@ defmodule ImagePipe.API.CropFrameWireTest do
     content =
       Image.new!(80, 40, color: [220, 20, 60])
       |> Image.compose!(Image.new!(40, 40, color: [20, 80, 220]), x: 40, y: 0)
+      |> Image.flatten!()
 
     body =
       Image.new!(120, 80, color: :white)

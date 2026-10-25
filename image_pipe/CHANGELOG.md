@@ -14,6 +14,12 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- An image whose alpha channel is opaque everywhere, as in many PNG and
+  WebP files, is encoded without the alpha channel. The pixels don't
+  change, but a PNG output is saved as RGB instead of RGBA, or as gray
+  instead of gray with alpha. On Apple Silicon, an 18.7 megapixel PNG
+  output encodes 9% faster and is 9% smaller, and an AVIF output encodes
+  7% faster.
 - Resizing an image with transparency is up to 40% faster. The decoded
   image is copied to memory before it is resized. Resizing a 3368x2872 PNG
   to 800 pixels wide takes 111 ms instead of 188 ms on Apple Silicon, with
