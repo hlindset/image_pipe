@@ -41,6 +41,10 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   whether to build its [request summary](docs/telemetry-events.md#request-summary).
   With the default Logger and the tracer attached, that took 4.6 µs per
   request, and it took longer the more handlers a host attached.
+- A request computes its cache key and `ETag` in 7 µs instead of 12 µs.
+  The cache key is computed differently, so after the upgrade each
+  processed image in the cache misses once and is generated again.
+  `ETag`s don't change.
 
 ### Fixed
 
