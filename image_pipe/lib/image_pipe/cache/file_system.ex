@@ -93,7 +93,8 @@ defmodule ImagePipe.Cache.FileSystem do
   def missed(key, opts), do: Store.miss(key, opts)
 
   @doc false
-  def open(key, opts, sighting? \\ true), do: Store.get(key, opts, sighting?, &decode_entry/1)
+  def open(key, opts, sighting? \\ true, remembered? \\ true),
+    do: Store.get(key, opts, sighting?, remembered?, &decode_entry/1)
 
   # The entry, without its body, that stored metadata describes. The cache
   # remembers it, so a hit from memory doesn't validate the metadata again.

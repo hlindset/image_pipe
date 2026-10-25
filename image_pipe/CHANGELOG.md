@@ -28,6 +28,10 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   sending it, which makes a warm `GET` about 15% faster and a `HEAD` about
   40% faster. A body deleted after the lookup is noticed when the response
   is sent, before any headers, and the image is generated again.
+- The cache keeps the entries it remembers in memory without their
+  [debug headers](docs/debug_headers.md), so each takes about 1.1 KB instead
+  of 1.8 KB, at most about 55 MB instead of 90 MB. A `debug` request reads
+  its entry from disk.
 
 ### Fixed
 

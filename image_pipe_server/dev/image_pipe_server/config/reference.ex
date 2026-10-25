@@ -51,7 +51,7 @@ defmodule ImagePipeServer.Config.Reference do
         "(../../image_pipe/docs/caching-and-freshness.md#originals-and-processed-images) " <>
         "for what happens when an original is forgotten. " <>
         "`output.max_remembered_entries` is how many recently served entries the cache " <>
-        "keeps in memory, about 1.8 KB each. It defaults to one for each 50 KB of " <>
+        "keeps in memory, about 1.1 KB each. It defaults to one for each 50 KB of " <>
         "`output.max_size_bytes`, at least 1,000 and at most 50,000.",
     processing:
       "Defaults and limits for every image the server processes. The limits on " <>

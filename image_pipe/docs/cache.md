@@ -312,8 +312,8 @@ again.
 The process also keeps the metadata of recently served entries in memory, so
 a repeated hit reads only the body file from disk. It holds one entry's
 metadata for each 50 KB of `max_size_bytes`, from 1,000 to 50,000 entries,
-at about 1.8 KB each: about 36 MB for a 1 GB cache, and at most about
-90 MB. Set `max_remembered_entries` to change the number of entries. This
+at about 1.1 KB each: about 22 MB for a 1 GB cache, and at most about
+55 MB. Set `max_remembered_entries` to change the number of entries. This
 memory isn't counted against `max_size_bytes`. A restart empties it.
 
 ### Work to make an entry

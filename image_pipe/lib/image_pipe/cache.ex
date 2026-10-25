@@ -210,7 +210,7 @@ defmodule ImagePipe.Cache do
 
       cache_opts ->
         key
-        |> get_entry(cache_opts)
+        |> get_entry(cache_opts, true, remembered?(opts))
         |> tap(&count_lookup(&1, cache_opts))
         |> tap(&count_miss(&1, key, cache_opts))
     end)
@@ -224,7 +224,7 @@ defmodule ImagePipe.Cache do
   def recheck_entry(%Key{} = key, opts) when is_list(opts) do
     traced_lookup(key, :response, Keyword.get(opts, :cache), opts, fn
       nil -> :disabled
-      cache_opts -> get_entry(key, cache_opts, false)
+      cache_opts -> get_entry(key, cache_opts, false, remembered?(opts))
     end)
   end
 
@@ -369,8 +369,12 @@ defmodule ImagePipe.Cache do
     end
   end
 
-  defp get_entry(key, cache_opts, sighting? \\ true) do
-    case FileSystem.open(key, cache_opts, sighting?) do
+  # A debug request needs the entry's stored debug facts, which the cache
+  # doesn't keep in memory.
+  defp remembered?(opts), do: not Keyword.get(opts, :debug?, false)
+
+  defp get_entry(key, cache_opts, sighting?, remembered?) do
+    case FileSystem.open(key, cache_opts, sighting?, remembered?) do
       {:hit, entry} -> {:hit, entry}
       :miss -> {:miss, key}
       {:error, reason} -> handle_read_error(reason, key, cache_opts)
