@@ -231,22 +231,36 @@ defmodule ImagePipe.Output.Encoder do
   defp encode_error(reason),
     do: ArgumentError.exception("failed to encode to buffer: #{inspect(reason)}")
 
-  # Materialize on the producer's stack so corrupt-source failures return decode
-  # errors (415). Doing this inside mutate would crash the linked MutableImage
-  # GenServer. Color finalization and metadata stripping then use the in-memory image.
+  # Delivery hands over a frame that no longer reads the source, so nothing
+  # here can fail on a corrupt source. Color finalization and metadata edits
+  # stay lazy, and the encoder reads the result once.
   defp finalize(image, %Resolved{} = resolved, source_color) do
-    case VixImage.copy_memory(image) do
-      {:ok, mem} ->
-        opaque_alpha? = opaque_alpha?(mem)
+    with {:ok, image} <- buffer_alpha(image) do
+      finalize_buffered(image, resolved, source_color)
+    end
+  end
 
-        with {:ok, flattened} <- flatten_for_format(mem, resolved),
-             {:ok, image} <- color_result(flattened, resolved, source_color),
-             {:ok, image} <- drop_alpha(image, opaque_alpha?) do
-          {:ok, set_density(image, resolved)}
-        end
+  # The opaque-alpha check reads every alpha value, so an image with alpha is
+  # buffered first: checking a lazy padded frame and then encoding it ran the
+  # chain under it twice, 45-75% slower.
+  defp buffer_alpha(image) do
+    if Image.has_alpha?(image) do
+      case VixImage.copy_memory(image) do
+        {:ok, buffered} -> {:ok, buffered}
+        {:error, reason} -> {:error, {:decode, reason}}
+      end
+    else
+      {:ok, image}
+    end
+  end
 
-      {:error, reason} ->
-        {:error, {:decode, reason}}
+  defp finalize_buffered(image, resolved, source_color) do
+    opaque_alpha? = opaque_alpha?(image)
+
+    with {:ok, flattened} <- flatten_for_format(image, resolved),
+         {:ok, image} <- color_result(flattened, resolved, source_color),
+         {:ok, image} <- drop_alpha(image, opaque_alpha?) do
+      {:ok, set_density(image, resolved)}
     end
   end
 
@@ -254,10 +268,9 @@ defmodule ImagePipe.Output.Encoder do
   # changes no pixel but costs every encoder that keeps it: PNG encodes took
   # up to 55% longer and came out up to 7% larger, AVIF encodes 20% longer,
   # and autoquality scored each probe against two backgrounds. Finding the
-  # band's minimum in the buffered image takes 1-3 ms at 1.5 megapixels.
-  # Color finalization keeps alpha as it is, so the band is checked before
-  # it and dropped after its metadata edits, which would copy a lazy band
-  # extraction to memory again.
+  # band's minimum takes 1-3 ms on a buffered 1.5 megapixel image. Color
+  # finalization keeps alpha as it is, so the band is checked on its input,
+  # before a lazy ICC transform would have to run for it, and dropped after.
   defp opaque_alpha?(image) do
     with true <- Image.has_alpha?(image),
          {:ok, opaque} <- opaque_value(VixImage.format(image)),

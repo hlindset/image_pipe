@@ -45,6 +45,7 @@ defmodule ImagePipe.Transform.Executor do
   alias ImagePipe.Transform.State
   alias ImagePipe.Transform.WorkingColor
   alias ImagePipe.Transform.WorkLimits
+  alias ImagePipe.VipsHeader
   alias Vix.Vips.Image, as: VipsImage
   alias Vix.Vips.Operation, as: VipsOperation
 
@@ -238,7 +239,7 @@ defmodule ImagePipe.Transform.Executor do
 
     with {:ok, state} <- condition_color(state, opts),
          {:ok, state} <- execute_groups(state, groups(state, request), opts),
-         {:ok, state} <- flush_display(state) do
+         {:ok, state} <- flush_display(state, false) do
       normalize_output_orientation(state, request.output, opts)
     end
   end
@@ -904,7 +905,8 @@ defmodule ImagePipe.Transform.Executor do
   defp placement_length({:pct, value}, dimension, _dpr),
     do: round_ties_to_even(dimension * value / 100)
 
-  defp flush_display(%State{} = state) do
+  # Only the last flush, after every group, passes `buffer_result?` false.
+  defp flush_display(%State{} = state, buffer_result? \\ true) do
     case Geometry.pending_class(state) do
       :none ->
         {:ok, state}
@@ -915,7 +917,7 @@ defmodule ImagePipe.Transform.Executor do
       :pending ->
         pending = state.pending_orientation
 
-        with {:ok, state} <- Materializer.flush(state),
+        with {:ok, state} <- Materializer.flush(state, buffer_result?),
              do: {:ok, orient_source_frame(state, pending)}
     end
   end
@@ -1250,12 +1252,8 @@ defmodule ImagePipe.Transform.Executor do
   end
 
   defp remove_output_orientation(%State{} = state) do
-    with {:ok, %State{} = state} <- materialize_for_metadata(state) do
-      case Image.remove_metadata(state.image, ["orientation"]) do
-        {:ok, image} -> {:ok, %State{state | image: image}}
-        {:error, reason} -> {:error, {:transform, reason}}
-      end
-    end
+    with {:ok, image} <- VipsHeader.edit(state.image, [{:remove, "orientation"}]),
+         do: {:ok, %State{state | image: image}}
   end
 
   defp materialize_for_metadata(%State{materialized?: true} = state), do: {:ok, state}

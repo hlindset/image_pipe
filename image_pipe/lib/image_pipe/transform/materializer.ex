@@ -37,11 +37,15 @@ defmodule ImagePipe.Transform.Materializer do
   defp ok_metadata(%State{image: image}),
     do: %{result: :ok, dims: {Image.width(image), Image.height(image)}}
 
-  @doc "Applies pending orientation and buffers its display frame, with materialization telemetry."
-  @spec flush(State.t()) :: {:ok, State.t()} | {:error, error()}
-  def flush(%State{telemetry_opts: telemetry_opts} = state) do
+  @doc """
+  Applies pending orientation and buffers its display frame, with
+  materialization telemetry. With `buffer_result?` false, a turn of a
+  buffered stored frame stays lazy (see `OrientationFlush`).
+  """
+  @spec flush(State.t(), boolean()) :: {:ok, State.t()} | {:error, error()}
+  def flush(%State{telemetry_opts: telemetry_opts} = state, buffer_result? \\ true) do
     Telemetry.span(telemetry_opts, [:transform, :materialize], %{}, fn ->
-      case guarded_flush(state) do
+      case guarded_flush(state, buffer_result?) do
         {:ok, new_state} ->
           {{:ok, new_state}, ok_metadata(new_state)}
 
@@ -51,8 +55,8 @@ defmodule ImagePipe.Transform.Materializer do
     end)
   end
 
-  defp guarded_flush(state) do
-    with :ok <- WorkLimits.check(state), do: OrientationFlush.flush(state)
+  defp guarded_flush(state, buffer_result?) do
+    with :ok <- WorkLimits.check(state), do: OrientationFlush.flush(state, buffer_result?)
   end
 
   defp error({:intermediate_pixel_limit, _pixels, _limit} = reason), do: {:transform, reason}

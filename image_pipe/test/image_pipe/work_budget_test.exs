@@ -54,7 +54,7 @@ defmodule ImagePipe.WorkBudgetTest do
   test "a crop that needs no shrink-on-load opens the source once", %{config: config} do
     assert_budget(config, "/crop=120,90/anchor=top-left/format=png/src/placement.png",
       loads: 1,
-      copies: 4,
+      copies: 3,
       reads: {"placement.png", 1}
     )
   end
@@ -62,7 +62,7 @@ defmodule ImagePipe.WorkBudgetTest do
   test "a JPEG resized down opens it twice: header, then shrink-on-load", %{config: config} do
     assert_budget(config, "/w=300/format=jpeg/src/high_freq.jpg",
       loads: 2,
-      copies: 4,
+      copies: 3,
       reads: {"high_freq.jpg", 1}
     )
   end
@@ -100,13 +100,19 @@ defmodule ImagePipe.WorkBudgetTest do
   # Delivery buffers the frame once. The conversion to sRGB and the header
   # edits after it stay lazy, so the frame isn't copied again.
   test "a profiled source converted to sRGB is buffered once", %{config: config} do
-    assert_budget(config, "/format=png/src/icc_p3.png", copies: 4)
+    assert_budget(config, "/format=png/src/icc_p3.png", copies: 3)
   end
 
   # The import and the conversion to sRGB stay lazy, so only the cropped
-  # frame is buffered, by delivery.
+  # frame is buffered, by delivery, as for an RGB source.
   test "a CMYK source is cropped before it is buffered", %{config: config} do
-    assert_budget(config, "/crop=60,40/format=jpeg/src/cmyk.jpg", copies: 4)
+    assert_budget(config, "/crop=60,40/format=jpeg/src/cmyk.jpg", copies: 3)
+  end
+
+  # The stored frame is buffered so it can be turned. Nothing but the encoder
+  # reads the turned frame, so it isn't buffered again.
+  test "an EXIF-rotated source is buffered once", %{config: config} do
+    assert_budget(config, "/format=jpeg/src/exif_6.jpg", copies: 3)
   end
 
   test "a CMYK source imports its profile once", %{config: config} do
@@ -123,11 +129,11 @@ defmodule ImagePipe.WorkBudgetTest do
   # overlapping regions. Without a buffered blur result, each region
   # recomputes the blur, past what `max_blur_work` allows.
   test "a blur's result is buffered before a later enlarge", %{config: config} do
-    assert_budget(config, "/blur=20/-/w=1000/enlarge/format=jpeg/src/high_freq.jpg", copies: 5)
+    assert_budget(config, "/blur=20/-/w=1000/enlarge/format=jpeg/src/high_freq.jpg", copies: 4)
   end
 
   test "a blur's result is buffered before a later pixelate", %{config: config} do
-    assert_budget(config, "/blur=20/-/pixelate=4/format=jpeg/src/high_freq.jpg", copies: 5)
+    assert_budget(config, "/blur=20/-/pixelate=4/format=jpeg/src/high_freq.jpg", copies: 4)
   end
 
   test "output=info reads the header and copies no pixels", %{config: config} do
