@@ -22,6 +22,8 @@ defmodule ImagePipe.Transform.InputColorManagement do
     :VIPS_INTERPRETATION_GREY16
   ]
 
+  @gray [:VIPS_INTERPRETATION_B_W, :VIPS_INTERPRETATION_GREY16]
+
   @doc """
   Conditions a decoded image into a working space before any processing step.
 
@@ -30,7 +32,8 @@ defmodule ImagePipe.Transform.InputColorManagement do
      profile without saving it or setting `color_imported?`.
   3. For sRGB, RGB, RGB16, B_W and GREY16 input, keeps the pixel values and the
      embedded profile, saving the profile bytes on `State` as a backup for the
-     output step without setting `color_imported?`.
+     output step without setting `color_imported?`. It drops a profile for
+     another color space or a damaged one, and saves no backup for it.
   4. For other input with an importable ICC profile, saves the profile bytes on
      `State`, imports to PCS float, and sets `color_imported?`.
   5. Converts to the working space, including when no profile was imported,
@@ -86,7 +89,8 @@ defmodule ImagePipe.Transform.InputColorManagement do
   # RGB-family and gray sources keep their values: operations work on them as
   # they are, and the output step converts or keeps the profile.
   defp do_condition(state, image, interp, target) when interp in @unimported do
-    with {:ok, image} <- to_colorspace(image, target) do
+    with {:ok, image} <- drop_foreign_profile(image, interp),
+         {:ok, image} <- to_colorspace(image, target) do
       {:ok, %State{State.set_image(state, image) | source_color_profile: profile_data(image)}}
     end
   end
@@ -113,6 +117,31 @@ defmodule ImagePipe.Transform.InputColorManagement do
       end
     end
   end
+
+  # jpegload keeps any embedded profile, even one for another color space or
+  # one that isn't a profile at all. libvips' own conversions fall back past
+  # such a profile, but request colors would be converted through it.
+  defp drop_foreign_profile(image, interp) do
+    profile = profile_data(image)
+
+    if is_nil(profile) or describes?(profile, interp),
+      do: {:ok, image},
+      else: remove_profile(image)
+  end
+
+  # Reads the ICC header: the declared size, the color space at byte 16, and
+  # the "acsp" signature at byte 36.
+  defp describes?(
+         <<size::32, _::binary-size(12), space::binary-size(4), _::binary-size(16), "acsp",
+           _::binary>> = profile,
+         interp
+       ),
+       do: size >= 128 and size <= byte_size(profile) and space == color_space(interp)
+
+  defp describes?(_profile, _interp), do: false
+
+  defp color_space(interp) when interp in @gray, do: "GRAY"
+  defp color_space(_interp), do: "RGB "
 
   # The conversion stays lazy, so a crop cuts the frame before it runs. A
   # resize's overlapping reads would repeat it, so a resize buffers it first:

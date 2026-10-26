@@ -320,7 +320,7 @@ defmodule ImagePipe.API.ColorManagementWireTest do
 
   test "preserving a corrupt embedded profile keeps decode failure classification" do
     # CMYK is imported through its embedded profile, so a corrupt one fails
-    # processing; RGB-family and gray sources keep their profile untouched.
+    # processing; RGB-family and gray sources drop it.
     profile = <<1, 2, 3, 4>>
     {:ok, cmyk} = Operation.black(16, 16, bands: 4)
     {:ok, cmyk} = Operation.linear(cmyk, [1.0], [60.0])
@@ -393,6 +393,51 @@ defmodule ImagePipe.API.ColorManagementWireTest do
       |> decoded()
 
     assert Image.get_pixel!(padded, 0, 0) == [0, 255, 0]
+  end
+
+  test "request colors on an RGB source ignore an embedded profile that doesn't describe it" do
+    {:ok, rgb} = Operation.black(16, 16, bands: 3)
+    {:ok, rgb} = Operation.linear(rgb, [1.0], [200.0, 30.0, 40.0])
+    {:ok, rgb} = Operation.cast(rgb, :VIPS_FORMAT_UCHAR)
+    {:ok, rgb} = Operation.copy(rgb, interpretation: :VIPS_INTERPRETATION_sRGB)
+    {:ok, <<0xFF, 0xD8, jpeg::binary>>} = VipsImage.write_to_buffer(rgb, ".jpg[strip]")
+
+    {:ok, grey} = Operation.black(4, 4, bands: 1)
+    {:ok, grey} = Operation.cast(grey, :VIPS_FORMAT_UCHAR)
+    {:ok, grey} = Operation.copy(grey, interpretation: :VIPS_INTERPRETATION_B_W)
+    {:ok, grey} = Operation.icc_transform(grey, "sGrey", input_profile: "sGrey")
+    cmyk = "cmyk.jpg" |> source() |> header("icc-profile-data")
+
+    for {name, profile} <- [
+          grey: header(grey, "icc-profile-data"),
+          truncated_cmyk: binary_part(cmyk, 0, 60_000) <> :binary.copy(<<0>>, 4),
+          zeros: :binary.copy(<<0>>, 16),
+          garbage: :binary.copy(<<"not a profile ">>, 40)
+        ] do
+      payload = <<"ICC_PROFILE", 0, 1, 1, profile::binary>>
+      body = <<0xFF, 0xD8, 0xFF, 0xE2, byte_size(payload) + 2::16, payload::binary, jpeg::binary>>
+      assert header(Image.from_binary!(body), "icc-profile-data") == profile
+
+      config =
+        body
+        |> body_source("image/jpeg")
+        |> Keyword.put(:allow_unsigned, true)
+        |> ImagePipe.Plug.init()
+
+      padded =
+        conn(:get, "/pad=5/bg=00ff00/format=png/src/rgb.jpg")
+        |> ImagePipe.Plug.call(config)
+        |> decoded()
+
+      assert Image.get_pixel!(padded, 0, 0) == [0, 255, 0], "#{name}"
+
+      extended =
+        conn(:get, "/extend/w=40/h=40/bg=ff0000/format=png/src/rgb.jpg")
+        |> ImagePipe.Plug.call(config)
+        |> decoded()
+
+      assert Image.get_pixel!(extended, 0, 0) == [255, 0, 0], "#{name}"
+    end
   end
 
   test "a truncated tagged source fails as a decode error when its profile changes" do

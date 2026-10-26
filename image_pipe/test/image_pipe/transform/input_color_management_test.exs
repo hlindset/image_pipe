@@ -123,6 +123,30 @@ defmodule ImagePipe.Transform.InputColorManagementTest do
       assert VixImage.bands(out.image) == 4
     end
 
+    test "drops an embedded profile that doesn't describe an RGB or gray source", %{open: open} do
+      {:ok, cmyk} = VixImage.header_value(open.(@cmyk_fixture), "icc-profile-data")
+      {:ok, p3} = VixImage.header_value(open.(@p3_fixture), "icc-profile-data")
+      rgb = Image.open!(@plain_srgb_fixture, access: :random)
+      {:ok, gray} = Operation.colourspace(rgb, :VIPS_INTERPRETATION_B_W)
+
+      for {img, profile} <- [
+            {rgb, cmyk},
+            {rgb, :binary.copy(<<0>>, 16)},
+            {rgb, binary_part(p3, 0, 200)},
+            {gray, p3}
+          ] do
+        {:ok, img} =
+          VixImage.mutate(img, fn m ->
+            :ok = MutableImage.set(m, "icc-profile-data", :VipsBlob, profile)
+          end)
+
+        {:ok, out} = ICM.condition(%State{image: img}, supports_hdr?: false)
+        assert out.source_color_profile == nil
+        assert VixImage.header_value(out.image, "icc-profile-data") == {:error, "No such field"}
+        assert VixImage.write_to_binary(out.image) == VixImage.write_to_binary(img)
+      end
+    end
+
     test "linear (scRGB) drops profile, does not record backup, still converts", %{open: open} do
       # Start from a profiled source so the profile-drop is genuinely exercised.
       img = open.(@p3_fixture)
