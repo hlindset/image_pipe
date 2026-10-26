@@ -5,8 +5,67 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-26
+
+### Added
+
+- An `image_pipe.encode.search.probe.ssimulacra2.reference` trace span times
+  how long `autoquality` waits for its comparison image.
+
 ### Changed
 
+- Uses `image_pipe`
+  [0.5.0](https://github.com/hlindset/image_pipe/blob/v0.5.0/image_pipe/CHANGELOG.md).
+- A JPEG, WebP, or AVIF output without alpha that no earlier step copied to
+  memory, such as a plain re-encode, a crop, or a resize, is encoded in full
+  before the response starts. On Apple Silicon, an 18.7 megapixel JPEG
+  re-encode takes 130 ms instead of 200 ms, with half the memory peak, and
+  WebP and AVIF outputs of that size take the same time and use 30-40 MB
+  less memory. PNG and progressive JPEG outputs still stream. Traces have no
+  `image_pipe.transform.materialize` span for these outputs, and
+  `image_pipe.encode` covers the whole encode.
+- Resizing an image with transparency takes up to 40% less time, and
+  EXIF-rotated images are 13-24% faster to resize or crop. Cropping a CMYK
+  image, or another one whose ICC profile is converted to sRGB, takes about
+  half the time and a third of the memory, and converting a Display P3 photo
+  to sRGB takes up to 8% less time. See the
+  [`image_pipe` notes](https://github.com/hlindset/image_pipe/blob/v0.5.0/image_pipe/CHANGELOG.md)
+  for the numbers.
+- An image whose alpha channel is opaque everywhere is encoded without it.
+  The pixels don't change, but a PNG output is saved as RGB instead of RGBA,
+  or as gray instead of gray with alpha. On an 18.7 megapixel image, PNG
+  output encodes 9% faster and is 9% smaller, and AVIF output encodes 7%
+  faster.
+- PNG output is 15-35% smaller and encodes 7-29% faster. A PNG that isn't a
+  palette image is saved at zlib compression 3, with the `paeth` row filter
+  unless it is grayscale at `bitdepth` `1`, `2`, or `4`. A
+  `png_options.filter` in `[processing]` or in a URL still wins.
+- JPEG output is up to 18% smaller, with the same pixels. The encoder
+  optimizes the entropy coding for each image, which adds 1 to 4 ms to an
+  encode of 1-2 megapixels.
+- WebP and AVIF `autoquality` on outputs of up to 6 megapixels is about
+  5-10% faster, with the same output.
+- A hit on a recently served cache entry is about 11% faster for a `GET` and
+  8% faster for a `HEAD`. Each entry that `[cache.output]
+  max_remembered_entries` keeps in memory takes about 1.1 KB instead of
+  1.8 KB.
+- A filesystem cache's startup scan is several times faster and uses a
+  quarter of the memory. On a 12-core machine, a cache of 1M entries is
+  scanned in 3.5 s instead of 19 s, with a memory peak of 0.6 GB instead of
+  2.4 GB.
+- The startup scan deletes leftover files while it counts the entries, so
+  `counting` in [cache stats](docs/server-deployment.md#cache-stats) stays
+  `true` until the scan finishes.
+- Cache keys are computed differently, so after the upgrade each processed
+  image in the cache misses once and is generated again. `ETag`s don't
+  change.
+- A local file source checks its path for symlinks that leave the root when
+  it checks or reads the file, not on every request. A request within a
+  fallback lifetime, or for an immutable source, can still be served from
+  the cache after a symlink in its path is changed to point outside the
+  root.
+- With `[telemetry] log_stages`, a failed watermark, transform operation,
+  or transform stage logs at `warning`.
 - The Docker image gives jemalloc one arena per CPU, counting the container's
   CPU limit, and returns freed memory within about one second instead of ten. A
   burst of large images at four CPUs peaked at about 700 MiB instead of
@@ -16,6 +75,71 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The server allows 262,144 Erlang processes instead of 1,048,576, which
   saves about 10 MiB at startup. Set `ERL_ZFLAGS="+P N"` to raise it. See
   [process limit](docs/server-deployment.md#process-limit).
+
+### Fixed
+
+- A streamed image gives back its `[pool]` turn when its encode ends,
+  instead of when the client has read the last byte. The part of the
+  response the client hasn't read yet waits in memory, up to 4 MB per
+  request, and the rest in files under `/tmp`. The server keeps at most
+  about 256 MB in memory and 2 GB in files this way, so `/tmp` needs room
+  for a little more than 2 GB. When `/tmp` is a `tmpfs`, as in the examples
+  in [running](docs/server-deployment.md#running), those files use memory.
+  Before, a few slow clients downloading large images could hold every turn,
+  so other requests got `503`, and identical requests waited for the slowest
+  client. While the server has room for what the client hasn't read,
+  `[pool] processing_timeout` no longer counts the client's download. See
+  [slow clients](https://github.com/hlindset/image_pipe/blob/v0.5.0/image_pipe/docs/deployment.md#slow-clients).
+- An embedded profile that matches sRGB is used as sRGB even when images
+  with other profiles are processed at the same time. Before, such a profile
+  could be judged not to match sRGB, and its images were converted through
+  the profile on every request until a restart.
+- On a CMYK source without a usable embedded ICC profile, colors from the
+  request, such as `bg`, `colorize` and `duotone`, come out as requested.
+  Before, `pad=5/bg=00ff00` painted `(192, 208, 11)` instead of
+  `(0, 255, 0)`, and a progressive blur or several blur groups could crash
+  the server.
+- An RGB or grayscale source whose embedded ICC profile is for another color
+  space, or is damaged, is treated as having no profile. Before, the output
+  carried that profile, and request colors such as `bg` could come out wrong
+  or return `422`.
+- An RGB or grayscale image whose ICC profile only supports the perceptual
+  rendering intent, such as a PQ or HLG JPEG XL, is converted through that
+  profile. Before, its colors went out unconverted, and `bg` and `colorize`
+  returned `422`.
+- Identical requests for a processed image share one render while up to
+  4,096 other images are processing or waiting for a turn. Before, past 64
+  such images, each identical request rendered its own copy.
+- The filesystem cache stores an image larger than its limit on unfinished
+  writes (256 MiB, or a twentieth of `max_size_bytes` when that is
+  smaller) when no other write is
+  in progress. Before, it never stored such an image and logged
+  `stage_dropped (pending_limit)` each time, so small caches generated large
+  images again on every request.
+- An HTTP source that redirects to a protocol-relative `Location` on the
+  same host, such as `//images.example.com/moved.jpg`, keeps its configured
+  `auth`, `aws_sigv4` and headers. Before, the origin usually answered `401`
+  or `403`.
+- An HTTP or S3 source whose response declares a `Content-Length` over
+  `max_body_bytes` fails as soon as the headers arrive.
+- A file source and the filesystem cache treat a path under their root that
+  follows more than 40 symlinks as unsafe, and a file source request for it
+  gets `404`. Before, some symlink loops inside the root hung the request,
+  or the cache's startup check, and grew memory without bound.
+- The filesystem cache deletes an entry's temporary metadata file when
+  writing it fails, such as on a full disk.
+- The tracer ends an `image_pipe.http.client` span with an error status when
+  a step of the HTTP request raises an exception. Before, the trace lacked
+  the span.
+- An AVIF whose major brand is a generic HEIF brand, such as `mif1`, with
+  `avif` among its compatible brands is detected as AVIF. Before,
+  `skip_processing_formats = ["avif"]` didn't pass it through.
+- A `src` or `src64` source that isn't valid UTF-8 fails with `400`
+  `invalid source` before the source is fetched.
+- Logs and traces replace a query part without a value, such as `&token`
+  in a source URL or in a request's query string, with `REDACTED`. Before,
+  a bare token that an origin authorizes with appeared in `source_url=`, the
+  logged path, and traces.
 
 ### Security
 
@@ -870,7 +994,8 @@ First release of the standalone ImagePipe server.
 - Choose a base image or a vision image with bundled face and object detection
   models.
 
-[Unreleased]: https://github.com/hlindset/image_pipe/compare/image_pipe_server-v0.4.0...HEAD
+[Unreleased]: https://github.com/hlindset/image_pipe/compare/image_pipe_server-v0.5.0...HEAD
+[0.5.0]: https://github.com/hlindset/image_pipe/compare/image_pipe_server-v0.4.0...image_pipe_server-v0.5.0
 [0.4.0]: https://github.com/hlindset/image_pipe/compare/image_pipe_server-v0.3.0...image_pipe_server-v0.4.0
 [0.3.0]: https://github.com/hlindset/image_pipe/compare/image_pipe_server-v0.2.0...image_pipe_server-v0.3.0
 [0.2.0]: https://github.com/hlindset/image_pipe/compare/image_pipe_server-v0.1.0...image_pipe_server-v0.2.0

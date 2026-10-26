@@ -25,7 +25,7 @@ docker run -d --name image-server -p 8080:8080 \
   -e IPS_URL__KEYS="$IMAGE_PIPE_SIGNING_KEY" \
   -v "$PWD/config.toml:/etc/image_pipe/config.toml:ro" \
   -v "$PWD/images:/data/images:ro" \
-  ghcr.io/hlindset/image_pipe_server:0.4
+  ghcr.io/hlindset/image_pipe_server:0.5
 ```
 
 With a signing key set, the server refuses URLs without a valid signature.
@@ -48,7 +48,7 @@ Add the URL builder to the dependencies in `mix.exs`:
 # mix.exs
 defp deps do
   [
-    {:image_pipe_url, "~> 0.4.0"}
+    {:image_pipe_url, "~> 0.5.0"}
   ]
 end
 ```

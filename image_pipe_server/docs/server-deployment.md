@@ -8,16 +8,16 @@ file and environment variables. The
 
 There are two variants:
 
-- `ghcr.io/hlindset/image_pipe_server:0.4`, without content-aware detection.
-- `ghcr.io/hlindset/image_pipe_server:0.4-vision`, which adds face and object
+- `ghcr.io/hlindset/image_pipe_server:0.5`, without content-aware detection.
+- `ghcr.io/hlindset/image_pipe_server:0.5-vision`, which adds face and object
   detection with the models baked into the image, so detection works without
   network access at runtime.
 
 Both read every input format ImagePipe supports, including JPEG XL.
 
-The `0.4` tags move to each new 0.4 patch release, so pulling them again
-picks up fixes. To pin one release, use its full version, such as `0.4.0` or
-`0.4.0-vision`.
+The `0.5` tags move to each new 0.5 patch release, so pulling them again
+picks up fixes. To pin one release, use its full version, such as `0.5.0` or
+`0.5.0-vision`.
 
 The `-vision` image loads the models for every detection class when it
 starts. To save memory, load only the ones your URLs use by setting
@@ -44,14 +44,18 @@ Mount the configuration file at `/etc/image_pipe/config.toml` (or name
 another path with `IPS_CONFIG`), mount your images, and give caches a volume:
 
 ```bash
-docker run --read-only --tmpfs /tmp -p 8080:8080 -v ./config.toml:/etc/image_pipe/config.toml:ro -v ./images:/data/images:ro -v image-cache:/var/cache/image_pipe ghcr.io/hlindset/image_pipe_server:0.4
+docker run --read-only --tmpfs /tmp -p 8080:8080 -v ./config.toml:/etc/image_pipe/config.toml:ro -v ./images:/data/images:ro -v image-cache:/var/cache/image_pipe ghcr.io/hlindset/image_pipe_server:0.5
 ```
 
 - On a platform that can't mount files, pass the file's contents in
   `IPS_CONFIG_TOML` instead, such as
   `-e IPS_CONFIG_TOML="$(cat config.toml)"`.
 - The server writes only to `/tmp` and to cache directories, so the root
-  filesystem can be read-only. Mount `/tmp` as a `tmpfs`.
+  filesystem can be read-only. Mount `/tmp` as a `tmpfs`. The server keeps
+  what a slow client hasn't read yet, beyond 4 MB per response, in `/tmp`,
+  a little more than 2 GB at most, so a `tmpfs` there can use that much
+  memory (see
+  [slow clients](../../image_pipe/docs/deployment.md#slow-clients)).
 - Put caches under `/var/cache/image_pipe`, which is writable by the server's
   user. Give each container its own cache volume. A container that finds
   another container using its cache runs without that cache and logs an
@@ -67,7 +71,7 @@ With Docker Compose:
 ```yaml
 services:
   images:
-    image: ghcr.io/hlindset/image_pipe_server:0.4
+    image: ghcr.io/hlindset/image_pipe_server:0.5
     read_only: true
     tmpfs:
       - /tmp
@@ -180,7 +184,7 @@ spec:
     runAsUser: 10001
   containers:
     - name: images
-      image: ghcr.io/hlindset/image_pipe_server:0.4
+      image: ghcr.io/hlindset/image_pipe_server:0.5
       ports:
         - containerPort: 8080
         - containerPort: 8081
@@ -495,7 +499,8 @@ The path is logged with `mount_path`, and ends at the source: the `src`,
 `src64`, or `enc` segment is followed by `REDACTED`, and each `wm-src64=`
 value is `REDACTED`. The source follows as a `source_url=` field, decoded
 from `src64` or decrypted from `enc`, with each query value, such as a
-presigned URL's `X-Amz-Signature`, replaced with `REDACTED`. A watermark
+presigned URL's `X-Amz-Signature`, and each query part without a value,
+such as `&token`, replaced with `REDACTED`. A watermark
 given by its source URL (`wm-src64=`, `wm-enc=`, or a preset) gets a
 `watermark_source_url=` field the same way. A request that fails before its
 URL parses, such as one with a bad signature, has no `source_url=` field.
@@ -549,7 +554,7 @@ configured by the standard `OTEL_*` variables. Export is off until an OTLP
 endpoint or an exporter is set:
 
 ```bash
-docker run -e OTEL_EXPORTER_OTLP_ENDPOINT=http://collector:4318 -e OTEL_SERVICE_NAME=images ghcr.io/hlindset/image_pipe_server:0.4
+docker run -e OTEL_EXPORTER_OTLP_ENDPOINT=http://collector:4318 -e OTEL_SERVICE_NAME=images ghcr.io/hlindset/image_pipe_server:0.5
 ```
 
 - `OTEL_EXPORTER_OTLP_ENDPOINT` or `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` turns

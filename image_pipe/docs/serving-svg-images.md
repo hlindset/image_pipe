@@ -18,7 +18,7 @@ Add `image_pipe_svg` next to `image_pipe`:
 # mix.exs
 defp deps do
   [
-    {:image_pipe, "~> 0.4.0"},
+    {:image_pipe, "~> 0.5.0"},
     {:image_pipe_svg, "~> 0.1"}
   ]
 end
@@ -71,7 +71,7 @@ fallback_family = "Noto Sans"
 Mount the font directory into the container:
 
 ```bash
-docker run --read-only --tmpfs /tmp -p 8080:8080 -v ./config.toml:/etc/image_pipe/config.toml:ro -v ./images:/data/images:ro -v ./fonts:/fonts:ro ghcr.io/hlindset/image_pipe_server:0.4
+docker run --read-only --tmpfs /tmp -p 8080:8080 -v ./config.toml:/etc/image_pipe/config.toml:ro -v ./images:/data/images:ro -v ./fonts:/fonts:ro ghcr.io/hlindset/image_pipe_server:0.5
 ```
 
 <!-- tabs-close -->

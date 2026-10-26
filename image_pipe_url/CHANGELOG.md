@@ -5,6 +5,12 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-26
+
+### Changed
+
+- Released with `image_pipe` 0.5.0.
+
 ## [0.4.0] - 2026-10-23
 
 ### Added
@@ -143,7 +149,8 @@ First release of the ImagePipe URL builder.
 - Generate URLs in applications that use an external image service, without
   libvips, NIFs, or image processing dependencies.
 
-[Unreleased]: https://github.com/hlindset/image_pipe/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/hlindset/image_pipe/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/hlindset/image_pipe/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/hlindset/image_pipe/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/hlindset/image_pipe/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/hlindset/image_pipe/compare/v0.1.0...v0.2.0
