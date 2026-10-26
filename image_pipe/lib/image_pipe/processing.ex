@@ -138,7 +138,8 @@ defmodule ImagePipe.Processing do
       config,
       fn state, geometry ->
         decode_us = System.monotonic_time(:microsecond) - started
-        prepare_pixels(state, geometry, request, policy, config, %{}, decode_us)
+        # The source closes when this callback returns, before the encode.
+        prepare_pixels(state, geometry, request, policy, config, %{}, decode_us, false)
       end,
       {policy.skip_formats, fn _format, _chunks -> {:ok, :skipped} end}
     )
@@ -205,14 +206,16 @@ defmodule ImagePipe.Processing do
 
   defp produce_stream(state, geometry, request, policy, config, inputs, pump, decode_us) do
     with {:ok, prepared} <-
-           prepare_pixels(state, geometry, request, policy, config, inputs, decode_us) do
+           prepare_pixels(state, geometry, request, policy, config, inputs, decode_us, true) do
       produce_prepared(prepared, config, pump)
     end
   end
 
   # An overlapped preparation never has watermarks (Execution starts it only
   # without them), so prepare_download/4 passes no inputs.
-  defp prepare_pixels(state, geometry, request, policy, config, inputs, decode_us) do
+  # `encode_ahead?` is whether the encode runs while the source is still
+  # open, so it may read the source instead of a buffered copy.
+  defp prepare_pixels(state, geometry, request, policy, config, inputs, decode_us, encode_ahead?) do
     shrink = state.decode_shrink
     operations = Executor.operation_names(request)
 
@@ -232,7 +235,10 @@ defmodule ImagePipe.Processing do
              [kernel: Executor.result_kernel(request)] ++ config
            ),
          {:ok, %State{} = state} <-
-           materialize_for_delivery(%State{state | image: clamped}, resolved_output) do
+           materialize_for_delivery(
+             %State{state | image: clamped},
+             encode_ahead? and Encoder.encode_ahead?(resolved_output)
+           ) do
       {:ok,
        %Prepared{
          state: state,
@@ -387,14 +393,11 @@ defmodule ImagePipe.Processing do
 
   # An output encoded ahead reads the source while it encodes, before the
   # response starts, so the frame isn't copied first.
-  defp materialize_for_delivery(%State{materialized?: true} = state, _resolved_output),
+  defp materialize_for_delivery(%State{materialized?: true} = state, _encode_ahead?),
     do: {:ok, state}
 
-  defp materialize_for_delivery(%State{} = state, resolved_output) do
-    if Encoder.encode_ahead?(resolved_output),
-      do: {:ok, state},
-      else: Materializer.materialize(state)
-  end
+  defp materialize_for_delivery(%State{} = state, true), do: {:ok, state}
+  defp materialize_for_delivery(%State{} = state, false), do: Materializer.materialize(state)
 
   # The server's result caps, narrowed by the encoder's when the format is known.
   @doc false

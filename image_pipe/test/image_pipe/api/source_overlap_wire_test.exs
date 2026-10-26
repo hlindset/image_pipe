@@ -365,6 +365,15 @@ defmodule ImagePipe.API.SourceOverlapWireTest do
     assert Path.wildcard(Path.join(context.root, "output/**/*.body")) == []
   end
 
+  # The overlapped decode's source closes before the encode runs, so a JPEG
+  # output, which is otherwise encoded straight from the source, is buffered
+  # while the source is open.
+  test "a JPEG output of an overlapped download is buffered before its encode", context do
+    image = Image.from_binary!(complete_request(context, "w=100", "jpeg").resp_body)
+
+    assert Image.width(image) == 100
+  end
+
   @tag fixture: "cooking.png"
   test "PNG starts decoding before EOF and preserves buffered pixels", context do
     response = complete_request(context)
@@ -624,8 +633,10 @@ defmodule ImagePipe.API.SourceOverlapWireTest do
     assert_pixels(response, context, [])
   end
 
-  defp complete_request(context, options \\ "w=100") do
-    task = Task.Supervisor.async_nolink(context.tasks, fn -> request(context, options) end)
+  defp complete_request(context, options \\ "w=100", format \\ "png") do
+    task =
+      Task.Supervisor.async_nolink(context.tasks, fn -> request(context, options, format) end)
+
     assert_receive {:origin_held, origin}, 2_000
     assert_receive {:decoded, %{result: :ok}}, 2_000
     send(origin, :continue)
@@ -653,9 +664,9 @@ defmodule ImagePipe.API.SourceOverlapWireTest do
   defp append_group(builder, []), do: builder
   defp append_group(builder, operations), do: ImagePipe.URL.group(builder, operations)
 
-  defp request(context, options \\ "w=100") do
+  defp request(context, options \\ "w=100", format \\ "png") do
     response =
-      Plug.Test.conn(:get, "/#{options}/format=png/src/#{context.url}/image")
+      Plug.Test.conn(:get, "/#{options}/format=#{format}/src/#{context.url}/image")
       |> ImagePipe.Plug.call(context.config)
 
     Caches.await_writes(context.options)
