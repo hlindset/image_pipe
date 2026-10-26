@@ -41,8 +41,9 @@ defmodule ImagePipe.Cache.FileSystem.Store do
                       counts its body rounded up to whole 4 KiB blocks, plus a block for \
                       its metadata file. Writes evict the entries least worth keeping \
                       to stay under it: those requested least often and quickest to \
-                      make for their size. An entry larger than a twentieth of the cap, \
-                      or 256 MiB, is never stored.
+                      make for their size. An entry larger than 256 MiB, or a twentieth \
+                      of the cap when that is smaller, is stored only when no other \
+                      write is in progress.
                       """
                     ],
                     max_remembered_entries: [

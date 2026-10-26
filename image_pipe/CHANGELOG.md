@@ -165,6 +165,12 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The filesystem cache deletes an entry's temporary metadata file when
   writing it fails, such as on a full disk. Before, the file stayed until
   the daily sweep.
+- The filesystem cache stores an image larger than its
+  [limit on unfinished writes](docs/cache.md#writing-entries) (256 MiB, or a
+  twentieth of `max_size_bytes` when that is smaller) when no other write is
+  in progress. Before, it never stored such an image and logged
+  `stage_dropped (pending_limit)` each time, so small caches regenerated
+  large images on every request.
 - An AVIF whose major brand is a generic HEIF brand, such as `mif1`, with
   `avif` among its compatible brands is detected as AVIF. Before, it was
   detected as HEIF, so `skip_processing_formats: [:avif]` didn't pass it

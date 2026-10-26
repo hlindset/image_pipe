@@ -96,16 +96,34 @@ defmodule ImagePipe.Cache.WriterTest do
     assert [_output_writer] = started
   end
 
-  test "drops a write whose unfinished bytes would pass the cache's limit", ctx do
-    # The pending limit is a twentieth of max_size_bytes: 100 bytes.
-    opts = cache_opts(ctx, max_size_bytes: 2_000)
+  test "stores a write larger than the cache's pending limit when it's the only one", ctx do
+    # The pending limit is a twentieth of max_size_bytes: 1,228 bytes.
+    opts = cache_opts(ctx, max_size_bytes: 2 * Policy.charged_bytes(5_000))
     sink = Cache.open_sink(key(), {:complete_body, @content_type}, [], opts)
+    sink = Cache.write_chunk(sink, String.duplicate("x", 1_000), opts)
+    sink = Cache.write_chunk(sink, String.duplicate("x", 4_000), opts)
 
-    assert Cache.write_chunk(sink, String.duplicate("x", 200), opts) == nil
+    assert :ok = Cache.commit_sink(sink, opts)
+    Caches.await_writes(opts)
+    assert {:hit, _entry} = Cache.lookup_entry(key(), opts)
+    refute_received {:stage, %{cache: :stage_dropped}}
+    assert Writers.pending(ctx.root) == 0
+  end
+
+  test "drops a write whose unfinished bytes would pass the cache's limit", ctx do
+    # The pending limit is a twentieth of max_size_bytes: 1,228 bytes.
+    opts = cache_opts(ctx, max_size_bytes: 2 * Policy.charged_bytes(5_000))
+    first = Cache.open_sink(key("a"), {:complete_body, @content_type}, [], opts)
+    first = Cache.write_chunk(first, String.duplicate("x", 1_000), opts)
+    second = Cache.open_sink(key("b"), {:complete_body, @content_type}, [], opts)
+
+    assert Cache.write_chunk(second, String.duplicate("x", 500), opts) == nil
     assert_receive {:stage, %{cache: :stage_dropped, reason: :pending_limit, pool: :output}}
 
+    assert :ok = Cache.commit_sink(first, opts)
     Caches.await_writes(opts)
-    assert {:miss, _key} = Cache.lookup_entry(key(), opts)
+    assert {:hit, _entry} = Cache.lookup_entry(key("a"), opts)
+    assert {:miss, _key} = Cache.lookup_entry(key("b"), opts)
     assert Writers.pending(ctx.root) == 0
   end
 
@@ -228,7 +246,7 @@ defmodule ImagePipe.Cache.WriterTest do
 
     # Another write holds 400 bytes, so the next entry no longer fits beside
     # the first, and loses to it.
-    :ok = Writers.reserve(Writers.counter(ctx.root), 400)
+    :ok = Writers.reserve(Writers.counter(ctx.root), 400, 0)
     assert {:ok, :rejected} = commit(cache, key("b"), String.duplicate("b", 4_700))
 
     Writers.release(Writers.counter(ctx.root), 400)
