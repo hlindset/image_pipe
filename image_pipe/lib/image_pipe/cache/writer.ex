@@ -44,7 +44,7 @@ defmodule ImagePipe.Cache.Writer do
   writer has already finished, and `:full` past the root's pending limit.
   """
   def reserve(counters, pending, bytes) do
-    with :ok <- Writers.reserve(pending, bytes) do
+    with :ok <- Writers.reserve(pending, bytes, :atomics.get(counters, @reserved)) do
       :atomics.add(counters, @reserved, bytes)
 
       # The writer releases what's counted when it finishes. A reservation

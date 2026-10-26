@@ -6,7 +6,8 @@ defmodule ImagePipe.Cache.FileSystem.Writers do
   #
   # The pending bytes of a root (written to temp files or held as staged
   # originals, not yet published) are counted in an `:atomics` cell, and a
-  # write that would pass the root's limit is dropped. Admission counts them
+  # write that would pass the root's limit is dropped, unless it's the only
+  # one pending. Admission counts them
   # against `max_size_bytes` too. The limits are guesses (image_plug-sole).
   @moduledoc false
 
@@ -70,11 +71,18 @@ defmodule ImagePipe.Cache.FileSystem.Writers do
   """
   def counter(root), do: :persistent_term.get({__MODULE__, root}, nil)
 
-  @doc "Counts `bytes` as pending on `counter`, or returns `:full` past its limit."
-  def reserve(nil, _bytes), do: :ok
+  @doc """
+  Counts `bytes` as pending on `counter` for a write that already holds
+  `held` of them, or returns `:full` past its limit. A write that is the only
+  one pending passes whatever its size, so an entry larger than the limit can
+  still be stored.
+  """
+  def reserve(nil, _bytes, _held), do: :ok
 
-  def reserve(counter, bytes) do
-    if :atomics.add_get(counter, 1, bytes) <= :atomics.get(counter, 2) do
+  def reserve(counter, bytes, held) do
+    pending = :atomics.add_get(counter, 1, bytes)
+
+    if pending <= :atomics.get(counter, 2) or pending == held + bytes do
       :ok
     else
       :atomics.sub(counter, 1, bytes)

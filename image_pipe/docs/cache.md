@@ -164,11 +164,12 @@ The response is still delivered, and the
 [`[:cache, :stage]`](telemetry-events.md#cache-stage) event reports the
 dropped write.
 
-A write counts toward the unfinished writes as it goes, so an entry larger
-than that limit is never stored. A cache of 100 MB, for example, never
-stores an image over 5 MB. The cache's files can take up to
-`max_size_bytes` plus the limit on unfinished writes, plus evicted entries
-that requests are still reading.
+A write counts toward the unfinished writes as it goes. A write that is the
+only one in progress passes that limit at any size, so a cache of 100 MB,
+for example, stores an image over 5 MB only when no other write is in
+progress. The cache's files can take up to `max_size_bytes`, plus the limit
+on unfinished writes or the one write in progress, whichever is larger,
+plus evicted entries that requests are still reading.
 
 Cache errors never fail a request. A failed write is logged and reported in
 telemetry, and the response is delivered without being stored. A failed or
@@ -352,8 +353,8 @@ expensive.
   If other writes filled the cache during the sync so that those entries no
   longer make room, the kept write is compared with more entries and can
   still be rejected.
-- An entry larger than the limit on unfinished writes is never stored (see
-  [writing entries](#writing-entries)).
+- An entry larger than the limit on unfinished writes is stored only when no
+  other write is in progress (see [writing entries](#writing-entries)).
 - On startup the process lists the entries on disk in the background,
   reading only file names except after a
   [metadata format change](#leftover-files), and deletes leftover files as
