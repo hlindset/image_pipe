@@ -21,7 +21,7 @@ Add `image_vision` and its ONNX runtime, `ortex`, next to `image_pipe`:
 # mix.exs
 defp deps do
   [
-    {:image_pipe, "~> 0.4.0"},
+    {:image_pipe, "~> 0.5.0"},
     {:image_vision, "~> 0.4"},
     {:ortex, "~> 0.1"}
   ]
@@ -41,7 +41,7 @@ The `detector` option already defaults to it.
 Use the `-vision` variant of the image:
 
 ```bash
-docker run --read-only --tmpfs /tmp -p 8080:8080 -v ./config.toml:/etc/image_pipe/config.toml:ro -v ./images:/data/images:ro ghcr.io/hlindset/image_pipe_server:0.4-vision
+docker run --read-only --tmpfs /tmp -p 8080:8080 -v ./config.toml:/etc/image_pipe/config.toml:ro -v ./images:/data/images:ro ghcr.io/hlindset/image_pipe_server:0.5-vision
 ```
 
 <!-- tabs-close -->
