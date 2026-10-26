@@ -749,10 +749,11 @@ The default Logger logs `:error` at `:warning`.
 ### `[:transform, :materialize]`
 
 Span. Wraps computing the image into memory. A JPEG, WebP, or AVIF output
-that no earlier step computed is computed while it is encoded, in
-`[:encode]`, instead, unless it is a progressive JPEG or has a quality
-search. Any other generated image is computed in this span at least once, at
-the latest just before encoding.
+that no earlier step computed is computed in `[:encode]` while it is
+encoded. The exceptions are a progressive JPEG, an output with a quality
+search, and a request that started processing before the original finished
+downloading. Any other generated image is computed in this span at least
+once, at the latest just before encoding.
 
 - Start metadata: none.
 - Stop metadata:
@@ -770,9 +771,10 @@ Where the span nests depends on why the image is computed:
   `[:transform, :operation]`.
 - When EXIF orientation, rotation, or flips are applied: directly in
   `[:transform, :execute]`.
-- Just before encoding a PNG, a progressive JPEG, or an output with a quality
-  search (`autoquality` or `max_bytes`): in the request span, or in
-  `[:processing, :execute]` under a processing pool.
+- Just before encoding a PNG, a progressive JPEG, an output with a quality
+  search (`autoquality` or `max_bytes`), or the output of a request that
+  started processing before the original finished downloading: in the
+  request span, or in `[:processing, :execute]` under a processing pool.
 
 ### `[:transform, :detect]`
 
@@ -896,8 +898,8 @@ pixels per side, AVIF 16384, and JPEG 65500. The default result limit of
 Span. Wraps building the encoder and producing the first encoded chunk, which
 forces the image's pixel work. For an output computed while it is encoded
 (see [`[:transform, :materialize]`](#transform-materialize)), it wraps the
-whole encode, which also runs the decode and the earlier steps. Nested in the request span, or in `[:processing, :execute]` under
-a processing pool.
+whole encode, which also runs the decode and the earlier steps. Nested in
+the request span, or in `[:processing, :execute]` under a processing pool.
 
 - Start metadata: `:output_format` (atom).
 - Stop metadata:
