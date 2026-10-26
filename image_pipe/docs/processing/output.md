@@ -574,6 +574,11 @@ an image request rejects, such as `profile=srgb/hdr=preserve`, fails with
 `400` for them too. These responses have a fixed content type and no
 `Vary: Accept`.
 
+`info` reads only the original's headers, not its pixels. A damaged original,
+such as a TIFF whose header width disagrees with its data, can return `info`
+while the same URL without `output=info` fails with `415`. With `blurhash` or
+`lqip-css`, `info` reads the pixels too and fails the same way.
+
 <!-- tabs-open -->
 
 ### URL
