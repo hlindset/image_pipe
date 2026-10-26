@@ -15,7 +15,8 @@ defmodule ImagePipe.Plug.StreamAbortWireTest do
   alias ImagePipe.Test.Caches
   alias ImagePipe.Test.PlugFixture.OriginImage
 
-  @path "/w=64/format=jpeg/src/images/cat.jpg"
+  # A progressive JPEG streams while it encodes.
+  @path "/w=64/format=jpeg/jpeg-options=progressive/src/images/cat.jpg"
   # A response large enough to take several writes to deliver.
   @large_path "/w=800/format=png/src/images/cat.jpg"
 

@@ -14,6 +14,47 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- A JPEG, WebP, or AVIF output without alpha that no earlier step copied to
+  memory, such as a plain re-encode, a crop, or a resize, is encoded in full
+  before the response starts, instead of being copied to memory first. The
+  first byte arrives no later. On Apple Silicon, an 18.7 megapixel JPEG
+  re-encode takes 130 ms instead of 200 ms, with half the memory peak, and
+  WebP and AVIF outputs of that size take the same time and use 30-40 MB
+  less memory. This needs the libvips operation cache off
+  (`Vix.Vips.cache_set_max(0)`), as `image_pipe_server` sets it. PNG and
+  progressive JPEG outputs still stream. A corrupt original still returns
+  `415`. The
+  [`[:transform, :materialize]`](docs/telemetry-events.md#transform-materialize)
+  span no longer runs for these outputs, and
+  [`[:encode]`](docs/telemetry-events.md#encode) times the whole encode.
+- EXIF-rotated images use less memory and are faster to resize or crop. On
+  Apple Silicon, a full-size 18.7 megapixel EXIF-rotated JPEG uses 40 MB
+  less memory, and resizing or cropping an EXIF-rotated image takes 13-24%
+  less time. This needs the libvips operation cache off
+  (`Vix.Vips.cache_set_max(0)`), as `image_pipe_server` sets it.
+- A CMYK image, or another one whose ICC profile is converted to sRGB on
+  input, is converted after a crop instead of before it. On Apple Silicon,
+  cropping a 2000x2000 region from an 18.7 megapixel CMYK JPEG takes 230 ms
+  instead of 430 ms, with a memory peak of 49 MB instead of 153 MB.
+  Converting the whole image takes 370 ms instead of 500 ms. This needs the
+  libvips operation cache off (`Vix.Vips.cache_set_max(0)`), as
+  `image_pipe_server` sets it.
+- Converting an image with an ICC profile other than sRGB, such as a Display
+  P3 phone photo, to sRGB at full size takes up to 8% less time and, for an
+  18.7 megapixel image on Apple Silicon, uses about 45 MB less memory. This
+  needs the libvips operation cache off (`Vix.Vips.cache_set_max(0)`), as
+  `image_pipe_server` sets it. With the cache on, a metadata edit copies the
+  image to memory, as before.
+- An image whose alpha channel is opaque everywhere, as in many PNG and
+  WebP files, is encoded without the alpha channel. The pixels don't
+  change, but a PNG output is saved as RGB instead of RGBA, or as gray
+  instead of gray with alpha. On Apple Silicon, an 18.7 megapixel PNG
+  output encodes 9% faster and is 9% smaller, and an AVIF output encodes
+  7% faster.
+- Resizing an image with transparency takes up to 40% less time. On Apple
+  Silicon, resizing a 3368x2872 PNG to 800 pixels wide takes 111 ms instead
+  of 188 ms, with half the memory peak. Resizing it to 2000 pixels wide
+  takes 261 ms instead of 377 ms, with a peak 25 MB higher.
 - PNG output is 15-35% smaller and encodes 7-29% faster. A PNG that isn't
   a palette image is saved at zlib compression 3, with the `paeth` row
   filter unless it is grayscale at `bitdepth` `1`, `2`, or `4`, instead of

@@ -10,8 +10,8 @@ defmodule ImagePipe.Output.Encoder do
   alias ImagePipe.Output.Ssim2Metric.CropScore
   alias ImagePipe.Plan.Output.{AvifOptions, JpegOptions, PngOptions, WebpOptions}
   alias ImagePipe.SrgbProfile
+  alias ImagePipe.VipsHeader
   alias Vix.Vips.Image, as: VixImage
-  alias Vix.Vips.MutableImage, as: VixMutableImage
   alias Vix.Vips.Operation
 
   @doc """
@@ -41,6 +41,7 @@ defmodule ImagePipe.Output.Encoder do
           {:ok, Enumerable.t(), String.t(), map() | nil}
           | {:error, {:encode, Exception.t(), list()}}
           | {:error, {:decode, term()}}
+          | {:error, {:encode_ahead, Exception.t()}}
   def stream_output(%VixImage{} = image, %Resolved{} = resolved_output, source_color, opts) do
     {mime_type, suffix} = output_format(resolved_output)
 
@@ -72,7 +73,48 @@ defmodule ImagePipe.Output.Encoder do
   defp lazy_output(finalized, resolved_output, mime_type, suffix, opts) do
     image_module = Keyword.get(opts, :image_module, VixImage)
     vsuffix = vix_suffix(suffix, resolved_output.quality, save_tokens(resolved_output))
-    {:ok, image_module.write_to_stream(finalized, vsuffix), mime_type, nil}
+    stream = image_module.write_to_stream(finalized, vsuffix)
+
+    if Keyword.get(opts, :encode_ahead, false),
+      do: drain(stream, mime_type),
+      else: {:ok, stream, mime_type, nil}
+  end
+
+  @doc """
+  True when an image that still reads its source is encoded in full before
+  the response starts, instead of being copied to memory and streamed.
+
+  JPEG (with the optimized Huffman tables `encoder_tokens/1` always asks
+  for), WebP and AVIF encoders write their output only once they have read
+  every pixel, so streaming them sends nothing earlier. Encoding the lazy
+  chain overlaps decoding with encoding and holds no frame: a full-size JPEG
+  re-encode took 130 ms instead of 200 ms, with half the memory peak. PNG
+  and progressive JPEG write as they go (the first PNG bytes after 7 ms of a
+  1 s encode), so they stream. A quality search encodes its input once per
+  probe, so `finalize/3` buffers it.
+  """
+  @spec encode_ahead?(Resolved.t()) :: boolean()
+  def encode_ahead?(%Resolved{format: :png}), do: false
+
+  def encode_ahead?(%Resolved{} = resolved),
+    do: not search?(resolved) and not progressive_jpeg?(resolved)
+
+  defp progressive_jpeg?(%Resolved{
+         format: :jpeg,
+         encoder_options: %JpegOptions{interlace: true}
+       }),
+       do: true
+
+  defp progressive_jpeg?(%Resolved{}), do: false
+
+  # The encode reads the source, and a failure doesn't say whether the source
+  # or the encoder failed, so `ImagePipe.Processing` classifies it. The
+  # stream runs its encoder in a process linked to this one, so ending this
+  # process still stops the encode.
+  defp drain(stream, mime_type) do
+    {:ok, Enum.to_list(stream), mime_type, nil}
+  rescue
+    exception -> {:error, {:encode_ahead, exception}}
   end
 
   # A quality search runs when a search objective or a hard byte budget is set.
@@ -231,21 +273,71 @@ defmodule ImagePipe.Output.Encoder do
   defp encode_error(reason),
     do: ArgumentError.exception("failed to encode to buffer: #{inspect(reason)}")
 
-  # Materialize on the producer's stack so corrupt-source failures return decode
-  # errors (415). Doing this inside mutate would crash the linked MutableImage
-  # GenServer. Color finalization and metadata stripping then use the in-memory image.
+  # Delivery hands over a frame that no longer reads the source, or one the
+  # encode reads (`encode_ahead?/1`), whose failures `drain/2` classifies.
+  # Color finalization and metadata edits stay lazy, and the encoder reads
+  # the result once.
   defp finalize(image, %Resolved{} = resolved, source_color) do
-    case VixImage.copy_memory(image) do
-      {:ok, mem} ->
-        with {:ok, flattened} <- flatten_for_format(mem, resolved),
-             {:ok, image} <- color_result(flattened, resolved, source_color) do
-          {:ok, set_density(image, resolved)}
-        end
-
-      {:error, reason} ->
-        {:error, {:decode, reason}}
+    with {:ok, image} <- buffer_input(image, resolved) do
+      finalize_buffered(image, resolved, source_color)
     end
   end
+
+  # The opaque-alpha check reads every alpha value, and a quality search
+  # encodes its input once per probe, so either buffers a lazy input first:
+  # checking a lazy padded frame and then encoding it ran the chain under it
+  # twice (45-75% slower), and each probe would repeat a lazy blur or resize.
+  defp buffer_input(image, resolved) do
+    if Image.has_alpha?(image) or search?(resolved) do
+      case VixImage.copy_memory(image) do
+        {:ok, buffered} -> {:ok, buffered}
+        {:error, reason} -> {:error, {:decode, reason}}
+      end
+    else
+      {:ok, image}
+    end
+  end
+
+  defp finalize_buffered(image, resolved, source_color) do
+    opaque_alpha? = opaque_alpha?(image)
+
+    with {:ok, flattened} <- flatten_for_format(image, resolved),
+         {:ok, image} <- color_result(flattened, resolved, source_color),
+         {:ok, image} <- drop_alpha(image, opaque_alpha?) do
+      {:ok, set_density(image, resolved)}
+    end
+  end
+
+  # An alpha band that is opaque everywhere, common in PNG and WebP sources,
+  # changes no pixel but costs every encoder that keeps it: PNG encodes took
+  # up to 55% longer and came out up to 7% larger, AVIF encodes 20% longer,
+  # and autoquality scored each probe against two backgrounds. Finding the
+  # band's minimum takes 1-3 ms on a buffered 1.5 megapixel image. Color
+  # finalization keeps alpha as it is, so the band is checked on its input,
+  # before a lazy ICC transform would have to run for it, and dropped after.
+  defp opaque_alpha?(image) do
+    with true <- Image.has_alpha?(image),
+         {:ok, opaque} <- opaque_value(VixImage.format(image)),
+         {:ok, alpha} <- Operation.extract_band(image, VixImage.bands(image) - 1),
+         {:ok, {^opaque, _position}} <- Operation.min(alpha) do
+      true
+    else
+      _ -> false
+    end
+  end
+
+  defp opaque_value(:VIPS_FORMAT_UCHAR), do: {:ok, 255.0}
+  defp opaque_value(:VIPS_FORMAT_USHORT), do: {:ok, 65_535.0}
+  defp opaque_value(_format), do: :error
+
+  # Flattening for a format without alpha has already removed the band.
+  defp drop_alpha(image, true) do
+    if Image.has_alpha?(image),
+      do: Operation.extract_band(image, 0, n: VixImage.bands(image) - 1),
+      else: {:ok, image}
+  end
+
+  defp drop_alpha(image, false), do: {:ok, image}
 
   # A palette holds 8-bit colors. Without a bit depth, libvips saves a 16-bit
   # image as 16-bit color and drops the palette, so it's narrowed first.
@@ -377,7 +469,7 @@ defmodule ImagePipe.Output.Encoder do
          source_color
        ) do
     with {:ok, image} <- convert_to_target(image, target, source_color) do
-      {:ok, image |> tag_exif_color(target) |> strip_metadata(resolved)}
+      with {:ok, image} <- tag_exif_color(image, target), do: strip_metadata(image, resolved)
     end
   end
 
@@ -393,7 +485,7 @@ defmodule ImagePipe.Output.Encoder do
     with {:ok, image} <- restore_backup(image, profile),
          {:ok, image} <- apply_color_result(image, keep?, imported?),
          {:ok, image} <- maybe_drop_profile(image, keep?) do
-      {:ok, strip_metadata(image, resolved)}
+      strip_metadata(image, resolved)
     end
   end
 
@@ -404,18 +496,11 @@ defmodule ImagePipe.Output.Encoder do
     color_space? = header_value(image, "exif-ifd2-ColorSpace") != nil
     color_space = if target == :srgb, do: "1", else: "65535"
 
-    {:ok, image} =
-      VixImage.mutate(image, fn mut ->
-        VixMutableImage.remove(mut, "exif-ifd0-WhitePoint")
-        VixMutableImage.remove(mut, "exif-ifd0-PrimaryChromaticities")
-
-        if color_space?,
-          do: VixMutableImage.set(mut, "exif-ifd2-ColorSpace", :gchararray, color_space)
-
-        :ok
-      end)
-
-    image
+    VipsHeader.edit(
+      image,
+      [{:remove, "exif-ifd0-WhitePoint"}, {:remove, "exif-ifd0-PrimaryChromaticities"}] ++
+        if(color_space?, do: [{:set, "exif-ifd2-ColorSpace", :gchararray, color_space}], else: [])
+    )
   end
 
   # Only JPEG can store CMYK pixels; other formats would convert an exported
@@ -525,7 +610,7 @@ defmodule ImagePipe.Output.Encoder do
   # icc_export targets the embedded profile, so restore the backed-up source blob
   # onto icc-profile-data first (no-op when absent), mirroring `RestoreColourProfile`.
   defp restore_backup(image, nil), do: {:ok, image}
-  defp restore_backup(image, backup), do: {:ok, set_icc(image, backup)}
+  defp restore_backup(image, backup), do: VipsHeader.edit(image, [set_icc(backup)])
 
   # Removing a profile also removes its EXIF color-characterization tags,
   # even when general metadata stripping is disabled. EXIF requires
@@ -542,17 +627,11 @@ defmodule ImagePipe.Output.Encoder do
   defp maybe_drop_profile(image, false) do
     color_space? = header_value(image, "exif-ifd2-ColorSpace") != nil
 
-    {:ok, image} =
-      VixImage.mutate(image, fn mut ->
-        Enum.each(@icc_remove_fields, &VixMutableImage.remove(mut, &1))
-
-        if color_space?,
-          do: VixMutableImage.set(mut, "exif-ifd2-ColorSpace", :gchararray, "1")
-
-        :ok
-      end)
-
-    {:ok, image}
+    VipsHeader.edit(
+      image,
+      Enum.map(@icc_remove_fields, &{:remove, &1}) ++
+        if(color_space?, do: [{:set, "exif-ifd2-ColorSpace", :gchararray, "1"}], else: [])
+    )
   end
 
   # Removes the metadata fields a save that keeps EXIF would write, leaving
@@ -563,34 +642,58 @@ defmodule ImagePipe.Output.Encoder do
   defp strip_metadata(image, %Resolved{} = resolved) do
     cond do
       not resolved.strip_metadata ->
-        image
+        {:ok, image}
 
       resolved.keep_copyright ->
-        icc = header_value(image, "icc-profile-data")
-        {:ok, minimized} = minimize_metadata(image, [:copyright, :artist])
-        restore_icc(minimized, icc)
+        minimize_metadata(image, [:copyright, :artist])
 
       exif_kept?(resolved) ->
         {:ok, names} = VixImage.header_field_names(image)
-        Image.remove_metadata!(image, Enum.filter(names, &String.starts_with?(&1, "exif-")))
+
+        VipsHeader.edit(
+          image,
+          for(name <- names, String.starts_with?(name, "exif-"), do: {:remove, name})
+        )
 
       true ->
-        image
+        {:ok, image}
     end
   end
 
-  # Workaround for `image` 0.72.0: `Image.minimize_metadata/2` parses the whole
-  # EXIF block, and `Image.Exif.Decode.date_time/1` raises on a date field it
+  # Removes every metadata field but the ICC profile and the kept EXIF
+  # fields, as `Image.minimize_metadata/2` does, without its copy of the
+  # pixels.
+  defp minimize_metadata(image, keep) do
+    {:ok, names} = VixImage.header_field_names(image)
+    icc = header_value(image, "icc-profile-data")
+
+    kept =
+      for field <- keep,
+          value = Map.get(kept_exif(image), field),
+          value not in [nil, ""],
+          do: {:set, Image.Exif.field(field), :gchararray, value}
+
+    VipsHeader.edit(
+      image,
+      Enum.map(names, &{:remove, &1}) ++ kept ++ if(icc, do: [set_icc(icc)], else: [])
+    )
+  end
+
+  # Workaround for `image` 0.72.0: `Image.exif/1` parses the whole EXIF
+  # block, and `Image.Exif.Decode.date_time/1` raises on a date field it
   # can't parse instead of keeping the raw value: an ArgumentError when the
   # parts aren't integers (such as `2024:01:01 02+02:00:00`), and a
   # FunctionClauseError when the tag is stored as a number rather than text.
-  # No upstream fix yet. When it raises, remove all metadata, the kept
-  # copyright and artist too: the field values libvips reports can't be
-  # written back reliably.
-  defp minimize_metadata(image, keep) do
-    Image.minimize_metadata(image, keep: keep)
+  # No upstream fix yet. When it raises, nothing is kept, the copyright and
+  # artist neither: the field values libvips reports can't be written back
+  # reliably.
+  defp kept_exif(image) do
+    case Image.exif(image) do
+      {:ok, exif} -> exif
+      {:error, _no_exif} -> %{}
+    end
   rescue
-    _exception -> Image.remove_metadata(image)
+    _exception -> %{}
   end
 
   # libvips writes xres/yres (pixels per millimetre) into JFIF, PNG pHYs, and
@@ -609,18 +712,7 @@ defmodule ImagePipe.Output.Encoder do
     end
   end
 
-  defp restore_icc(image, nil), do: image
-  defp restore_icc(image, icc), do: set_icc(image, icc)
-
-  defp set_icc(image, icc) do
-    {:ok, image} =
-      VixImage.mutate(image, fn mut ->
-        VixMutableImage.set(mut, "icc-profile-data", :VipsBlob, icc)
-        :ok
-      end)
-
-    image
-  end
+  defp set_icc(icc), do: {:set, "icc-profile-data", :VipsBlob, icc}
 
   defp output_format(%Resolved{format: format}) do
     mime_type = Format.mime_type!(format)

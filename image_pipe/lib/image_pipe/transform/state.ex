@@ -17,9 +17,9 @@ defmodule ImagePipe.Transform.State do
   #   order without revisiting the sequential source. Later operations may remain
   #   lazy; this does not imply the current result is a contiguous pixel buffer.
   # - `rebuffer?`: the current graph ends in lazy work that overlapping reads
-  #   would repeat: an arbitrary rotation, or a blur or sharpen. Resize and
-  #   random-access steps buffer it first; materialization and orientation
-  #   flush clear the flag.
+  #   would repeat: an arbitrary rotation, a blur or sharpen, or an input
+  #   color conversion. Resize and random-access steps buffer it first;
+  #   materialization and orientation flush clear the flag.
   # - `lazy_steps`: the operations run since the image was last copied to
   #   memory. libvips recurses through the whole lazy graph when it reads or
   #   frees it, and a deep graph overflows a native thread's stack, so

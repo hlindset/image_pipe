@@ -8,7 +8,13 @@ defmodule ImagePipe.Transform do
 
   use Boundary,
     top_level?: true,
-    deps: [ImagePipe.BitDepth, ImagePipe.Plan, ImagePipe.SrgbProfile, ImagePipe.Telemetry],
+    deps: [
+      ImagePipe.BitDepth,
+      ImagePipe.Plan,
+      ImagePipe.SrgbProfile,
+      ImagePipe.Telemetry,
+      ImagePipe.VipsHeader
+    ],
     exports: [
       # Runtime execution contract.
       Executor,

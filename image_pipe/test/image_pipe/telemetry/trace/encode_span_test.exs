@@ -56,7 +56,7 @@ defmodule ImagePipe.Telemetry.Trace.EncodeSpanTest do
   end
 
   test "the encode span measures forced encode in the producer, parented to the request root" do
-    conn = call("/w=120/h=90/format=jpeg/src/images/beach.jpg", beach_opts())
+    conn = call("/w=120/h=90/format=png/src/images/beach.jpg", beach_opts())
     assert conn.status == 200
 
     spans = collect_spans()
@@ -68,7 +68,8 @@ defmodule ImagePipe.Telemetry.Trace.EncodeSpanTest do
     assert is_integer(encode.duration_native) and encode.duration_native >= 0
 
     # The resize-only request streams through the chain without materializing, so the
-    # only flush is the delivery backstop — which also parents to the request root.
+    # only flush is the delivery backstop for the streamed PNG — which also parents to
+    # the request root.
     # encode runs right after it in the producer process, so the two are
     # siblings under the adopted request root.
     assert [materialize] =

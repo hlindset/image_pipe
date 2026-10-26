@@ -44,10 +44,10 @@ defmodule ImagePipe.ShrinkOnLoadTest do
 
   defmodule PngOrigin do
     @moduledoc false
-    # Serves a 400×300 RGBA solid-colour PNG generated in the module attribute
+    # Serves a 400×300 semi-transparent solid-colour PNG generated in the module attribute
     # so the body is built once per test run.
     @png_body (fn ->
-                 {:ok, img} = Image.new(400, 300, color: [0, 200, 100, 255], bands: 4)
+                 {:ok, img} = Image.new(400, 300, color: [0, 200, 100, 200], bands: 4)
                  Image.write!(img, :memory, suffix: ".png")
                end).()
 
@@ -262,7 +262,7 @@ defmodule ImagePipe.ShrinkOnLoadTest do
     assert conn.status == 200
     result_img = decoded_image(conn)
 
-    {:ok, src} = Image.new(400, 300, color: [0, 200, 100, 255], bands: 4)
+    {:ok, src} = Image.new(400, 300, color: [0, 200, 100, 200], bands: 4)
     {:ok, baseline} = Image.resize(src, 50 / 400)
 
     mae = coarse_mae(result_img, baseline)

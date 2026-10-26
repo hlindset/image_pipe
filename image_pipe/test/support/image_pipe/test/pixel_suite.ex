@@ -257,7 +257,21 @@ defmodule ImagePipe.Test.PixelSuite do
         actual
       end
 
-    {premultiplied(actual), premultiplied(expected)}
+    {premultiplied(opaque_alpha_like(actual, expected)), premultiplied(expected)}
+  end
+
+  # ImagePipe drops an alpha band that is opaque everywhere, and the
+  # references keep it. An opaque band added back compares it with the
+  # reference's, so a reference with any transparency still fails.
+  defp opaque_alpha_like(actual, expected) do
+    if Image.has_alpha?(expected) and not Image.has_alpha?(actual) and
+         VipsImage.bands(actual) == VipsImage.bands(expected) - 1 do
+      opaque = if VipsImage.format(actual) == :VIPS_FORMAT_USHORT, do: 65_535.0, else: 255.0
+      {:ok, with_alpha} = Operation.bandjoin_const(actual, [opaque])
+      with_alpha
+    else
+      actual
+    end
   end
 
   defp premultiplied(image) do

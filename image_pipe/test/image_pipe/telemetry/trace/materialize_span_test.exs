@@ -148,8 +148,9 @@ defmodule ImagePipe.Telemetry.Trace.MaterializeSpanTest do
   test "delivery backstop flush nests the materialize span under the request root" do
     # Resize-only on an orientation-1 source streams through the whole chain without
     # materializing, so the only flush is the delivery backstop, AFTER the execute span
-    # closes — the materialize span parents to a request-level root span.
-    conn = call("/w=120/h=90/format=jpeg/src/images/beach.jpg", beach_opts())
+    # closes — the materialize span parents to a request-level root span. PNG output
+    # streams, so delivery buffers its frame first.
+    conn = call("/w=120/h=90/format=png/src/images/beach.jpg", beach_opts())
     assert conn.status == 200
 
     spans = collect_spans()

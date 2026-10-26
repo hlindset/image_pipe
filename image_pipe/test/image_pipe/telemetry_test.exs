@@ -333,7 +333,7 @@ defmodule ImagePipe.TelemetryTest do
       capture_log(fn ->
         assert_raise ImagePipe.Plug.StreamAbortedError, fn ->
           :get
-          |> conn("/format=jpeg/src/images/beach.jpg")
+          |> conn("/format=jpeg/jpeg-options=progressive/src/images/beach.jpg")
           |> ImagePipe.Plug.call(base_opts(image_module: RaisingAfterFirstChunkImage))
         end
       end)
@@ -402,7 +402,7 @@ defmodule ImagePipe.TelemetryTest do
     {conn, log} =
       with_log(fn ->
         :get
-        |> conn("/format=jpeg/src/images/beach.jpg")
+        |> conn("/format=jpeg/jpeg-options=progressive/src/images/beach.jpg")
         |> ImagePipe.Plug.call(base_opts(image_module: RaisingBeforeFirstChunkImage))
       end)
 

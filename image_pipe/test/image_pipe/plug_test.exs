@@ -1227,7 +1227,7 @@ defmodule ImagePipe.PlugTest do
   end
 
   test "aborts instead of sending a text 500 when encoding fails after chunked response starts" do
-    conn = conn(:get, "/format=jpeg/src/images/beach.jpg")
+    conn = conn(:get, "/format=jpeg/jpeg-options=progressive/src/images/beach.jpg")
 
     log =
       capture_log(fn ->
