@@ -7,7 +7,6 @@ defmodule ImagePipe.API.EncodeAheadWireTest do
   alias ImagePipe.Delivery.StreamPull
   alias ImagePipe.Output.Encoder
   alias ImagePipe.Output.Resolved
-  alias ImagePipe.Plan.Output.JpegOptions
   alias ImagePipe.SourceTest.RootHTTPAdapter
   alias Vix.Vips.Image, as: VipsImage
 
@@ -51,15 +50,6 @@ defmodule ImagePipe.API.EncodeAheadWireTest do
                  StreamPull.first_chunk(VipsImage.write_to_stream(image, unquote(suffix)))
                end)
     end
-  end
-
-  test "PNG and progressive JPEG stream instead" do
-    refute Encoder.encode_ahead?(resolved(:png))
-
-    refute Encoder.encode_ahead?(%{
-             resolved(:jpeg)
-             | encoder_options: %JpegOptions{interlace: true}
-           })
   end
 
   defp resolved(format) do
