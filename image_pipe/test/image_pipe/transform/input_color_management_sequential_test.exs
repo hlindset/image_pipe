@@ -19,6 +19,7 @@ defmodule ImagePipe.Transform.InputColorManagementSequentialTest do
   alias ImagePipe.Transform.InputColorManagement, as: ICM
   alias ImagePipe.Transform.State
   alias Vix.Vips.Image, as: VixImage
+  alias Vix.Vips.MutableImage
   alias Vix.Vips.Operation
 
   @sources "test/support/image_pipe/test/sources"
@@ -56,6 +57,24 @@ defmodule ImagePipe.Transform.InputColorManagementSequentialTest do
 
     test "16-bit RGB with alpha (band split/rejoin) streams" do
       assert_condition_sequential_matches_random(@rgba16_fixture)
+    end
+
+    @tag :tmp_dir
+    test "perceptual-only profile conversion streams", %{tmp_dir: dir} do
+      profile = File.read!("test/support/image_pipe/test/icc/jxl_pq.icc")
+
+      source =
+        Image.new!(400, 300, color: [20, 90, 180])
+        |> Image.Draw.rect!(10, 20, 200, 100, color: [240, 40, 20])
+
+      {:ok, tagged} =
+        VixImage.mutate(source, fn m ->
+          :ok = MutableImage.set(m, "icc-profile-data", :VipsBlob, profile)
+        end)
+
+      path = Path.join(dir, "pq.png")
+      :ok = VixImage.write_to_file(tagged, path)
+      assert_condition_sequential_matches_random(path)
     end
   end
 

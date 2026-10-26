@@ -33,7 +33,10 @@ defmodule ImagePipe.Transform.InputColorManagement do
   3. For sRGB, RGB, RGB16, B_W and GREY16 input, keeps the pixel values and the
      embedded profile, saving the profile bytes on `State` as a backup for the
      output step without setting `color_imported?`. It drops a profile for
-     another color space or a damaged one, and saves no backup for it.
+     another color space or a damaged one, and saves no backup for it. When
+     the profile has no tables or matrix model for relative colorimetric
+     intent, it converts the pixels to sRGB or sGrey through the profile at
+     perceptual intent and drops the profile instead.
   4. For other input with an importable ICC profile, saves the profile bytes on
      `State`, imports to PCS float, and sets `color_imported?`.
   5. Converts to the working space, including when no profile was imported,
@@ -89,9 +92,12 @@ defmodule ImagePipe.Transform.InputColorManagement do
   # RGB-family and gray sources keep their values: operations work on them as
   # they are, and the output step converts or keeps the profile.
   defp do_condition(state, image, interp, target) when interp in @unimported do
-    with {:ok, image} <- drop_foreign_profile(image, interp),
-         {:ok, image} <- to_colorspace(image, target) do
-      {:ok, %State{State.set_image(state, image) | source_color_profile: profile_data(image)}}
+    with {:ok, image} <- drop_foreign_profile(image, interp) do
+      profile = profile_data(image)
+
+      if is_binary(profile) and not colorimetric?(profile),
+        do: convert_perceptual(state, image, interp, target),
+        else: keep_values(state, image, profile, target)
     end
   end
 
@@ -115,6 +121,29 @@ defmodule ImagePipe.Transform.InputColorManagement do
            {:ok, image} <- remove_profile(image) do
         {:ok, converted(state, image)}
       end
+    end
+  end
+
+  defp keep_values(state, image, profile, target) do
+    with {:ok, image} <- to_colorspace(image, target) do
+      {:ok, %State{State.set_image(state, image) | source_color_profile: profile}}
+    end
+  end
+
+  # libvips converts at relative colorimetric intent, and passes the pixels
+  # through unconverted when the profile only supports perceptual intent, as
+  # libjxl's profiles for PQ and HLG sources do. Convert those here instead,
+  # so later steps see plain sRGB or gray.
+  defp convert_perceptual(state, image, interp, target) do
+    with {:ok, image} <-
+           Operation.icc_transform(image, standard_profile(interp),
+             embedded: true,
+             intent: :VIPS_INTENT_PERCEPTUAL,
+             depth: depth(target)
+           ),
+         {:ok, image} <- to_colorspace(image, target),
+         {:ok, image} <- remove_profile(image) do
+      {:ok, converted(state, image)}
     end
   end
 
@@ -142,6 +171,28 @@ defmodule ImagePipe.Transform.InputColorManagement do
 
   defp color_space(interp) when interp in @gray, do: "GRAY"
   defp color_space(_interp), do: "RGB "
+
+  # Whether lcms can convert through the profile at relative colorimetric
+  # intent both ways: with A2B1 and B2A1 lookup tables, or a matrix/TRC model.
+  defp colorimetric?(<<_::binary-size(128), count::32, table::binary>>)
+       when byte_size(table) >= count * 12 do
+    tags =
+      for <<tag::binary-size(4), _::binary-size(8) <- binary_part(table, 0, count * 12)>>, do: tag
+
+    ("A2B1" in tags and "B2A1" in tags) or "kTRC" in tags or
+      Enum.all?(~w(rXYZ gXYZ bXYZ rTRC gTRC bTRC), &(&1 in tags))
+  end
+
+  defp colorimetric?(_profile), do: true
+
+  defp standard_profile(interp) when interp in @gray, do: "sGrey"
+  defp standard_profile(_interp), do: "sRGB"
+
+  defp depth(target)
+       when target in [:VIPS_INTERPRETATION_RGB16, :VIPS_INTERPRETATION_GREY16],
+       do: 16
+
+  defp depth(_target), do: 8
 
   # The conversion stays lazy, so a crop cuts the frame before it runs. A
   # resize's overlapping reads would repeat it, so a resize buffers it first:

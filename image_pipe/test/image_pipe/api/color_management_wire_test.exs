@@ -440,6 +440,48 @@ defmodule ImagePipe.API.ColorManagementWireTest do
     end
   end
 
+  test "a source whose profile only supports perceptual intent is converted through it" do
+    # libjxl's profile for a PQ source: cjxl -x color_space=RGB_D65_202_Rel_PeQ.
+    profile = File.read!("test/support/image_pipe/test/icc/jxl_pq.icc")
+    {:ok, rgb} = Operation.black(16, 16, bands: 3)
+    {:ok, rgb} = Operation.linear(rgb, [1.0], [117.0, 78.0, 39.0])
+    {:ok, rgb} = Operation.cast(rgb, :VIPS_FORMAT_UCHAR)
+    {:ok, rgb} = Operation.copy(rgb, interpretation: :VIPS_INTERPRETATION_sRGB)
+
+    {:ok, tagged} =
+      VipsImage.mutate(rgb, fn m ->
+        MutableImage.set(m, "icc-profile-data", :VipsBlob, profile)
+      end)
+
+    {:ok, expected} =
+      Operation.icc_transform(tagged, "sRGB", embedded: true, intent: :VIPS_INTENT_PERCEPTUAL)
+
+    {:ok, png} = VipsImage.write_to_buffer(tagged, ".png")
+    assert header(Image.from_binary!(png), "icc-profile-data") == profile
+
+    config =
+      png
+      |> body_source("image/png")
+      |> Keyword.put(:allow_unsigned, true)
+      |> ImagePipe.Plug.init()
+
+    plain = conn(:get, "/format=png/src/pq.png") |> ImagePipe.Plug.call(config) |> decoded()
+    assert Image.get_pixel!(plain, 0, 0) == Image.get_pixel!(expected, 0, 0)
+
+    padded =
+      conn(:get, "/pad=5/bg=00ff00/format=png/src/pq.png")
+      |> ImagePipe.Plug.call(config)
+      |> decoded()
+
+    assert Image.get_pixel!(padded, 0, 0) == [0, 255, 0]
+    assert Image.get_pixel!(padded, 8, 8) == Image.get_pixel!(expected, 0, 0)
+
+    colorized =
+      conn(:get, "/colorize=0.5,ff0000/format=png/src/pq.png") |> ImagePipe.Plug.call(config)
+
+    assert colorized.status == 200
+  end
+
   test "a truncated tagged source fails as a decode error when its profile changes" do
     cmyk = File.read!(Path.join(@sources, "cmyk.jpg"))
     beach = File.read!("priv/static/images/beach.jpg")
