@@ -123,6 +123,55 @@ defmodule ImagePipe.Transform.InputColorManagementTest do
       assert VixImage.bands(out.image) == 4
     end
 
+    test "drops an embedded profile that doesn't describe an RGB or gray source", %{open: open} do
+      {:ok, cmyk} = VixImage.header_value(open.(@cmyk_fixture), "icc-profile-data")
+      {:ok, p3} = VixImage.header_value(open.(@p3_fixture), "icc-profile-data")
+      rgb = Image.open!(@plain_srgb_fixture, access: :random)
+      {:ok, gray} = Operation.colourspace(rgb, :VIPS_INTERPRETATION_B_W)
+
+      for {img, profile} <- [
+            {rgb, cmyk},
+            {rgb, :binary.copy(<<0>>, 16)},
+            {rgb, binary_part(p3, 0, 200)},
+            {gray, p3}
+          ] do
+        {:ok, img} =
+          VixImage.mutate(img, fn m ->
+            :ok = MutableImage.set(m, "icc-profile-data", :VipsBlob, profile)
+          end)
+
+        {:ok, out} = ICM.condition(%State{image: img}, supports_hdr?: false)
+        assert out.source_color_profile == nil
+        assert VixImage.header_value(out.image, "icc-profile-data") == {:error, "No such field"}
+        assert VixImage.write_to_binary(out.image) == VixImage.write_to_binary(img)
+      end
+    end
+
+    # libjxl's profile for a PQ source has lookup tables only for perceptual
+    # intent: cjxl -x color_space=RGB_D65_202_Rel_PeQ.
+    test "converts a source whose profile only supports perceptual intent" do
+      profile = File.read!("test/support/image_pipe/test/icc/jxl_pq.icc")
+      {:ok, rgb} = Operation.black(4, 4, bands: 3)
+      {:ok, rgb} = Operation.linear(rgb, [1.0], [117.0, 78.0, 39.0])
+      {:ok, rgb} = Operation.cast(rgb, :VIPS_FORMAT_UCHAR)
+      {:ok, rgb} = Operation.copy(rgb, interpretation: :VIPS_INTERPRETATION_sRGB)
+
+      {:ok, img} =
+        VixImage.mutate(rgb, fn m ->
+          :ok = MutableImage.set(m, "icc-profile-data", :VipsBlob, profile)
+        end)
+
+      {:ok, expected} =
+        Operation.icc_transform(img, "sRGB", embedded: true, intent: :VIPS_INTENT_PERCEPTUAL)
+
+      {:ok, out} = ICM.condition(%State{image: img}, supports_hdr?: false)
+      assert out.source_color_profile == nil
+      assert VixImage.header_value(out.image, "icc-profile-data") == {:error, "No such field"}
+      assert VixImage.interpretation(out.image) == :VIPS_INTERPRETATION_sRGB
+      assert Image.get_pixel!(out.image, 0, 0) == Image.get_pixel!(expected, 0, 0)
+      refute Image.get_pixel!(out.image, 0, 0) == [117, 78, 39]
+    end
+
     test "linear (scRGB) drops profile, does not record backup, still converts", %{open: open} do
       # Start from a profiled source so the profile-drop is genuinely exercised.
       img = open.(@p3_fixture)

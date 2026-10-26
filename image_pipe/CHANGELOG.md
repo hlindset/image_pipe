@@ -131,6 +131,16 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Before, `pad=5/bg=00ff00` painted `(192, 208, 11)` instead of
   `(0, 255, 0)`, and a progressive blur or several blur groups could
   crash the BEAM.
+- An RGB or grayscale source whose embedded ICC profile is for another color
+  space, or is damaged, is treated as having no profile. Colors from the
+  request come out as requested, and the output doesn't carry that profile.
+  Before, the output carried it, a JPEG with RGB pixels and a grayscale
+  profile painted `pad=5/bg=00ff00` as `(220, 220, 220)`, and one with a
+  damaged profile returned `422` for `bg`, `extend` and `colorize`.
+- An RGB or grayscale image whose ICC profile only supports the perceptual
+  rendering intent, such as a PQ or HLG JPEG XL, is converted through that
+  profile. Before, its colors went out unconverted, and `bg` and `colorize`
+  returned `422`.
 - An HTTP source that redirects to a protocol-relative `Location` on the
   same host, such as `//images.example.com/moved.jpg`, keeps its
   configured `auth`, `aws_sigv4` and headers on the next request. Before,
