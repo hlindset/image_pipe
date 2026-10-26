@@ -37,7 +37,7 @@ defmodule ImagePipeServer.MixProject do
       image_pipe_svg_deps() ++
       [
         # 1.13.1 fixes GHSA-69m6-wcv4-rwcf and GHSA-v53v-9hvg-37jf.
-        {:bandit, "~> 1.13.1"},
+        {:bandit, "~> 1.14.0"},
         {:plug, "~> 1.18"},
         {:toml, "~> 0.7.0"},
         # JSON log formats for log collectors ([telemetry] log_format).

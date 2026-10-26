@@ -17,6 +17,18 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   saves about 10 MiB at startup. Set `ERL_ZFLAGS="+P N"` to raise it. See
   [process limit](docs/server-deployment.md#process-limit).
 
+### Security
+
+- The server uses Bandit 1.14.0, which fixes three problems in how it reads
+  HTTP/1 requests. The server serves only HTTP/1, so Bandit's HTTP/2 and
+  WebSocket fixes don't apply to it.
+  - A chunked request body sent as many tiny chunks used many times its size
+    in memory (CVE-2026-111101).
+  - Malformed chunk extensions and trailer lines allowed request smuggling
+    through a proxy in front of the server (CVE-2026-114216).
+  - A very long `Content-Length` or port value took quadratic time to parse
+    (CVE-2026-113436).
+
 ## [0.4.0] - 2026-10-23
 
 ### Added
