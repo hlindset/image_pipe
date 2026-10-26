@@ -92,6 +92,9 @@ defmodule ImagePipe.SrgbProfile do
 
     with {:ok, tagged} <- with_profile(lattice, profile),
          {:ok, to_srgb} <- Operation.icc_transform(tagged, "sRGB", embedded: true, depth: 8),
+         # `imported` is in memory and shared, and mutating an in-memory image
+         # edits it in place, so the profile goes on a private copy.
+         {:ok, imported} <- Operation.copy(imported),
          {:ok, imported} <- with_profile(imported, profile),
          {:ok, from_srgb} <- Operation.icc_export(imported, depth: 8) do
       close?(to_srgb) and close?(from_srgb)
