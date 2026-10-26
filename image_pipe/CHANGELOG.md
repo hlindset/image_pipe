@@ -104,6 +104,12 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- An embedded profile that matches sRGB is used as sRGB even when images
+  with other profiles are processed at the same time. Before, with the
+  libvips operation cache off, as `image_pipe_server` sets it, such a
+  profile could be judged not to match sRGB. Its images were then converted
+  through the profile on every request, up to a node restart, and their
+  output could differ by 1 out of 255 in a few channel values.
 - A response from a source configured to deny storage gets
   `Cache-Control: no-store` even when an earlier Plug set `Cache-Control`
   or `Set-Cookie`. Before, it kept the earlier Plug's caching headers and
