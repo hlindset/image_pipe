@@ -147,6 +147,14 @@ defmodule ImagePipe.WorkBudgetTest do
     assert_budget(config, "/blur=20/-/w=1000/enlarge/format=jpeg/src/high_freq.jpg", copies: 4)
   end
 
+  # A quality search encodes its input once per probe, so the lazy blur
+  # result is buffered before the search instead of rerun by every probe.
+  test "a blur's result is buffered before a quality search", %{config: config} do
+    assert_budget(config, "/blur=20/w=300/autoquality=75/format=webp/src/high_freq.jpg",
+      copies: 4
+    )
+  end
+
   test "a blur's result is buffered before a later pixelate", %{config: config} do
     assert_budget(config, "/blur=20/-/pixelate=4/format=jpeg/src/high_freq.jpg", copies: 4)
   end

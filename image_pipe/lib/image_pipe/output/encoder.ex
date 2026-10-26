@@ -89,8 +89,8 @@ defmodule ImagePipe.Output.Encoder do
   chain overlaps decoding with encoding and holds no frame: a full-size JPEG
   re-encode took 130 ms instead of 200 ms, with half the memory peak. PNG
   and progressive JPEG write as they go (the first PNG bytes after 7 ms of a
-  1 s encode), so they stream. A quality search reads its input once per
-  probe, so its input is buffered.
+  1 s encode), so they stream. A quality search encodes its input once per
+  probe, so `finalize/3` buffers it.
   """
   @spec encode_ahead?(Resolved.t()) :: boolean()
   def encode_ahead?(%Resolved{format: :png}), do: false
@@ -277,16 +277,17 @@ defmodule ImagePipe.Output.Encoder do
   # Color finalization and metadata edits stay lazy, and the encoder reads
   # the result once.
   defp finalize(image, %Resolved{} = resolved, source_color) do
-    with {:ok, image} <- buffer_alpha(image) do
+    with {:ok, image} <- buffer_input(image, resolved) do
       finalize_buffered(image, resolved, source_color)
     end
   end
 
-  # The opaque-alpha check reads every alpha value, so an image with alpha is
-  # buffered first: checking a lazy padded frame and then encoding it ran the
-  # chain under it twice, 45-75% slower.
-  defp buffer_alpha(image) do
-    if Image.has_alpha?(image) do
+  # The opaque-alpha check reads every alpha value, and a quality search
+  # encodes its input once per probe, so either buffers a lazy input first:
+  # checking a lazy padded frame and then encoding it ran the chain under it
+  # twice (45-75% slower), and each probe would repeat a lazy blur or resize.
+  defp buffer_input(image, resolved) do
+    if Image.has_alpha?(image) or search?(resolved) do
       case VixImage.copy_memory(image) do
         {:ok, buffered} -> {:ok, buffered}
         {:error, reason} -> {:error, {:decode, reason}}
