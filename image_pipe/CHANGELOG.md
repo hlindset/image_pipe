@@ -23,7 +23,7 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   less memory. This needs the libvips operation cache off
   (`Vix.Vips.cache_set_max(0)`), as `image_pipe_server` sets it. PNG and
   progressive JPEG outputs still stream. A corrupt original still returns
-  `415`, and so does any other failure while such an output is encoded. The
+  `415`. The
   [`[:transform, :materialize]`](docs/telemetry-events.md#transform-materialize)
   span no longer runs for these outputs, and
   [`[:encode]`](docs/telemetry-events.md#encode) times the whole encode.

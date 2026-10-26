@@ -38,6 +38,7 @@ defmodule ImagePipe.Decode do
   alias ImagePipe.Transform.State
   alias Vix.Vips.Foreign
   alias Vix.Vips.Image, as: VipsImage
+  alias Vix.Vips.Operation
 
   @peek_bytes 32 * 1024
   # SVG decodes only with the optional image_pipe_svg package installed.
@@ -313,6 +314,11 @@ defmodule ImagePipe.Decode do
              page_option(request.page),
          {:ok, image} <- reopen(input, header_image, decode_options, opts) do
       state = seed_state(image, storage_dimensions, decode_options, pending_orientation, opts)
+
+      geometry = %SourceGeometry{
+        geometry
+        | source_check: source_check(input, decode_options, opts)
+      }
 
       {:ok, state, geometry,
        ok_stop_metadata(image, decode_options, storage_dimensions, detected, resolution)
@@ -612,6 +618,18 @@ defmodule ImagePipe.Decode do
     if decode_options == header_options(input),
       do: {:ok, header_image},
       else: input |> open_seekable_input(decode_options, opts) |> wrap_decode_error()
+  end
+
+  # Decodes the original again with the same options, reading every pixel.
+  # Dialyzer can't see through Vix's generated Operation typings (avg).
+  @dialyzer {:no_fail_call, source_check: 3}
+  defp source_check(input, decode_options, opts) do
+    fn ->
+      with {:ok, image} <- open_seekable_input(input, decode_options, opts),
+           {:ok, _average} <- Operation.avg(image) do
+        :ok
+      end
+    end
   end
 
   defp page_option(nil), do: []

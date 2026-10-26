@@ -904,9 +904,10 @@ the request span, or in `[:processing, :execute]` under a processing pool.
 - Start metadata: `:output_format` (atom).
 - Stop metadata:
   - `:result` (atom): `:ok`, or `:processing_error` when encoding failed
-    before the first chunk. The response is `500`. For an output computed
-    while it is encoded, any failure, including corrupt original data, is a
-    `415` with `:error` `:decode`.
+    before the first chunk. The response is `500`, or `415` with `:error`
+    `:decode` when the original fails to decode. When an output computed
+    while it is encoded fails, the span also times decoding the original
+    again, which decides between the `500` and the `415`.
   - `:output_format` (atom).
   - `:error` (atom): the error category, such as `:empty_stream`, on failure.
 

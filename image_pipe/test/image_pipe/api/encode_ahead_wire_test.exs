@@ -12,6 +12,12 @@ defmodule ImagePipe.API.EncodeAheadWireTest do
 
   @moduletag :tmp_dir
 
+  defmodule RaisingEncoder do
+    def write_to_stream(_image, _suffix) do
+      Stream.resource(fn -> :raise end, fn :raise -> raise "boom" end, fn _state -> :ok end)
+    end
+  end
+
   @source Path.expand("../../support/image_pipe/test/sources/high_freq.jpg", __DIR__)
 
   setup_all do
@@ -29,6 +35,20 @@ defmodule ImagePipe.API.EncodeAheadWireTest do
 
       assert response.status == 415
     end
+  end
+
+  # A failed encode can't say whether the original or the encoder failed, so
+  # the original is decoded again: a 500 when it decodes, a 415 when not.
+  test "an encoder failure on a valid original is a 500" do
+    response = response("format=jpeg", File.read!(@source), image_module: RaisingEncoder)
+
+    assert response.status == 500
+  end
+
+  test "an encoder failure on a truncated original is a 415", %{truncated: truncated} do
+    response = response("format=jpeg", truncated, image_module: RaisingEncoder)
+
+    assert response.status == 415
   end
 
   # Encoding ahead is right only for an encoder that writes nothing before it
@@ -63,7 +83,7 @@ defmodule ImagePipe.API.EncodeAheadWireTest do
     }
   end
 
-  defp response(options, body) do
+  defp response(options, body, seams \\ []) do
     origin = fn conn -> conn |> put_resp_content_type("image/jpeg") |> send_resp(200, body) end
 
     config =
@@ -78,6 +98,6 @@ defmodule ImagePipe.API.EncodeAheadWireTest do
         ]
       )
 
-    conn(:get, "/#{options}/src/image") |> ImagePipe.Plug.call(config)
+    conn(:get, "/#{options}/src/image") |> ImagePipe.Plug.call(Keyword.merge(config, seams))
   end
 end

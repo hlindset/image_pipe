@@ -41,6 +41,7 @@ defmodule ImagePipe.Output.Encoder do
           {:ok, Enumerable.t(), String.t(), map() | nil}
           | {:error, {:encode, Exception.t(), list()}}
           | {:error, {:decode, term()}}
+          | {:error, {:encode_ahead, Exception.t()}}
   def stream_output(%VixImage{} = image, %Resolved{} = resolved_output, source_color, opts) do
     {mime_type, suffix} = output_format(resolved_output)
 
@@ -106,14 +107,14 @@ defmodule ImagePipe.Output.Encoder do
 
   defp progressive_jpeg?(%Resolved{}), do: false
 
-  # The encode still reads the source, and the response hasn't started, so a
-  # failure is classified as the source's, as a failed copy to memory is.
-  # The stream runs its encoder in a process linked to this one, so ending
-  # this process still stops the encode.
+  # The encode reads the source, and a failure doesn't say whether the source
+  # or the encoder failed, so `ImagePipe.Processing` classifies it. The
+  # stream runs its encoder in a process linked to this one, so ending this
+  # process still stops the encode.
   defp drain(stream, mime_type) do
     {:ok, Enum.to_list(stream), mime_type, nil}
   rescue
-    exception -> {:error, {:decode, exception}}
+    exception -> {:error, {:encode_ahead, exception}}
   end
 
   # A quality search runs when a search objective or a hard byte budget is set.

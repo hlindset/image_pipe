@@ -267,7 +267,8 @@ defmodule ImagePipe.Processing do
           image,
           resolved_output,
           {state.source_color_profile, state.color_imported?},
-          Keyword.put(config, :encode_ahead, not state.materialized?)
+          Keyword.put(config, :encode_ahead, not state.materialized?),
+          prepared.geometry.source_check
         )
       end)
 
@@ -360,7 +361,7 @@ defmodule ImagePipe.Processing do
     Policy.negotiate(policy, source_format, image, config)
   end
 
-  defp encode_first_chunk(image, %ResolvedOutput{} = resolved_output, source_color, config) do
+  defp encode_first_chunk(image, resolved_output, source_color, config, source_check) do
     Telemetry.span(
       config,
       [:encode],
@@ -368,7 +369,8 @@ defmodule ImagePipe.Processing do
       fn ->
         result =
           with {:ok, stream, content_type, search_meta} <-
-                 Encoder.stream_output(image, resolved_output, source_color, config),
+                 Encoder.stream_output(image, resolved_output, source_color, config)
+                 |> classify_encode_ahead(source_check),
                {:ok, chunk, stream_state} <- first_chunk(stream) do
             {:ok, chunk, content_type, stream_state, search_meta}
           end
@@ -377,6 +379,20 @@ defmodule ImagePipe.Processing do
       end
     )
   end
+
+  # An encode that read the original fails the same way whether the original
+  # or the encoder failed, and libvips' error text isn't reliable under
+  # concurrency, so the original is decoded again: a corrupt original fails
+  # again (415), and an original that decodes means the encoder failed (500).
+  defp classify_encode_ahead({:error, {:encode_ahead, exception}}, source_check) do
+    case source_check && source_check.() do
+      :ok -> {:error, {:encode, exception, []}}
+      {:error, reason} -> {:error, {:decode, reason}}
+      nil -> {:error, {:decode, exception}}
+    end
+  end
+
+  defp classify_encode_ahead(result, _source_check), do: result
 
   defp first_chunk(stream) do
     StreamPull.translate(fn -> StreamPull.first_chunk(stream) end)

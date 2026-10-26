@@ -9,6 +9,11 @@ defmodule ImagePipe.Transform.SourceGeometry do
   # image). `debug_facts` carries best-effort, non-sensitive source facts collected by
   # `ImagePipe.Decode` for the debug headers; `%{}` when collection failed or
   # the geometry was built elsewhere.
+  #
+  # `source_check` decodes the original again, reading every pixel, and
+  # returns `:ok` or `{:error, reason}`. `ImagePipe.Processing` calls it when
+  # an encode that read the original fails, to tell a corrupt original from an
+  # encoder failure. `nil` when the geometry was built elsewhere.
   @moduledoc false
 
   alias ImagePipe.Format
@@ -21,7 +26,8 @@ defmodule ImagePipe.Transform.SourceGeometry do
     :pending_orientation,
     :source_format,
     pages: 1,
-    debug_facts: %{}
+    debug_facts: %{},
+    source_check: nil
   ]
 
   @type t :: %__MODULE__{
@@ -30,6 +36,7 @@ defmodule ImagePipe.Transform.SourceGeometry do
           pending_orientation: PendingOrientation.t(),
           source_format: Format.source_format(),
           pages: pos_integer(),
-          debug_facts: map()
+          debug_facts: map(),
+          source_check: (-> :ok | {:error, term()}) | nil
         }
 end
