@@ -38,6 +38,16 @@ import sys
 from datetime import datetime, timezone
 
 SUMMARY = [r"Audience:", r"Pass 1:", r"Pass 2:", r"Pass 3:", r"Pass 4:", r"Review:"]
+# The closing summary from the skill's SKILL.md, shown when the summary is missing.
+SUMMARY_TEMPLATE = """\
+Audience: <audience>   Kind: <kind>
+Pass 1: <what the headings read like as a table of contents, or "no headings changed">
+Pass 2: <each setting, option, or term the change introduces, and where it is explained or linked>
+Pass 3: <each paragraph you shortened, or why none could be shorter>
+Pass 4: <each `;` or `—` you rewrote, or "none in the changed text">
+Review: <findings, and what you fixed>
+Left alone: <existing problems on the page outside your change>
+Filed: <beads issues for code problems found, or none>"""
 EXCLUDED = ("/docs/plans/", "/test/", "/deps/", "/_build/", "/doc/", "/bench/", "/priv/", "/native/")
 DOC_ATTR = re.compile(r'^\s*@(?:moduledoc|doc|typedoc)\s+(?:~[sS])?("""|")')
 HEREDOC_END = re.compile(r'^\s*"""')
@@ -235,10 +245,11 @@ def main():
     anchor = marks.first_edit or changed
     reviewed = marks.review is not None and (anchor is None or marks.review >= anchor)
     when = "after this session first edited them" if marks.first_edit else "after they last changed"
+    summarized = fresh(marks.summary) and reviewed and marks.summary >= marks.review
     missing = [
         *(f"read references/{name}" for name in REFERENCES if name not in marks.read),
         *([] if reviewed else [f"a review (an Agent call naming review.md) {when}"]),
-        *([] if fresh(marks.summary) and reviewed and marks.summary >= marks.review
+        *([] if summarized
            else ["the closing summary in your message text after that review and after the last docs change"]),
     ]
     if not missing:
@@ -258,7 +269,9 @@ def main():
         "/writing-docs process for public docs changes. Not done yet in this session: "
         + "; ".join(missing)
         + ". The summary counts only as visible text in a message you've already sent, "
-        "not in your reasoning, a tool call, or a file. Then run this command again. "
+        "not in your reasoning, a tool call, or a file. "
+        + ("" if summarized else "Write each of its lines, filled in with evidence:\n" + SUMMARY_TEMPLATE + "\n")
+        + "Then run this command again. "
         "If these files aren't public docs, write a line "
         "`writing-docs exemption: <reason>` instead. The operator sees that reason."
     )
