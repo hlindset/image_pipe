@@ -200,13 +200,14 @@ The HTTP listener. `mount_path` is the path that image URLs start with, such as 
 
 ### `[url]`
 
-How the server checks request URLs: the signing keys and the keys that decrypt `enc/` image paths. See [signing URLs and rotating keys](../../image_pipe/docs/signing-urls.md). Without `keys`, the server doesn't start unless `allow_unsigned = true`. That setting lets the server answer URLs without a signature, and the server logs a warning at startup. Set it only for a server that nothing outside a private network can reach.
+How the server checks request URLs: the signing keys and the keys that decrypt `enc/` image paths. See [signing URLs and rotating keys](../../image_pipe/docs/signing-urls.md). Without `keys`, the server doesn't start unless `allow_unsigned = true`. That setting lets the server answer URLs without a signature, and the server logs a warning at startup. Set it only for a server that nothing outside a private network can reach. `client_presets` names presets from `[processing] presets` that a client may add to a signed URL without a new signature. See [letting clients choose a preset](../../image_pipe/docs/signing-urls.md#let-clients-choose-a-preset).
 
 | Key | Type | Default |
 | --- | --- | --- |
 | `keys` | array of hex strings, each at least 64 digits | `[]` |
 | `source_encryption_keys` | array of hex strings, each a 32-byte key | `[]` |
 | `allow_unsigned` | boolean | `false` |
+| `client_presets` | array of string | `[]` |
 
 ### `[sources.<name>]`
 

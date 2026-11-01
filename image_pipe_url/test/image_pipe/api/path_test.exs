@@ -89,7 +89,35 @@ defmodule ImagePipe.API.PathTest do
     end
   end
 
+  describe "split_client_presets/1" do
+    test "returns the names of a preset= segment written before the sig= segment" do
+      path = "/preset=poster-320,dark/sig=ABC/h=200/src/x"
+
+      assert Path.split_client_presets(path) == {["poster-320", "dark"], "/sig=ABC/h=200/src/x"}
+    end
+
+    test "leaves a path without a sig= second segment untouched" do
+      for path <- ["/preset=card/src/x", "/sig=ABC/preset=card/src/x", "/w=800/sig=ABC/src/x", ""] do
+        assert Path.split_client_presets(path) == {[], path}
+      end
+    end
+
+    test "returns an empty name for a bare preset= segment" do
+      assert Path.split_client_presets("/preset=/sig=ABC/src/x") == {[""], "/sig=ABC/src/x"}
+    end
+  end
+
   describe "extract/2 happy paths" do
+    test "lexes a client preset segment and skips the sig= segment after it" do
+      path = "/preset=poster-320/sig=ABC/h=200/src/x"
+
+      assert {:ok,
+              %{
+                segments: [{"preset=poster-320", {1, 17}}, {"h=200", {27, 5}}],
+                source: {:src, "x", {37, 1}}
+              }} = Path.extract(path, "")
+    end
+
     test "lexes option segments and a src source, with byte-exact spans" do
       path = "/w=800/src/images/cat.jpg"
 

@@ -164,6 +164,70 @@ the old key is `sig_key=1`. In your app, a custom handler reads the same
 number as `:sig_key` from the
 [`[:request, :summary]`](telemetry-events.md#request-summary) event.
 
+## Let clients choose a preset
+
+A client, such as a mobile app that picks an image size for its screen, can
+add a preset to a signed URL without a new signature. List the presets
+clients may add. Each must be a preset defined in the server's configuration
+([defining presets](defining-presets.md)):
+
+<!-- tabs-open -->
+
+### image_pipe_server
+
+```toml
+[url]
+client_presets = ["poster-320", "poster-640"]
+
+[processing.presets]
+poster-320 = "w=320/h=180/fit=cover"
+poster-640 = "w=640/h=360/fit=cover"
+```
+
+### Plug
+
+```elixir
+# lib/my_app/application.ex
+{ImagePipe,
+ name: MyApp.Images,
+ keys: [System.fetch_env!("IMAGE_PIPE_SIGNING_KEY")],
+ presets: %{"poster-320" => "w=320/h=180/fit=cover", "poster-640" => "w=640/h=360/fit=cover"},
+ client_presets: ["poster-320", "poster-640"],
+ sources: [...]}
+```
+
+In the Plug, presets loaded while serving a request
+([storing presets in a database](storing-presets-in-a-database.md)) can't be
+listed.
+
+<!-- tabs-close -->
+
+Send the client a signed URL for the image. The client writes
+`preset=<name>/` in front of its `sig=` segment:
+
+```text
+https://img.example.com/images/sig=Kq3vY1Tn…/src/photos%2Fbeach.jpg
+https://img.example.com/images/preset=poster-320/sig=Kq3vY1Tn…/src/photos%2Fbeach.jpg
+https://img.example.com/images/preset=poster-640/sig=Kq3vY1Tn…/src/photos%2Fbeach.jpg
+```
+
+All three URLs carry the same signature. Name several presets separated by
+commas, such as `preset=poster-320,dark/`. To check the list, request a URL
+with a preset that isn't in it. The server answers `403` with the body
+`invalid signature`.
+
+Options in the signed part of the URL override the preset's options. With a
+signed `/h=200/src/photos%2Fbeach.jpg`, `preset=poster-320` gives an image
+320 pixels wide and 200 high. An `expires` in the signed part applies with
+every preset.
+
+The signature doesn't cover the preset, so:
+
+- The URL without a preset stays valid, and serves the image with the
+  options in its signed part.
+- Every signed URL accepts every listed preset. Leave out presets that serve
+  the full-size image or remove a watermark.
+
 ## Allow unsigned URLs
 
 > #### Unsigned URLs belong on a private network {: .warning}

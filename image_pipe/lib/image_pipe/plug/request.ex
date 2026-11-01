@@ -14,10 +14,12 @@ defmodule ImagePipe.Plug.Request do
   def parse(%Plug.Conn{} = conn, config) do
     signed_or_allowed!(config)
     path = mount_relative_path(conn)
-    {sig, signed_path} = Path.split_signature(path)
+    {client_presets, from_sig} = Path.split_client_presets(path)
+    {sig, signed_path} = Path.split_signature(from_sig)
 
     result =
       with {:ok, key_index} <- Security.verify(sig, signed_path, config),
+           :ok <- allowed_client_presets(client_presets, config),
            {:ok, lexed} <- Path.extract(path, conn.query_string) |> normalize_lex_error(),
            {:ok, lexed} <- decrypt_source(lexed, config),
            {:ok, presets} <- presets(lexed, config),
@@ -43,6 +45,14 @@ defmodule ImagePipe.Plug.Request do
         # carries only the result.
         {error, %{result: :error}}
     end
+  end
+
+  # The signature doesn't cover a client preset, so a name off the allowlist
+  # leaves the URL unauthorized.
+  defp allowed_client_presets(names, config) do
+    if names -- Keyword.fetch!(config, :client_presets) == [],
+      do: :ok,
+      else: {:error, :invalid_signature}
   end
 
   defp signed_or_allowed!(config) do

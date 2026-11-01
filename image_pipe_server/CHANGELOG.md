@@ -5,6 +5,12 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `[url] client_presets` lists presets that a client may add to a signed URL
+  by writing `preset=<name>/` in front of its `sig=` segment, so one signed
+  URL serves each listed preset.
+
 ## [0.5.0] - 2026-10-26
 
 ### Added

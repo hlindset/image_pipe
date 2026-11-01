@@ -223,6 +223,14 @@ defmodule ImagePipeServer.Config do
         doesn't start unless this is `true`. Set it only for a server that \
         nothing outside a private network can reach.
         """
+      ],
+      client_presets: [
+        type: {:list, :string},
+        default: [],
+        doc: """
+        Presets from `[processing] presets` that a client may add to a signed \
+        URL by writing `preset=<name>/` before its `sig=` segment. Needs `keys`.
+        """
       ]
     )
   end
