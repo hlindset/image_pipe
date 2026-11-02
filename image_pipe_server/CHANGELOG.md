@@ -5,11 +5,18 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-02
+
 ### Added
 
 - `[url] client_presets` lists presets that a client may add to a signed URL
   by writing `preset=<name>/` in front of its `sig=` segment, so one signed
   URL serves each listed preset.
+
+### Changed
+
+- Uses `image_pipe`
+  [0.6.0](https://github.com/hlindset/image_pipe/blob/v0.6.0/image_pipe/CHANGELOG.md).
 
 ## [0.5.0] - 2026-10-26
 
@@ -1000,7 +1007,8 @@ First release of the standalone ImagePipe server.
 - Choose a base image or a vision image with bundled face and object detection
   models.
 
-[Unreleased]: https://github.com/hlindset/image_pipe/compare/image_pipe_server-v0.5.0...HEAD
+[Unreleased]: https://github.com/hlindset/image_pipe/compare/image_pipe_server-v0.6.0...HEAD
+[0.6.0]: https://github.com/hlindset/image_pipe/compare/image_pipe_server-v0.5.0...image_pipe_server-v0.6.0
 [0.5.0]: https://github.com/hlindset/image_pipe/compare/image_pipe_server-v0.4.0...image_pipe_server-v0.5.0
 [0.4.0]: https://github.com/hlindset/image_pipe/compare/image_pipe_server-v0.3.0...image_pipe_server-v0.4.0
 [0.3.0]: https://github.com/hlindset/image_pipe/compare/image_pipe_server-v0.2.0...image_pipe_server-v0.3.0

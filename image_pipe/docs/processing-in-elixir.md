@@ -20,7 +20,7 @@ Add ImagePipe to the dependencies in `mix.exs`:
 # mix.exs
 defp deps do
   [
-    {:image_pipe, "~> 0.5.0"}
+    {:image_pipe, "~> 0.6.0"}
   ]
 end
 ```
