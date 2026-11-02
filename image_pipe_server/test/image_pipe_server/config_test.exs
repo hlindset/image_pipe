@@ -96,6 +96,18 @@ defmodule ImagePipeServer.ConfigTest do
                )
     end
 
+    test "passes url.client_presets to the library, which checks them against the presets" do
+      options = fn client_presets ->
+        Config.options!(%{
+          "url" => %{"keys" => [String.duplicate("ab", 32)], "client_presets" => client_presets},
+          "processing" => %{"presets" => %{"card" => "w=400/h=400"}}
+        })
+      end
+
+      assert %Config{} = Config.build!(options.(["card"]))
+      assert error(fn -> Config.build!(options.(["card", "hero"])) end) =~ ~s(client_presets)
+    end
+
     test "converts presets and request defaults in [processing]" do
       processing =
         Config.options!(%{

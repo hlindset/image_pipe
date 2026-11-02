@@ -36,7 +36,9 @@ defmodule ImagePipeServer.Config.Reference do
         "Without `keys`, the server doesn't start unless `allow_unsigned = true`. That " <>
         "setting lets the server answer URLs without a signature, and the server logs a " <>
         "warning at startup. Set it only for a server that nothing outside a private " <>
-        "network can reach.",
+        "network can reach. `client_presets` names presets from `[processing] presets` " <>
+        "that a client may add to a signed URL without a new signature. See " <>
+        "[letting clients choose a preset](../../image_pipe/docs/signing-urls.md#let-clients-choose-a-preset).",
     sources: nil,
     cache:
       "`output` caches processed images on the local filesystem. It needs `root` and " <>

@@ -3,12 +3,15 @@ defmodule ImagePipe.API.Path do
   #
   # Signature verification must precede parsing:
   #
+  #   * `split_client_presets/1` returns the names in an unsigned `preset=`
+  #     segment written before the `sig=` segment, and the path from `sig=`.
   #   * `split_signature/1` returns `{sig, signed_path}` using raw byte
   #     inspection only. It does not validate segments, decode escapes, or
   #     allocate diagnostics.
   #   * `extract/2` lexes and decodes only after `Signature.verify/3` succeeds
   #     against the same path's `split_signature/1` output. It skips the
-  #     leading signature segment and returns no signature data.
+  #     signature segment, keeps a client preset segment before it, and
+  #     returns no signature data.
   #
   # Both take the raw mount-relative path: `""` or a string starting with `/`,
   # with the mount prefix and query string already removed.
@@ -28,6 +31,25 @@ defmodule ImagePipe.API.Path do
 
   @doc false
   def max_option_segments, do: @max_option_segments
+
+  @doc """
+  Raw byte inspection only: if the first segment of the mount-relative `path`
+  starts with `preset=` and the second with `sig=`, returns the first
+  segment's comma-separated names and the raw remainder from the `sig=`
+  segment. Else returns `{[], path}`.
+
+  The client adds this segment to a signed URL, so the signature doesn't
+  cover it. The caller checks the names against the mount's allowlist.
+  """
+  @spec split_client_presets(String.t()) :: {[String.t()], String.t()}
+  def split_client_presets(path) when is_binary(path) do
+    with {"preset=" <> names, _offset, after_prefix} <- split_first_segment(path),
+         {"sig=" <> _sig, _offset, _remainder} <- split_first_segment(after_prefix) do
+      {String.split(names, ","), after_prefix}
+    else
+      _no_prefix -> {[], path}
+    end
+  end
 
   @doc """
   Raw byte inspection only: if the first segment of the mount-relative
@@ -64,8 +86,9 @@ defmodule ImagePipe.API.Path do
   @doc """
   Full lexing of the mount-relative raw path and its query string into option/flag/separator segments
   plus a terminal source, called only after `Signature.verify/3` has
-  succeeded. Skips a leading `sig=` segment internally (without validating
-  it) but never returns signature data — `split_signature/1` is the raw
+  succeeded. Skips the `sig=` segment internally (without validating it),
+  lexing a client preset segment before it as an option, but never returns
+  signature data — `split_signature/1` is the raw
   prefix's only interpreter.
 
   Returns `{:ok, %{segments: [{raw, span}], source: {:src | :src64 | :enc, source, span}}}`
@@ -91,7 +114,8 @@ defmodule ImagePipe.API.Path do
         []
       end
 
-    lex_segments(path, lex_start(path), [], query_errors, 0)
+    {segments, rest} = lex_start(path)
+    lex_segments(path, rest, segments, query_errors, length(segments))
   end
 
   # -- shared raw segment splitting --------------------------------------
@@ -112,17 +136,23 @@ defmodule ImagePipe.API.Path do
 
   # -- sig-segment skip (extract/2 only) ---------------------------------
 
+  # The segments lexed before the signature (a client preset segment, or
+  # none) and the path to lex after it.
   defp lex_start(path) do
-    case split_first_segment(path) do
-      {nil, _offset, _remainder} ->
-        path
+    case split_client_presets(path) do
+      {[], ^path} ->
+        {[], skip_signature(path)}
 
-      {segment, _offset, remainder} ->
-        if String.starts_with?(segment, "sig=") do
-          remainder
-        else
-          path
-        end
+      {_names, from_sig} ->
+        prefix = binary_part(path, 1, byte_size(path) - byte_size(from_sig) - 1)
+        {[{prefix, {1, byte_size(prefix)}}], skip_signature(from_sig)}
+    end
+  end
+
+  defp skip_signature(path) do
+    case split_first_segment(path) do
+      {"sig=" <> _sig, _offset, remainder} -> remainder
+      _unsigned -> path
     end
   end
 

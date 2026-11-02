@@ -40,6 +40,10 @@ The signature covers a preset's name, not its definition. When the server's
 `card` preset changes from 400 to 480 pixels wide, every signed
 `preset=card` URL stays valid and serves the wider image.
 
+A `preset=` segment in front of `sig=` is outside the signature. The server
+accepts it only for presets it lists for clients
+([letting clients choose a preset](signing-urls.md#let-clients-choose-a-preset)).
+
 ## Expiry
 
 A signed URL can carry an `expires` time, in Unix seconds. The server accepts

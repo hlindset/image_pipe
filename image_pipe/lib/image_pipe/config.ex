@@ -403,6 +403,16 @@ defmodule ImagePipe.Config do
                 nor this option. See \
                 [signing URLs](signing-urls.md).
                 """
+              ],
+              client_presets: [
+                type: {:list, :string},
+                default: [],
+                doc: """
+                Presets defined in `:presets` that a client may add to a signed \
+                URL by writing `preset=<name>/` before its `sig=` segment, without \
+                a new signature. Needs `:keys`. \
+                See [letting clients choose a preset](signing-urls.md#let-clients-choose-a-preset).
+                """
               ]
             ] ++
               @processing_options ++
@@ -520,6 +530,7 @@ defmodule ImagePipe.Config do
 
         url = URLConfig.put_validate_against(url, validate_against)
         concealed_watermarks!(presets, url)
+        client_presets!(validated, presets, url)
 
         resolved =
           validated
@@ -583,6 +594,32 @@ defmodule ImagePipe.Config do
 
       {:error, message} ->
         raise ArgumentError, "invalid ImagePipe configuration: #{message}"
+    end
+  end
+
+  # Only static presets, so that a name no signature covers never reaches the
+  # preset lookup.
+  defp client_presets!(options, presets, url) do
+    case Keyword.fetch!(options, :client_presets) do
+      [] ->
+        :ok
+
+      names ->
+        if Keyword.fetch!(url.options, :keys).values == [] do
+          raise ArgumentError,
+                "invalid ImagePipe configuration: client_presets needs :keys, " <>
+                  "since it lets clients add presets to signed URLs"
+        end
+
+        case Enum.reject(names, &Map.has_key?(presets[:presets], &1)) do
+          [] ->
+            :ok
+
+          missing ->
+            raise ArgumentError,
+                  "invalid ImagePipe configuration: client_presets names presets " <>
+                    "that :presets doesn't define: #{inspect(missing)}"
+        end
     end
   end
 

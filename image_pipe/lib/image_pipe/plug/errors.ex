@@ -112,7 +112,9 @@ defmodule ImagePipe.Plug.Errors do
   defp diagnostic_path(conn), do: conn |> Request.mount_relative_path() |> Path.diagnostic_path()
 
   defp sig_span(conn) do
-    {sig, _signed_path} = conn |> Request.mount_relative_path() |> Path.split_signature()
-    {1, byte_size("sig=" <> sig)}
+    path = Request.mount_relative_path(conn)
+    {_client_presets, from_sig} = Path.split_client_presets(path)
+    {sig, _signed_path} = Path.split_signature(from_sig)
+    {byte_size(path) - byte_size(from_sig) + 1, byte_size("sig=" <> sig)}
   end
 end
