@@ -107,7 +107,11 @@ defmodule ImagePipe.Transform.Executor do
     max_shrink = Enum.min([width, height | Tuple.to_list(extent)])
     max_shrink = min(max_shrink, crop_shrink_limit(crop_extent))
 
-    DecodePlanner.open_options(geometry.source_format, extent, target, floor, max_shrink)
+    DecodePlanner.open_options(geometry.source_format, extent, target,
+      min_long_edge: floor,
+      max_shrink: max_shrink,
+      cmyk?: geometry.cmyk?
+    )
   end
 
   # A load shrink by n averages pixels in blocks of n from the source's edge,

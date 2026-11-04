@@ -303,6 +303,7 @@ defmodule ImagePipe.Decode do
            pending_orientation: pending_orientation,
            source_format: source_format,
            pages: frames,
+           cmyk?: VipsImage.interpretation(page_image) == :VIPS_INTERPRETATION_CMYK,
            debug_facts: debug_facts(input, page_image, opts)
          },
          decode_options =

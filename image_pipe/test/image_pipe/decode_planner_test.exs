@@ -28,6 +28,18 @@ defmodule ImagePipe.Transform.DecodePlannerTest do
     refute_shrink(DecodePlanner.open_options(:jpeg, {1000, 800}, {400, nil}))
   end
 
+  # A CMYK JPEG converts every decoded pixel through its profile, so it
+  # keeps the largest shrink within the reduction.
+  test "a CMYK JPEG shrinks by the largest power of two within the load ratio" do
+    cmyk = &DecodePlanner.open_options(:jpeg, &1, {400, nil}, cmyk?: true)[:shrink]
+
+    assert cmyk.({900, 1200}) == 2
+    assert cmyk.({1600, 1200}) == 4
+    assert cmyk.({3000, 2000}) == 4
+    assert cmyk.({3200, 2400}) == 8
+    assert DecodePlanner.open_options(:jpeg, {900, 1200}, {400, nil})[:shrink] == nil
+  end
+
   test "two-axis targets use the tighter ratio" do
     assert DecodePlanner.open_options(:jpeg, {3200, 2400}, {400, 600})[:shrink] == 2
   end

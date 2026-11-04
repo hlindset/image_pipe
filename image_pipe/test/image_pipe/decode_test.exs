@@ -80,6 +80,21 @@ defmodule ImagePipe.DecodeTest do
     end
   end
 
+  defmodule CmykJpegOrigin do
+    @moduledoc false
+    # A 900x1200 CMYK JPEG: a 2.25x reduction to 400 wide.
+    def call(conn, _opts) do
+      {:ok, base} = Vix.Vips.Operation.black(900, 1200, bands: 4)
+      {:ok, base} = Vix.Vips.Operation.cast(base, :VIPS_FORMAT_UCHAR)
+      {:ok, base} = Vix.Vips.Operation.copy(base, interpretation: :VIPS_INTERPRETATION_CMYK)
+      {:ok, body} = Vix.Vips.Image.write_to_buffer(base, ".jpg")
+
+      conn
+      |> Plug.Conn.put_resp_content_type("image/jpeg")
+      |> Plug.Conn.send_resp(200, body)
+    end
+  end
+
   # ── Helpers ──────────────────────────────────────────────────────────────
 
   defp source_opts(origin, extra \\ []) do
@@ -222,6 +237,18 @@ defmodule ImagePipe.DecodeTest do
     assert geometry.display_dimensions == {800, 600}
     assert PendingOrientation.identity?(geometry.pending_orientation)
     assert state.pending_orientation == geometry.pending_orientation
+  end
+
+  test "a CMYK JPEG keeps the largest shrink within the load ratio" do
+    opts = source_opts(CmykJpegOrigin)
+
+    assert {:ok, {width, geometry}} =
+             Decode.with_image(resolved(opts), request(["w=400"]), opts, fn state, geometry ->
+               {:ok, {Image.width(state.image), geometry}}
+             end)
+
+    assert geometry.cmyk?
+    assert width == 450
   end
 
   test "shrink actually applied: a quarter-size resize_target halves the loaded dims and sets decode_shrink" do

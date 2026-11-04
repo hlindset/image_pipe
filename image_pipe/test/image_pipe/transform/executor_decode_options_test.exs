@@ -48,6 +48,13 @@ defmodule ImagePipe.Transform.ExecutorDecodeOptionsTest do
     refute_shrink(plan.(:png))
   end
 
+  test "a CMYK JPEG source keeps the largest shrink within the ratio" do
+    cmyk = %{geometry({900, 1200}, {900, 1200}, :jpeg) | cmyk?: true}
+
+    assert options("w=400", cmyk)[:shrink] == 2
+    refute_shrink(options("w=400", geometry({900, 1200}, {900, 1200}, :jpeg)))
+  end
+
   test "a crop shrinks on load by at most an eighth of its short side" do
     jpeg = geometry({2000, 1600}, {2000, 1600}, :jpeg)
     webp = geometry({2000, 1600}, {2000, 1600}, :webp)

@@ -27,26 +27,29 @@ defmodule ImagePipe.Transform.DecodePlanner do
   Chooses decode open options for decoding `extent` (display-frame pixels)
   down to `target`. `nil` target means no shrink.
 
-  `min_long_edge` keeps the decoded extent's long edge at least that many
-  pixels, or at the extent's own size when that is smaller. `nil` sets no
-  minimum.
+  Options:
 
-  `max_shrink` caps the shrink, so the decoded image keeps at least one pixel
-  on each axis. It defaults to the extent's short side.
+    * `:min_long_edge` keeps the decoded extent's long edge at least that
+      many pixels, or at the extent's own size when that is smaller. `nil`
+      (the default) sets no minimum.
+    * `:max_shrink` caps the shrink, so the decoded image keeps at least one
+      pixel on each axis. It defaults to the extent's short side.
+    * `:cmyk?` marks a CMYK source, whose conversion costs per decoded pixel.
   """
   @spec open_options(
           source_format(),
           {pos_integer(), pos_integer()},
           target() | nil,
-          pos_integer() | nil,
-          pos_integer() | nil
+          keyword()
         ) :: keyword()
-  def open_options(source_format, extent, target, min_long_edge \\ nil, max_shrink \\ nil)
+  def open_options(source_format, extent, target, opts \\ [])
 
   # An SVG renders at any scale, so it renders straight at the target, larger
   # or smaller than its intrinsic size, and never needs resampling to reach it.
-  def open_options(:svg, {width, height}, target, min_long_edge, _max_shrink)
+  def open_options(:svg, {width, height}, target, opts)
       when is_integer(width) and width > 0 and is_integer(height) and height > 0 do
+    min_long_edge = Keyword.get(opts, :min_long_edge)
+
     case target do
       nil ->
         []
@@ -58,19 +61,26 @@ defmodule ImagePipe.Transform.DecodePlanner do
 
   # The guards state the domain: a zero or negative extent would otherwise give a
   # ratio at or below 1 and silently decode at full size.
-  def open_options(source_format, {width, height}, target, min_long_edge, max_shrink)
+  def open_options(source_format, {width, height}, target, opts)
       when is_atom(source_format) and is_integer(width) and width > 0 and
              is_integer(height) and height > 0 do
     # libvips fails on a decoded axis under one pixel.
     load_shrink =
       case target do
         nil -> 1.0
-        {target_w, target_h} -> ratio(width, height, target_w, target_h, min_long_edge)
+        {target_w, target_h} -> ratio(width, height, target_w, target_h, opts[:min_long_edge])
       end
-      |> min(max_shrink || min(width, height))
+      |> min(opts[:max_shrink] || min(width, height))
 
-    append_load_option([access: :sequential, fail_on: :error], source_format, load_shrink)
+    append_load_option(
+      [access: :sequential, fail_on: :error],
+      load_format(source_format, opts[:cmyk?]),
+      load_shrink
+    )
   end
+
+  defp load_format(:jpeg, true), do: :cmyk_jpeg
+  defp load_format(source_format, _cmyk?), do: source_format
 
   defp ratio(width, height, target_w, target_h, nil),
     do: ratio_from_targets(width, height, target_w, target_h)
@@ -98,10 +108,18 @@ defmodule ImagePipe.Transform.DecodePlanner do
     if n >= 2, do: base ++ [shrink: n], else: base
   end
 
+  # A CMYK JPEG converts every decoded pixel through its profile, which costs
+  # more than the margin buys: a 2.25x downscale of a 900x1200 CMYK source
+  # took 117 ms decoded at full size, against 57 ms with shrink 2.
+  defp append_load_option(base, :cmyk_jpeg, load_shrink) do
+    n = largest_shrink_n(load_shrink)
+    if n >= 2, do: base ++ [shrink: n], else: base
+  end
+
   # libwebp's scaler is coarse at large reductions, so a WebP stops at a
   # power of two, and the resize kernel does the rest.
   defp append_load_option(base, :webp, load_shrink) do
-    n = webp_scale_n(load_shrink)
+    n = largest_shrink_n(load_shrink)
     if n >= 2, do: base ++ [scale: 1.0 / n], else: base
   end
 
@@ -118,8 +136,8 @@ defmodule ImagePipe.Transform.DecodePlanner do
   defp jpeg_shrink_n(_), do: 1
 
   # The largest power of two in {1, 2, 4, 8} within the load ratio.
-  defp webp_scale_n(load_shrink) when load_shrink >= 8, do: 8
-  defp webp_scale_n(load_shrink) when load_shrink >= 4, do: 4
-  defp webp_scale_n(load_shrink) when load_shrink >= 2, do: 2
-  defp webp_scale_n(_), do: 1
+  defp largest_shrink_n(load_shrink) when load_shrink >= 8, do: 8
+  defp largest_shrink_n(load_shrink) when load_shrink >= 4, do: 4
+  defp largest_shrink_n(load_shrink) when load_shrink >= 2, do: 2
+  defp largest_shrink_n(_), do: 1
 end
