@@ -35,6 +35,9 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   instead of answering `400` "duplicate option". The client's `preset=`
   segment also no longer counts toward the 64 option segments a URL may
   have.
+- When a new original can't be staged in a file (a full or unwritable tmp
+  directory), requests for other sizes of it share the copy held in memory,
+  instead of downloading it again one after another.
 
 ## [0.6.0] - 2026-11-02
 

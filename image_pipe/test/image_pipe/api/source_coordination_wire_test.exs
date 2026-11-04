@@ -3,6 +3,7 @@ defmodule ImagePipe.API.SourceCoordinationWireTest do
 
   import Plug.Test
 
+  alias ImagePipe.Execution.Staging
   alias ImagePipe.Source.Origin
   alias ImagePipe.Test.Caches
   alias ImagePipe.Test.ProcessingSource
@@ -53,6 +54,27 @@ defmodule ImagePipe.API.SourceCoordinationWireTest do
       refute_received {:fetch, ["original"], _}
       refute_received {:streaming, _}
     end
+  end
+
+  # A staging directory that can't take the file (full, or out of file
+  # handles) buffers the original in memory instead.
+  test "cold requests share one download when it can't be staged in a file", context do
+    dir = Staging.dir()
+    :ok = Staging.private_dir(dir)
+    File.chmod!(dir, 0o500)
+    on_exit(fn -> File.chmod!(dir, 0o700) end)
+
+    mount = start(context, [])
+    first = async(context, fn -> request(mount, 12) end)
+    assert_receive {:fetch, ["original"], _}
+    assert_receive {:streaming, leader}
+    second = async(context, fn -> request(mount, 8) end)
+    await_source_waiter(second.pid)
+    send(leader, :continue)
+
+    assert Task.await(first).status == 200
+    assert Task.await(second).status == 200
+    refute_received {:fetch, ["original"], _}
   end
 
   test "with only a processed-image cache, new sizes of a known original share one download",
