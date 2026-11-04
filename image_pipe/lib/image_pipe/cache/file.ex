@@ -4,10 +4,12 @@ defmodule ImagePipe.Cache.File do
   # only the size, which catches truncation. Close it after delivery,
   # including HEAD and 304.
   #
-  # A body read from disk is open. A remembered one is only stat'ed, since
-  # delivery sends it by path. A body evicted between that stat and the send
-  # has no descriptor to read it from, so `forget/1` drops the remembered row
-  # and the request reads the entry again.
+  # A body read from disk is open. A remembered one isn't touched: the
+  # cache's record of it says it exists, and delivery sends it by path. A
+  # body evicted since has no descriptor to read it from, so `forget/1` drops
+  # the remembered row and the request reads the entry again. Something
+  # outside ImagePipe that truncates a body in place isn't caught on a
+  # remembered hit.
   @moduledoc false
   @enforce_keys [:io, :size, :path]
   defstruct @enforce_keys ++ [remembered: nil]
@@ -31,17 +33,9 @@ defmodule ImagePipe.Cache.File do
     end
   end
 
-  # A remembered body whose size still matches, or `:gone`.
   @doc false
-  def remembered(path, size, root, key_hash) do
-    case :file.read_file_info(path, [:raw]) do
-      {:ok, info} when elem(info, 1) == size ->
-        {:ok, %__MODULE__{io: nil, size: size, path: path, remembered: {root, key_hash}}}
-
-      _gone_or_changed ->
-        :gone
-    end
-  end
+  def remembered(path, size, root, key_hash),
+    do: %__MODULE__{io: nil, size: size, path: path, remembered: {root, key_hash}}
 
   # Opens a remembered body, forgetting it if it won't open.
   @doc false

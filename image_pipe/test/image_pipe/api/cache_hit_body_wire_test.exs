@@ -59,8 +59,8 @@ defmodule ImagePipe.API.CacheHitBodyWireTest do
     assert request(:get, ctx.opts).resp_body == first.resp_body
   end
 
-  # The body goes between the lookup, which stats it, and the send. The
-  # handler runs in the request process, which is the test's.
+  # The body goes between the lookup and the send. The handler runs in the
+  # request process, which is the test's.
   test "a remembered body evicted after its lookup is generated again", ctx do
     first = request(:get, ctx.opts)
     _hit = request(:get, ctx.opts)
@@ -120,6 +120,25 @@ defmodule ImagePipe.API.CacheHitBodyWireTest do
     assert get_resp_header(head, "content-length") == [
              Integer.to_string(byte_size(first.resp_body))
            ]
+  end
+
+  # A remembered hit trusts the cache's own record that its body exists, so
+  # a HEAD answers from memory. The next GET finds the body gone and
+  # generates it again.
+  test "a HEAD for a remembered entry doesn't read its body", ctx do
+    first = request(:get, ctx.opts)
+    _hit = request(:get, ctx.opts)
+    delete_bodies(ctx.cache_root)
+
+    head = request(:head, ctx.opts)
+    assert head.status == 200
+
+    assert get_resp_header(head, "content-length") == [
+             Integer.to_string(byte_size(first.resp_body))
+           ]
+
+    assert bodies(ctx.cache_root) == []
+    assert request(:get, ctx.opts).resp_body == first.resp_body
   end
 
   defp request(method, opts) do

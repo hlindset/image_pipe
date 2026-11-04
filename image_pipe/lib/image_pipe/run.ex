@@ -126,7 +126,16 @@ defmodule ImagePipe.Run do
          do: {:ok, warnings ++ request.ignored}
   end
 
-  defp render(context) do
+  # A cache hit whose body was evicted since its lookup is looked up once
+  # more. A second such failure needs a second eviction in between.
+  defp render(context, retry? \\ true) do
+    case open_and_buffer(context) do
+      {:error, {:cache_read, :body_gone}} when retry? -> render(context, false)
+      result -> result
+    end
+  end
+
+  defp open_and_buffer(context) do
     with {:ok, output} <- Execution.open(context) do
       try do
         with {:ok, data, type, dimensions} <- Output.buffer(output),

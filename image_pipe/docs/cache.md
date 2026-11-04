@@ -207,13 +207,17 @@ body file and a metadata file holding the body's size and SHA-256 hash.
 Each body is flushed to disk before it appears in the cache, so a crash or
 power loss can't leave a cached body with missing data.
 
-Before reading a cached body, the cache checks that its size matches its
-metadata. An entry that fails the check, has invalid metadata, or can't be
-read is logged and treated as a miss. Only the size is checked when a body is
-read, so never change cache files in place: a changed body of the same size
-is served as it is. A body removed after the check, for example by
-[eviction](#size-limit), is still sent in full from the file already opened,
-as a chunked response without `content-length`.
+When the cache reads an entry from disk, it checks that the body's size
+matches its metadata. An entry that fails the check, has invalid metadata, or
+can't be read is logged and treated as a miss. A recently served entry,
+whose metadata the cache [remembers](#cache-process-and-restarts), is served
+without checking its body file. So never change cache files in place: a
+changed body is served as it is, and one cut shorter ends the response early.
+
+When a GET finds the body gone, for example after [eviction](#size-limit),
+the image is generated again. A HEAD answers from the remembered metadata. A
+body removed while a response reads it from an open file is still sent in
+full, as a chunked response without `content-length`.
 
 A path that leads outside `root` through a symlink fails as a cache error.
 Each node checks each entry's directory under `root` the first time it uses

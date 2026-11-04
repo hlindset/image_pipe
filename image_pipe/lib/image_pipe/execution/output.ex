@@ -12,6 +12,23 @@ defmodule ImagePipe.Execution.Output do
   # the request recorded them.
   def buffer(%__MODULE__{} = output), do: buffer_value(output.value)
 
+  # A remembered body has no descriptor yet. One evicted since won't open,
+  # and opening it forgets the remembered entry, so a second lookup reads it
+  # from disk or misses.
+  defp buffer_value({:entry, %{body: %Cache.File{io: nil} = file} = entry}) do
+    case Cache.File.ensure_open(file) do
+      {:ok, opened} ->
+        try do
+          buffer_value({:entry, %{entry | body: opened}})
+        after
+          Cache.File.close(opened)
+        end
+
+      _gone ->
+        {:error, {:cache_read, :body_gone}}
+    end
+  end
+
   defp buffer_value({:entry, entry}) do
     StreamPull.translate(fn ->
       bytes =
