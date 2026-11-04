@@ -110,6 +110,27 @@ defmodule ImagePipe.Cache.WriterTest do
     assert Writers.pending(ctx.root) == 0
   end
 
+  test "a write past the pending limit doesn't hold up other writes", ctx do
+    # The pending limit is a twentieth of max_size_bytes: 1,228 bytes.
+    opts = cache_opts(ctx, max_size_bytes: 2 * Policy.charged_bytes(5_000))
+    large = Cache.open_sink(key("a"), {:complete_body, @content_type}, [], opts)
+    large = Cache.write_chunk(large, String.duplicate("x", 1_000), opts)
+    large = Cache.write_chunk(large, String.duplicate("x", 2_000), opts)
+
+    small = Cache.open_sink(key("b"), {:complete_body, @content_type}, [], opts)
+    small = Cache.write_chunk(small, String.duplicate("x", 500), opts)
+    assert small != nil
+    large = Cache.write_chunk(large, String.duplicate("x", 100), opts)
+
+    assert :ok = Cache.commit_sink(small, opts)
+    assert :ok = Cache.commit_sink(large, opts)
+    Caches.await_writes(opts)
+    assert {:hit, _entry} = Cache.lookup_entry(key("a"), opts)
+    assert {:hit, _entry} = Cache.lookup_entry(key("b"), opts)
+    refute_received {:stage, %{cache: :stage_dropped}}
+    assert Writers.pending(ctx.root) == 0
+  end
+
   test "drops a write whose unfinished bytes would pass the cache's limit", ctx do
     # The pending limit is a twentieth of max_size_bytes: 1,228 bytes.
     opts = cache_opts(ctx, max_size_bytes: 2 * Policy.charged_bytes(5_000))
@@ -246,7 +267,7 @@ defmodule ImagePipe.Cache.WriterTest do
 
     # Another write holds 400 bytes, so the next entry no longer fits beside
     # the first, and loses to it.
-    :ok = Writers.reserve(Writers.counter(ctx.root), 400, 0)
+    {:ok, 0} = Writers.reserve(Writers.counter(ctx.root), 400, 0, false)
     assert {:ok, :rejected} = commit(cache, key("b"), String.duplicate("b", 4_700))
 
     Writers.release(Writers.counter(ctx.root), 400)

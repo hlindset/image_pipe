@@ -4,11 +4,12 @@ defmodule ImagePipe.Cache.FileSystem.Writers do
   # under this supervisor in the cache's `Root`, after Admission. A shutdown
   # drops the writes still in progress.
   #
-  # The pending bytes of a root (written to temp files or held as staged
-  # originals, not yet published) are counted in an `:atomics` cell, and a
-  # write that would pass the root's limit is dropped, unless it's the only
-  # one pending. Admission counts them
-  # against `max_size_bytes` too. The limits are guesses (image_plug-sole).
+  # The pending bytes of a root (written to temp files, not yet published)
+  # are counted in an `:atomics` cell, and a write that would pass the root's
+  # limit is dropped, unless it's the only one pending. That write is then
+  # exempt: its bytes are counted apart, and other writes reserve against the
+  # limit without them. Admission counts all pending bytes against
+  # `max_size_bytes`. The limits are guesses (image_plug-sole).
   @moduledoc false
 
   @max_writers 64
@@ -27,7 +28,7 @@ defmodule ImagePipe.Cache.FileSystem.Writers do
   end
 
   def start_link(root, limit) do
-    counters = :atomics.new(2, [])
+    counters = :atomics.new(3, [])
     :atomics.put(counters, 2, limit)
     :persistent_term.put({__MODULE__, root}, counters)
 
@@ -73,27 +74,45 @@ defmodule ImagePipe.Cache.FileSystem.Writers do
 
   @doc """
   Counts `bytes` as pending on `counter` for a write that already holds
-  `held` of them, or returns `:full` past its limit. A write that is the only
-  one pending passes whatever its size, so an entry larger than the limit can
-  still be stored.
+  `held` of them, `exempt?` when it was let past the limit. Returns
+  `{:ok, exempted}`, with the bytes it newly counts as exempt, or `:full`
+  past the limit. A write that is the only one pending passes whatever its
+  size, so an entry larger than the limit can still be stored, and becomes
+  exempt.
   """
-  def reserve(nil, _bytes, _held), do: :ok
+  def reserve(nil, _bytes, _held, _exempt?), do: {:ok, 0}
 
-  def reserve(counter, bytes, held) do
+  def reserve(counter, bytes, _held, true) do
+    :atomics.add(counter, 1, bytes)
+    :atomics.add(counter, 3, bytes)
+    {:ok, bytes}
+  end
+
+  def reserve(counter, bytes, held, false) do
     pending = :atomics.add_get(counter, 1, bytes)
 
-    if pending <= :atomics.get(counter, 2) or pending == held + bytes do
-      :ok
-    else
-      :atomics.sub(counter, 1, bytes)
-      :full
+    cond do
+      pending - :atomics.get(counter, 3) <= :atomics.get(counter, 2) ->
+        {:ok, 0}
+
+      pending == held + bytes ->
+        :atomics.add(counter, 3, pending)
+        {:ok, pending}
+
+      true ->
+        :atomics.sub(counter, 1, bytes)
+        :full
     end
   end
 
-  @doc "Stops counting `bytes` as pending on `counter`."
-  def release(nil, _bytes), do: :ok
-  def release(_counter, 0), do: :ok
-  def release(counter, bytes), do: :atomics.sub(counter, 1, bytes)
+  @doc "Stops counting `bytes` as pending on `counter`, `exempt` of them exempt."
+  def release(counter, bytes, exempt \\ 0)
+  def release(nil, _bytes, _exempt), do: :ok
+
+  def release(counter, bytes, exempt) do
+    :atomics.sub(counter, 1, bytes)
+    :atomics.sub(counter, 3, exempt)
+  end
 
   @doc """
   Records that this process, a writer, holds `bytes` of the pending count, so

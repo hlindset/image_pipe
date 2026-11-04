@@ -42,8 +42,9 @@ defmodule ImagePipe.Cache.FileSystem.Store do
                       its metadata file. Writes evict the entries least worth keeping \
                       to stay under it: those requested least often and quickest to \
                       make for their size. An entry larger than 256 MiB, or a twentieth \
-                      of the cap when that is smaller, is stored only when no other \
-                      write is in progress.
+                      of the cap when that is smaller, is stored only if no other \
+                      write is in progress when it reaches that size. Other writes are \
+                      still stored while it runs.
                       """
                     ],
                     max_remembered_entries: [
