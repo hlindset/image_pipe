@@ -259,6 +259,7 @@ defmodule ImagePipe.Telemetry do
       when reason in [
              :missing_signature,
              :invalid_signature,
+             :client_preset_not_allowed,
              :signature_without_keys,
              :invalid_concealed_source,
              :expired

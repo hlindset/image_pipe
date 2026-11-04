@@ -30,10 +30,12 @@ defmodule ImagePipe.Plug.Errors do
   def send(%Plug.Conn{} = conn, reason)
       when reason in [:missing_signature, :invalid_signature] do
     Summary.put(%{reason: "invalid signature"})
+    send_invalid_signature(conn)
+  end
 
-    conn
-    |> put_text_content_type()
-    |> send_resp(403, "invalid signature")
+  def send(%Plug.Conn{} = conn, :client_preset_not_allowed) do
+    Summary.put(%{reason: "client preset not allowed"})
+    send_invalid_signature(conn)
   end
 
   def send(%Plug.Conn{} = conn, :signature_without_keys) do
@@ -116,5 +118,13 @@ defmodule ImagePipe.Plug.Errors do
     {_client_presets, from_sig} = Path.split_client_presets(path)
     {sig, _signed_path} = Path.split_signature(from_sig)
     {byte_size(path) - byte_size(from_sig) + 1, byte_size("sig=" <> sig)}
+  end
+
+  # The same body for every signature failure, so a client can't tell an
+  # unlisted client preset from a forged signature.
+  defp send_invalid_signature(conn) do
+    conn
+    |> put_text_content_type()
+    |> send_resp(403, "invalid signature")
   end
 end

@@ -214,7 +214,7 @@ https://img.example.com/images/preset=poster-640/sig=Kq3vY1Tn…/src/photos%2Fbe
 All three URLs carry the same signature. Name several presets separated by
 commas, such as `preset=poster-320,dark/`. To check the list, request a URL
 with a preset that isn't in it. The server answers `403` with the body
-`invalid signature`.
+`invalid signature`, and logs the reason `client preset not allowed`.
 
 Options in the signed part of the URL override the preset's options. With a
 signed `/h=200/src/photos%2Fbeach.jpg`, `preset=poster-320` gives an image

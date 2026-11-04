@@ -48,11 +48,14 @@ defmodule ImagePipe.Plug.Request do
   end
 
   # The signature doesn't cover a client preset, so a name off the allowlist
-  # leaves the URL unauthorized.
+  # leaves the URL unauthorized. It answers as a bad signature does, and logs
+  # its own reason.
   defp allowed_client_presets(names, config) do
-    if names -- Keyword.fetch!(config, :client_presets) == [],
+    allowlist = Keyword.fetch!(config, :client_presets)
+
+    if Enum.all?(names, &(&1 in allowlist)),
       do: :ok,
-      else: {:error, :invalid_signature}
+      else: {:error, :client_preset_not_allowed}
   end
 
   defp signed_or_allowed!(config) do

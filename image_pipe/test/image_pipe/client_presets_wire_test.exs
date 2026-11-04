@@ -79,6 +79,14 @@ defmodule ImagePipe.ClientPresetsWireTest do
     assert size(response) == {30, 20}
   end
 
+  test "an allowlisted preset may be named twice", %{url_config: url_config, mount: mount} do
+    response =
+      get("/preset=poster,poster" <> IP.URL.sign_path("/src/photo.png", url_config), mount)
+
+    assert response.status == 200
+    assert size(response) == {30, 30}
+  end
+
   test "a signer-written leading preset still verifies", %{url_config: url_config, mount: mount} do
     response = get(IP.URL.sign_path("/preset=internal/src/photo.png", url_config), mount)
 

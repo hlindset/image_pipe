@@ -18,6 +18,12 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `strip_metadata: false`) sets an XMP `tiff:Orientation` to `1`, as it
   already did for the EXIF orientation tag. Before, XMP readers such as Adobe
   apps turned the delivered image again.
+- A client preset named twice, such as `preset=poster,poster/`, is accepted
+  instead of answering `403`.
+- A client preset that isn't in `client_presets` logs the reason `client
+  preset not allowed`, with the `:client_preset_not_allowed` error in
+  telemetry, instead of `invalid signature`. The response is still `403`
+  with the body `invalid signature`.
 
 ## [0.6.0] - 2026-11-02
 
