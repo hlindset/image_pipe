@@ -14,6 +14,10 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   endpoint) is failing and no valid credentials are held, it is called again
   at most every five seconds rather than for every request. Requests in
   between fail with the same `credentials_unavailable` error.
+- An output that keeps the source's metadata (`meta=keep`, or
+  `strip_metadata: false`) sets an XMP `tiff:Orientation` to `1`, as it
+  already did for the EXIF orientation tag. Before, XMP readers such as Adobe
+  apps turned the delivered image again.
 
 ## [0.6.0] - 2026-11-02
 

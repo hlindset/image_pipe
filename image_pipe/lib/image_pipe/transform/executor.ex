@@ -1230,7 +1230,7 @@ defmodule ImagePipe.Transform.Executor do
 
   defp normalize_output_orientation(state, %Output{terminal: :image} = output, opts) do
     if retains_source_metadata?(output, opts),
-      do: remove_non_normal_orientation(state),
+      do: remove_output_orientation(state),
       else: {:ok, state}
   end
 
@@ -1243,17 +1243,38 @@ defmodule ImagePipe.Transform.Executor do
 
   defp retains_source_metadata?(%Output{}, _opts), do: false
 
-  defp remove_non_normal_orientation(%State{} = state) do
-    case VipsImage.header_value(state.image, "orientation") do
-      {:ok, 1} -> {:ok, state}
-      {:ok, _orientation} -> remove_output_orientation(state)
-      {:error, _reason} -> {:ok, state}
+  defp remove_output_orientation(%State{} = state) do
+    case exif_orientation_edits(state.image) ++ normal_xmp_orientation(state.image) do
+      [] ->
+        {:ok, state}
+
+      edits ->
+        with {:ok, image} <- VipsHeader.edit(state.image, edits),
+             do: {:ok, %State{state | image: image}}
     end
   end
 
-  defp remove_output_orientation(%State{} = state) do
-    with {:ok, image} <- VipsHeader.edit(state.image, [{:remove, "orientation"}]),
-         do: {:ok, %State{state | image: image}}
+  defp exif_orientation_edits(image) do
+    case VipsImage.header_value(image, "orientation") do
+      {:ok, orientation} when orientation != 1 -> [{:remove, "orientation"}]
+      _normal_or_absent -> []
+    end
+  end
+
+  # Kept XMP carries its own copy of the orientation (`tiff:Orientation`, as
+  # an attribute or an element), which XMP readers apply instead of the
+  # EXIF tag. ImagePipe orients by the EXIF tag alone, and the delivered
+  # image has no orientation left to apply.
+  @xmp_orientation ~r/(tiff:Orientation\s*=\s*["']|<tiff:Orientation>\s*)[2-8]/
+
+  defp normal_xmp_orientation(image) do
+    with {:ok, xmp} when is_binary(xmp) <- VipsImage.header_value(image, "xmp-data"),
+         normal = Regex.replace(@xmp_orientation, xmp, fn _match, prefix -> prefix <> "1" end),
+         true <- normal != xmp do
+      [{:set, "xmp-data", :VipsBlob, normal}]
+    else
+      _absent_or_normal -> []
+    end
   end
 
   defp materialize_for_metadata(%State{materialized?: true} = state), do: {:ok, state}
