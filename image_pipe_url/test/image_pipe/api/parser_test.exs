@@ -1678,6 +1678,48 @@ defmodule ImagePipe.API.ParserTest do
                parse(["crop=50,50", "anchor=top"])
     end
 
+    test "an unset a higher layer replaces counts as never written" do
+      for {defaults, presets, with_unset, without} <- [
+            {"crop=30pct,30pct/crop-ratio=3:2",
+             %{"no" => "crop=unset", "c" => "crop=50pct,50pct"},
+             ["preset=no", "crop=50pct,50pct"], ["crop=50pct,50pct"]},
+            {"crop=30pct,30pct/crop-ratio=3:2",
+             %{"no" => "crop=unset", "c" => "crop=50pct,50pct"}, ["preset=no,c"], ["preset=c"]},
+            {"w=300/enlarge", %{"no" => "w=unset"}, ["preset=no", "w=200"], ["w=200"]},
+            {"w=300/h=200/fit=cover/anchor=top", %{"no" => "fit=unset"},
+             ["preset=no", "fit=cover"], ["fit=cover"]}
+          ] do
+        config = [request_defaults: defaults, presets: presets]
+
+        assert parse(with_unset, "images/cat.jpg", config) ==
+                 parse(without, "images/cat.jpg", config),
+               inspect(with_unset)
+      end
+    end
+
+    property "an unset the URL replaces resolves as if the preset didn't write it" do
+      defaults = ~w(crop=30pct,30pct crop-ratio=3:2 w=300 enlarge h=200 fit=cover anchor=top q=70)
+      replacements = ~w(crop=50pct,50pct w=200 fit=contain anchor=bottom q=60)
+
+      check all picks <- StreamData.list_of(StreamData.boolean(), length: length(defaults)),
+                defaults = for({default, true} <- Enum.zip(defaults, picks), do: default),
+                replacement <- StreamData.member_of(replacements),
+                extra <- StreamData.member_of(["", "blur=1"]) do
+        [key, _value] = String.split(replacement, "=", parts: 2)
+
+        config = [
+          request_defaults: Enum.join(defaults, "/"),
+          presets: %{
+            "a" => Enum.join(Enum.reject([key <> "=unset", extra], &(&1 == "")), "/"),
+            "b" => extra
+          }
+        ]
+
+        assert parse(["preset=a", replacement], "images/cat.jpg", config) ==
+                 parse(["preset=b", replacement], "images/cat.jpg", config)
+      end
+    end
+
     test "a nested preset resolves like listing its parts" do
       config = [
         request_defaults: "format-q=avif:50",
