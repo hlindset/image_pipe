@@ -440,6 +440,61 @@ defmodule ImagePipe.API.ColorManagementWireTest do
     end
   end
 
+  test "a profile with a sound header but tags lcms can't use is dropped" do
+    {:ok, rgb} = Operation.black(16, 16, bands: 3)
+    {:ok, rgb} = Operation.linear(rgb, [1.0], [200.0, 30.0, 40.0])
+    {:ok, rgb} = Operation.cast(rgb, :VIPS_FORMAT_UCHAR)
+    {:ok, rgb} = Operation.copy(rgb, interpretation: :VIPS_INTERPRETATION_sRGB)
+    {:ok, srgb} = Operation.icc_transform(rgb, "sRGB", input_profile: "sRGB")
+    {:ok, rgb_jpeg} = VipsImage.write_to_buffer(rgb, ".jpg[strip]")
+
+    {:ok, cmyk} = Operation.black(16, 16, bands: 4)
+    {:ok, cmyk} = Operation.cast(cmyk, :VIPS_FORMAT_UCHAR)
+    {:ok, cmyk} = Operation.copy(cmyk, interpretation: :VIPS_INTERPRETATION_CMYK)
+    {:ok, cmyk_jpeg} = VipsImage.write_to_buffer(cmyk, ".jpg[strip]")
+
+    rgb_body = with_profile(rgb_jpeg, zeroed_tags(header(srgb, "icc-profile-data")))
+
+    cmyk_body =
+      with_profile(cmyk_jpeg, zeroed_tags(header(source("cmyk.jpg"), "icc-profile-data")))
+
+    for {body, paths} <- [
+          {rgb_body,
+           [
+             "/w=10/format=png",
+             "/w=10/format=jpeg",
+             "/w=10/profile=srgb/format=png",
+             "/pad=5/bg=00ff00/format=png",
+             "/colorize=0.3,ff0000/format=png",
+             "/output=lqip-css",
+             "/w=10/wm=logo/format=png"
+           ]},
+          {cmyk_body, ["/w=10/format=png", "/w=10/profile=preserve/format=png"]}
+        ],
+        path <- paths do
+      config =
+        body
+        |> body_source("image/jpeg")
+        |> Keyword.merge(allow_unsigned: true, watermarks: %{logo: [source: "mark.jpg"]})
+        |> ImagePipe.Plug.init()
+
+      response = conn(:get, path <> "/src/x.jpg") |> ImagePipe.Plug.call(config)
+      assert response.status == 200, path
+    end
+
+    padded =
+      conn(:get, "/pad=5/bg=00ff00/format=png/src/x.jpg")
+      |> ImagePipe.Plug.call(
+        rgb_body
+        |> body_source("image/jpeg")
+        |> Keyword.put(:allow_unsigned, true)
+        |> ImagePipe.Plug.init()
+      )
+      |> decoded()
+
+    assert Image.get_pixel!(padded, 0, 0) == [0, 255, 0]
+  end
+
   test "a source whose profile only supports perceptual intent is converted through it" do
     # libjxl's profile for a PQ source: cjxl -x color_space=RGB_D65_202_Rel_PeQ.
     profile = File.read!("test/support/image_pipe/test/icc/jxl_pq.icc")
@@ -520,6 +575,19 @@ defmodule ImagePipe.API.ColorManagementWireTest do
   end
 
   defp source(name), do: Image.open!(Path.join(@sources, name), access: :random)
+
+  # Keeps the 128-byte header and the tag table, and zeroes the tag data.
+  defp zeroed_tags(<<header::binary-size(128), count::32, rest::binary>> = profile) do
+    table = binary_part(rest, 0, count * 12)
+    data_size = byte_size(profile) - 132 - count * 12
+    header <> <<count::32>> <> table <> :binary.copy(<<0>>, data_size)
+  end
+
+  # Inserts `profile` as an APP2 ICC segment after a JPEG's SOI marker.
+  defp with_profile(<<0xFF, 0xD8, jpeg::binary>>, profile) do
+    payload = <<"ICC_PROFILE", 0, 1, 1, profile::binary>>
+    <<0xFF, 0xD8, 0xFF, 0xE2, byte_size(payload) + 2::16, payload::binary, jpeg::binary>>
+  end
 
   defp body_source(body, content_type) do
     origin = fn conn -> conn |> put_resp_content_type(content_type) |> send_resp(200, body) end

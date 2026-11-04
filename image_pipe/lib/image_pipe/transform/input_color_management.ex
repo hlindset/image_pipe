@@ -8,6 +8,7 @@ defmodule ImagePipe.Transform.InputColorManagement do
   @moduledoc false
 
   alias ImagePipe.BitDepth
+  alias ImagePipe.SrgbProfile
   alias ImagePipe.Telemetry
   alias ImagePipe.Transform.State
   alias ImagePipe.VipsHeader
@@ -102,8 +103,12 @@ defmodule ImagePipe.Transform.InputColorManagement do
   end
 
   defp do_condition(state, image, _interp, target) do
-    profile = profile_data(image)
+    with {:ok, image} <- drop_unusable_profile(image) do
+      import_profile(state, image, profile_data(image), target)
+    end
+  end
 
+  defp import_profile(state, image, profile, target) do
     if importable?(image, profile) do
       # The imported pixels no longer match the embedded profile, so drop it from
       # the image; the backup on `State` is what the output step exports to.
@@ -149,11 +154,20 @@ defmodule ImagePipe.Transform.InputColorManagement do
 
   # jpegload keeps any embedded profile, even one for another color space or
   # one that isn't a profile at all. libvips' own conversions fall back past
-  # such a profile, but request colors would be converted through it.
+  # such a profile, but request colors would be converted through it. A
+  # profile whose tags lcms can't link fails every conversion through it.
   defp drop_foreign_profile(image, interp) do
     profile = profile_data(image)
 
-    if is_nil(profile) or describes?(profile, interp),
+    if is_nil(profile) or (describes?(profile, interp) and SrgbProfile.usable?(profile)),
+      do: {:ok, image},
+      else: remove_profile(image)
+  end
+
+  defp drop_unusable_profile(image) do
+    profile = profile_data(image)
+
+    if is_nil(profile) or SrgbProfile.usable?(profile),
       do: {:ok, image},
       else: remove_profile(image)
   end

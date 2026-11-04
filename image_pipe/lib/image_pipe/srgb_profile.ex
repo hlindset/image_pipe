@@ -12,6 +12,10 @@ defmodule ImagePipe.SrgbProfile do
   # make room. While the process that owns the table isn't running, such as
   # during a restart, each use checks the profile again. The lattice and its
   # import from sRGB don't depend on the profile, so they're made once.
+  #
+  # The same table keeps whether lcms can use a profile at all: one with a
+  # sound header can still hold tag data lcms can't link, which fails every
+  # conversion through it.
   @moduledoc false
 
   use Boundary, top_level?: true, deps: [], exports: []
@@ -58,6 +62,28 @@ defmodule ImagePipe.SrgbProfile do
 
   def equivalent?(_profile), do: false
 
+  @doc """
+  Whether lcms can convert a pixel through `profile`, an RGB, gray, or CMYK
+  profile. A profile for another color space counts as usable.
+  """
+  @spec usable?(binary()) :: boolean()
+  def usable?(<<_::binary-size(16), space::binary-size(4), _::binary>> = profile)
+      when space in ["RGB ", "GRAY", "CMYK"] do
+    key = {:usable, :crypto.hash(:sha256, profile)}
+
+    case lookup(key) do
+      nil ->
+        answer = converts?(profile, space)
+        store(key, answer)
+        answer
+
+      answer ->
+        answer
+    end
+  end
+
+  def usable?(_profile), do: true
+
   defp lookup(key) do
     case :ets.lookup(@table, key) do
       [{^key, answer}] -> answer
@@ -98,6 +124,34 @@ defmodule ImagePipe.SrgbProfile do
          {:ok, imported} <- with_profile(imported, profile),
          {:ok, from_srgb} <- Operation.icc_export(imported, depth: 8) do
       close?(to_srgb) and close?(from_srgb)
+    else
+      {:error, _reason} -> false
+    end
+  end
+
+  @pixel_spaces %{
+    "RGB " => {3, :VIPS_INTERPRETATION_sRGB},
+    "GRAY" => {1, :VIPS_INTERPRETATION_B_W},
+    "CMYK" => {4, :VIPS_INTERPRETATION_CMYK}
+  }
+
+  @dialyzer {:nowarn_function, converts?: 2}
+  defp converts?(profile, space) do
+    {bands, interpretation} = Map.fetch!(@pixel_spaces, space)
+
+    with {:ok, pixel} <-
+           VipsImage.new_from_binary(
+             :binary.copy(<<128>>, bands),
+             1,
+             1,
+             bands,
+             :VIPS_FORMAT_UCHAR
+           ),
+         {:ok, pixel} <- Operation.copy(pixel, interpretation: interpretation),
+         {:ok, pixel} <- with_profile(pixel, profile),
+         {:ok, imported} <- Operation.icc_import(pixel, embedded: true),
+         {:ok, _bytes} <- VipsImage.write_to_binary(imported) do
+      true
     else
       {:error, _reason} -> false
     end

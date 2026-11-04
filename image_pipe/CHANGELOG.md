@@ -38,9 +38,13 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - When a new original can't be staged in a file (a full or unwritable tmp
   directory), requests for other sizes of it share the copy held in memory,
   instead of downloading it again one after another.
-- While a cache write larger than the pending limit (a twentieth of
-  `max_size_bytes`, at most 256 MiB) is in progress, other cache writes are
-  stored beside it instead of being dropped.
+- While a cache write larger than 256 MiB (or a twentieth of
+  `max_size_bytes`, if that's smaller) is in progress, other cache writes
+  are stored instead of dropped.
+- An image whose embedded ICC profile has a sound header but tag data that
+  LittleCMS can't use is served as if it had no profile. Before, every
+  request for it failed with `415` or `422`, and so did every request that
+  used it as a watermark.
 
 ## [0.6.0] - 2026-11-02
 
