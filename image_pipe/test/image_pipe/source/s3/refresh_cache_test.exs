@@ -100,6 +100,27 @@ defmodule ImagePipe.Source.S3.RefreshCacheTest do
     assert {:error, :unavailable} = Entry.get(pid)
   end
 
+  test "a failed fetch without a fresh value answers gets for five seconds without fetching" do
+    test = self()
+    clock = start_supervised!({Agent, fn -> ~U[2026-06-26 00:00:00Z] end})
+
+    fetch_fun = fn ->
+      send(test, :fetched)
+      {:error, :econnrefused}
+    end
+
+    pid = start_entry(fetch_fun: fetch_fun, now_fun: fn -> Agent.get(clock, & &1) end)
+    assert {:error, :econnrefused} = Entry.get(pid)
+    assert_received :fetched
+
+    for _get <- 1..50, do: assert({:error, :econnrefused} = Entry.get(pid))
+    refute_received :fetched
+
+    Agent.update(clock, &DateTime.add(&1, 5, :second))
+    assert {:error, :econnrefused} = Entry.get(pid)
+    assert_received :fetched
+  end
+
   test "serves the still-fresh value when a refresh fails" do
     test = self()
     calls = start_supervised!({Agent, fn -> 0 end})
@@ -265,8 +286,9 @@ defmodule ImagePipe.Source.S3.RefreshCacheTest do
     assert {:error, :timeout} = Entry.get(pid, 20)
   end
 
-  test "a fetch past its deadline fails its waiters and the next get fetches again" do
-    calls = start_supervised!({Agent, fn -> 0 end})
+  test "a fetch past its deadline fails its waiters and a later get fetches again" do
+    calls = start_supervised!({Agent, fn -> 0 end}, id: :calls)
+    clock = start_supervised!({Agent, fn -> ~U[2026-06-26 00:00:00Z] end}, id: :clock)
 
     fetch_fun = fn ->
       case Agent.get_and_update(calls, &{&1, &1 + 1}) do
@@ -275,7 +297,7 @@ defmodule ImagePipe.Source.S3.RefreshCacheTest do
       end
     end
 
-    pid = start_entry(fetch_fun: fetch_fun)
+    pid = start_entry(fetch_fun: fetch_fun, now_fun: fn -> Agent.get(clock, & &1) end)
     %{task: %Task{ref: ref}} = :sys.get_state(pid)
     waiter = Task.async(fn -> Entry.get(pid) end)
     wait_for_waiter(pid)
@@ -285,6 +307,7 @@ defmodule ImagePipe.Source.S3.RefreshCacheTest do
       assert Task.await(waiter) == {:error, :fetch_timeout}
     end)
 
+    Agent.update(clock, &DateTime.add(&1, 5, :second))
     assert {:ok, :creds} = Entry.get(pid)
   end
 

@@ -10,6 +10,10 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - A watermark asset whose origin answers a revalidation with `304` is no
   longer downloaded again in full for the next new variant. Its bytes,
   already held in memory, are reused.
+- While an S3 credential provider (STS, instance metadata, a container
+  endpoint) is failing and no valid credentials are held, it is called again
+  at most every five seconds rather than for every request. Requests in
+  between fail with the same `credentials_unavailable` error.
 
 ## [0.6.0] - 2026-11-02
 

@@ -9,7 +9,7 @@ defmodule ImagePipe.Source.S3.RefreshCache.Entry do
   #     wait on the one fetch (they queue as waiters),
   #   * fetch deadline: a fetch still running after `fetch_timeout_ms` is
   #     killed and fails with `:fetch_timeout`, so a hung provider doesn't
-  #     block the entry and its next `get/2` fetches again,
+  #     block the entry, and a `get/2` after the failure hold fetches again,
   #   * warm-on-init: a fetch is kicked in `init/1`, so the process warms as soon
   #     as it is created,
   #   * idle retirement: an entry no `get/2` used for a whole idle interval
@@ -20,6 +20,9 @@ defmodule ImagePipe.Source.S3.RefreshCache.Entry do
   #     with at least five seconds between successful background fetches; a
   #     refresh that fails while the value is still fresh re-arms a bounded retry,
   #   * fail-closed: an expired value is never served,
+  #   * failure hold: after a fetch fails with no fresh value, `get/2` answers
+  #     with its error for the retry interval without fetching, so a failing
+  #     provider is called about once per interval rather than once per call,
   #   * logging: the first failed fetch in a row logs a warning, and the fetch
   #     that ends the run logs at info. Lines name the value by its `label`,
   #     and include a failure reason only when it's an atom, since other
@@ -34,7 +37,7 @@ defmodule ImagePipe.Source.S3.RefreshCache.Entry do
   @default_refresh_margin_ms 300_000
   # After a failed background refresh that served a still-fresh value, retry on
   # this bounded interval (never past expiry) so a transient blip doesn't disable
-  # all future refresh.
+  # all future refresh. A failure with no fresh value is held this long.
   @refresh_retry_ms 5_000
   @default_call_timeout 10_000
   @default_idle_interval_ms 300_000
@@ -84,7 +87,8 @@ defmodule ImagePipe.Source.S3.RefreshCache.Entry do
       task: nil,
       waiters: [],
       refresh_timer: nil,
-      failing?: false
+      failing?: false,
+      held_failure: nil
     }
 
     schedule_idle_check(state)
@@ -95,10 +99,10 @@ defmodule ImagePipe.Source.S3.RefreshCache.Entry do
   def handle_call(:get, from, state) do
     state = %{state | accessed?: true, warm?: false}
 
-    if fresh?(state) do
-      {:reply, {:ok, state.value}, state}
-    else
-      {:noreply, start_fetch(%{state | waiters: [from | state.waiters]})}
+    cond do
+      fresh?(state) -> {:reply, {:ok, state.value}, state}
+      held?(state) -> {:reply, {:error, elem(state.held_failure, 0)}, state}
+      true -> {:noreply, start_fetch(%{state | waiters: [from | state.waiters]})}
     end
   end
 
@@ -185,8 +189,13 @@ defmodule ImagePipe.Source.S3.RefreshCache.Entry do
     updated = %{state | value: value, expires_at: expires_at}
 
     case fresh?(updated) do
-      true -> {:ok, value} |> reply_waiters(recovered(updated)) |> schedule_refresh()
-      false -> handle_result({:error, :expired_value}, state)
+      true ->
+        {:ok, value}
+        |> reply_waiters(recovered(%{updated | held_failure: nil}))
+        |> schedule_refresh()
+
+      false ->
+        handle_result({:error, :expired_value}, state)
     end
   end
 
@@ -201,9 +210,15 @@ defmodule ImagePipe.Source.S3.RefreshCache.Entry do
       state = reply_waiters({:ok, state.value}, state)
       schedule_retry(state)
     else
-      reply_waiters({:error, reason}, %{state | warm?: false})
+      until = DateTime.add(state.now_fun.(), @refresh_retry_ms, :millisecond)
+      reply_waiters({:error, reason}, %{state | warm?: false, held_failure: {reason, until}})
     end
   end
+
+  defp held?(%{held_failure: nil}), do: false
+
+  defp held?(%{held_failure: {_reason, until}, now_fun: now_fun}),
+    do: DateTime.compare(now_fun.(), until) == :lt
 
   defp failed(%{failing?: true} = state, _reason), do: state
 
