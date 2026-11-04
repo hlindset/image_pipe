@@ -441,19 +441,25 @@ defmodule ImagePipeServer.Config do
 
   @min_token_length 32
 
+  # A bearer token can't carry whitespace, and a `_FILE` value loses its
+  # trailing whitespace, so a token with any is refused rather than matched
+  # differently.
   defp token_hash!(token, setting) do
-    if String.length(token) < @min_token_length,
-      do:
-        raise(
-          ConfigError,
-          "invalid configuration: #{setting}: needs at least #{@min_token_length} characters"
-        )
+    cond do
+      String.length(token) < @min_token_length ->
+        raise ConfigError,
+              "invalid configuration: #{setting}: needs at least #{@min_token_length} characters"
 
-    :crypto.hash(:sha256, token)
+      String.match?(token, ~r/\s/u) ->
+        raise ConfigError, "invalid configuration: #{setting}: must not contain whitespace"
+
+      true ->
+        :crypto.hash(:sha256, token)
+    end
   end
 
   defp ip!(bind, setting) do
-    case :inet.parse_address(String.to_charlist(bind)) do
+    case :inet.parse_strict_address(String.to_charlist(bind)) do
       {:ok, ip} ->
         ip
 
@@ -463,18 +469,21 @@ defmodule ImagePipeServer.Config do
   end
 
   # The router compares the setting with the request's path segments, which
-  # stay percent-encoded, so a segment needs no encoding to match.
+  # stay percent-encoded, so a segment needs no encoding to match. Clients
+  # remove `.` and `..` segments before sending, so a path with one can't be
+  # reached.
   @mount_path ~r"\A(/[A-Za-z0-9\-._~]*)+\z"
 
   defp mount_path!(path) do
-    if Regex.match?(@mount_path, path),
-      do: path,
-      else:
-        raise(
-          ConfigError,
-          "invalid configuration: server.mount_path: expected a path starting with / " <>
-            "and made only of letters, digits, and -._~ between slashes"
-        )
+    if Regex.match?(@mount_path, path) and
+         not Enum.any?(String.split(path, "/"), &(&1 in [".", ".."])),
+       do: path,
+       else:
+         raise(
+           ConfigError,
+           "invalid configuration: server.mount_path: expected a path starting with / " <>
+             "and made only of letters, digits, and -._~ between slashes, with no . or .. segment"
+         )
   end
 
   defp signed!(url) do

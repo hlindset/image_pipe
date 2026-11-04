@@ -272,7 +272,15 @@ defmodule ImagePipeServer.ConfigTest do
                )
              end) =~ "server.mount_path: expected a path starting with /"
 
-      for path <- ["/my images", "/bilder/æøå", "/a%20b"] do
+      for path <- [
+            "/my images",
+            "/bilder/æøå",
+            "/a%20b",
+            "/img/..",
+            "/img/.",
+            "/./img",
+            "/img/../x"
+          ] do
         assert error(fn ->
                  Config.build!(
                    Config.options!(%{
@@ -287,11 +295,11 @@ defmodule ImagePipeServer.ConfigTest do
         Config.build!(
           Config.options!(%{
             "url" => %{"allow_unsigned" => true},
-            "server" => %{"mount_path" => "/img/v1.2_x~y-z/"}
+            "server" => %{"mount_path" => "/img/v1.2_x~y-z/.well/..."}
           })
         )
 
-      assert config.server[:mount_path] == "/img/v1.2_x~y-z/"
+      assert config.server[:mount_path] == "/img/v1.2_x~y-z/.well/..."
     end
 
     test "passes [processing] watermarks to the library by name" do
@@ -581,6 +589,23 @@ defmodule ImagePipeServer.ConfigTest do
       end
     end
 
+    test "rejects an auth token or stats token with whitespace" do
+      for token <- [String.duplicate(" ", 32), @token <> " ", "sekrit token " <> @token] do
+        for options <- [
+              %{"server" => %{"auth_token" => token}},
+              %{"stats" => %{"enabled" => true, "token" => token}}
+            ] do
+          message =
+            error(fn ->
+              Config.build!(Config.options!(Map.put(options, "url", %{"allow_unsigned" => true})))
+            end)
+
+          assert message =~ "must not contain whitespace"
+          refute message =~ "sekrit"
+        end
+      end
+    end
+
     test "rejects a port above 65535" do
       assert error(fn ->
                Config.build!(
@@ -611,6 +636,11 @@ defmodule ImagePipeServer.ConfigTest do
 
       assert error(fn -> server.(health_bind: "host") end) ==
                "invalid configuration: server.health_bind: expected an IP address"
+
+      for shorthand <- ["1", "10.0.5", "127.1"] do
+        assert error(fn -> server.(bind: shorthand) end) ==
+                 "invalid configuration: server.bind: expected an IP address"
+      end
     end
 
     test "rejects a health_port equal to port" do

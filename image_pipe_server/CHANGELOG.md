@@ -5,6 +5,17 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking:** The server refuses to start with these settings, which
+  never worked as written:
+  - An `auth_token` or `[stats] token` with whitespace, which clients can't
+    send. Remove the whitespace.
+  - A `mount_path` with a `.` or `..` segment, which clients remove before
+    sending. Remove the segment.
+  - A `bind` or `health_bind` written as a shortened IPv4 address, such as
+    `10.0.5`, which was read as `10.0.0.5`. Write all four numbers.
+
 ## [0.6.0] - 2026-11-02
 
 ### Added

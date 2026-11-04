@@ -183,7 +183,7 @@ its keys marked required.
 
 ### `[server]`
 
-The HTTP listener. `mount_path` is the path that image URLs start with, such as `/images`. It starts with `/` and holds only letters, digits, and `-._~` between its slashes. The server refuses to start with any other character. Times are in milliseconds. `read_timeout` closes connections that send nothing for that long, idle keep-alive connections included. With `auth_token`, requests other than the health checks, `/stats`, and `/metrics` must send `Authorization: Bearer <token>`. The token needs at least 32 characters. On shutdown, `/health/ready` answers `503` while the server keeps serving for `shutdown_delay`. Then in-flight requests get `shutdown_timeout` to finish. `health_port` serves the health checks on a separate listener, outside `max_connections`, at the address in `health_bind`, or else `bind`. See [health and shutdown](server-deployment.md#health-and-shutdown).
+The HTTP listener. `mount_path` is the path that image URLs start with, such as `/images`. It starts with `/` and holds only letters, digits, and `-._~` between its slashes, with no `.` or `..` segment. The server refuses to start with any other path. `bind` and `health_bind` take an IPv6 address or a full IPv4 address with four numbers. Times are in milliseconds. `read_timeout` closes connections that send nothing for that long, idle keep-alive connections included. With `auth_token`, requests other than the health checks, `/stats`, and `/metrics` must send `Authorization: Bearer <token>`. The token needs at least 32 characters and no whitespace. On shutdown, `/health/ready` answers `503` while the server keeps serving for `shutdown_delay`. Then in-flight requests get `shutdown_timeout` to finish. `health_port` serves the health checks on a separate listener, outside `max_connections`, at the address in `health_bind`, or else `bind`. See [health and shutdown](server-deployment.md#health-and-shutdown).
 
 | Key | Type | Default |
 | --- | --- | --- |
@@ -469,7 +469,7 @@ Response settings: the CORS origin and the HTTP cache headers. See [serving imag
 
 ### `[stats]`
 
-`enabled` turns on `GET /stats`, which answers with JSON, and `GET /metrics`, which answers with Prometheus text. They report each cache's size, its hits and misses since the server started, and the free space on the disk that holds it. Every request must send `Authorization: Bearer <token>` with `token`, which is required when `enabled` is true and needs at least 32 characters. The `[server]` `auth_token` doesn't give access to them. With `health_port`, that listener serves them too. See [cache stats](server-deployment.md#cache-stats).
+`enabled` turns on `GET /stats`, which answers with JSON, and `GET /metrics`, which answers with Prometheus text. They report each cache's size, its hits and misses since the server started, and the free space on the disk that holds it. Every request must send `Authorization: Bearer <token>` with `token`, which is required when `enabled` is true and needs at least 32 characters and no whitespace. The `[server]` `auth_token` doesn't give access to them. With `health_port`, that listener serves them too. See [cache stats](server-deployment.md#cache-stats).
 
 | Key | Type | Default |
 | --- | --- | --- |
