@@ -5,6 +5,11 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- SVGs render with resvg 0.49.0, up from 0.48.1, so some renders can differ
+  slightly.
+
 ## [0.1.0] - 2026-10-13
 
 ### Added
