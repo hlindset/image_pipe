@@ -5,6 +5,12 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- A watermark asset whose origin answers a revalidation with `304` is no
+  longer downloaded again in full for the next new variant. Its bytes,
+  already held in memory, are reused.
+
 ## [0.6.0] - 2026-11-02
 
 ### Added
