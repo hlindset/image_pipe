@@ -24,6 +24,18 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   for four fetch timeouts. The warmup also gives up after five seconds and
   logs a warning.
 
+### Security
+
+- The release bundles Bandit 1.14.1 and ssl_verify_fun 1.1.9, so
+  vulnerability scanners no longer flag the image. Neither problem affected
+  the server:
+  - Bandit's fix is for HTTP/2 request bodies sent as 1-byte frames
+    (EEF-CVE-2026-116078). The server serves only HTTP/1.
+  - ssl_verify_fun's fix is for wildcard certificates such as
+    `f*.example.net` matching `f.evil.example.net` (EEF-CVE-2026-117666).
+    Only the trace exporter uses it, and Erlang's own hostname check rejects
+    such a certificate first while SNI is on, as it is by default.
+
 ## [0.6.0] - 2026-11-02
 
 ### Added
