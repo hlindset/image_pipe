@@ -154,20 +154,19 @@ defmodule ImagePipe.ShrinkThroughCropTest do
   end
 
   # A region's origin on a shrunk decode rounds half to even. On the radial
-  # chirp any origin error shifts every output pixel: rounding 101 / 2 half away
-  # from zero gave a mean difference of about 28 levels from the full decode,
-  # half to even about 10, the rest being the JPEG decoder's own downscale.
+  # chirp any origin error shifts every output pixel, so rounding 101 / 2 half
+  # away from zero lands far from the full decode.
   test "a region on a shrunk decode lands where a full decode puts it" do
     jpeg = File.read!("test/support/image_pipe/test/sources/high_freq.jpg")
     png = jpeg |> Image.from_binary!() |> Image.write!(:memory, suffix: ".png")
-    options = "region=101,51,801,601/w=201"
+    options = "region=101,51,801,601/w=101"
 
     {shrunk, shrink} = run(jpeg, options)
     {full, nil} = run(png, options)
 
     assert shrink == 2
-    assert {Image.width(shrunk), Image.height(shrunk)} == {201, 151}
-    assert {Image.width(full), Image.height(full)} == {201, 151}
+    assert {Image.width(shrunk), Image.height(shrunk)} == {101, 76}
+    assert {Image.width(full), Image.height(full)} == {101, 76}
 
     {:ok, difference} = Operation.subtract(shrunk, full)
     {:ok, difference} = Operation.abs(difference)
@@ -177,7 +176,7 @@ defmodule ImagePipe.ShrinkThroughCropTest do
 
   # A narrow crop's rounding on the shrunk decode must not change the output
   # size: the resize works from the full-resolution crop.
-  for options <- ["crop=101,1500/w=50", "region=0,0,25,1500/w=3"] do
+  for options <- ["crop=101,1500/w=25", "region=0,0,41,1500/w=3"] do
     test "#{options} gives the same size on a shrunk and a full decode" do
       options = unquote(options)
       {jpeg_img, shrink} = run(structured(2003, 1501, ".jpg"), options)

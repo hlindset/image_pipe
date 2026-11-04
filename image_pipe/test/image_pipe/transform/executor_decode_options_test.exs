@@ -40,9 +40,10 @@ defmodule ImagePipe.Transform.ExecutorDecodeOptionsTest do
 
   test "a crop and its resize produce format-specific load options" do
     # The 1600x1200 crop feeds a 400x300 resize: min(1600/400, 1200/300) = 4.
+    # JPEG leaves the resize a 2x reduction, so it shrinks by 2.
     plan = &options("region=0,0,1600,1200/w=400/h=300", geometry({3200, 2400}, {3200, 2400}, &1))
 
-    assert plan.(:jpeg)[:shrink] == 4
+    assert plan.(:jpeg)[:shrink] == 2
     assert plan.(:webp)[:scale] == 0.25
     refute_shrink(plan.(:png))
   end
@@ -53,10 +54,11 @@ defmodule ImagePipe.Transform.ExecutorDecodeOptionsTest do
 
     refute_shrink(options("region=0,804,2000,8/w=50", jpeg))
     refute_shrink(options("crop=2000,8/w=50", jpeg))
-    # 40 / 8 = 5, so JPEG and WebP take their largest shrink under 5.
-    assert options("region=0,800,2000,40/w=50", jpeg)[:shrink] == 4
+    # 40 / 8 = 5: WebP takes its largest scale under 5, and JPEG leaves the
+    # resize a 2x reduction.
+    assert options("region=0,800,2000,40/w=50", jpeg)[:shrink] == 2
     assert options("region=0,800,2000,40/w=50", webp)[:scale] == 0.25
-    assert options("region=0,800,2000,100/w=50", jpeg)[:shrink] == 8
+    assert options("region=0,800,2000,100/w=50", jpeg)[:shrink] == 4
   end
 
   test "an SVG renders past its intrinsic size without enlarge" do
@@ -82,21 +84,21 @@ defmodule ImagePipe.Transform.ExecutorDecodeOptionsTest do
   end
 
   # An asymmetric 200x50 stretch target makes the frame's orientation decide
-  # which axis governs: on 3200x800, min(3200/200, 800/50) = 16 (shrink 8); on
-  # 800x3200, min(800/200, 3200/50) = 4 (shrink 4).
+  # which axis governs: on 3200x800, min(3200/200, 800/50) = 16 (JPEG shrink
+  # 8); on 800x3200, min(800/200, 3200/50) = 4 (JPEG shrink 2).
   @stretch "w=200/h=50/fit=stretch"
 
   test "an EXIF quarter turn swaps the shrink axes only when auto-rotation applies it" do
     exif_six = PendingOrientation.from_exif(6, true)
 
-    assert options(@stretch, geometry({3200, 800}, {800, 3200}, :jpeg, exif_six))[:shrink] == 4
+    assert options(@stretch, geometry({3200, 800}, {800, 3200}, :jpeg, exif_six))[:shrink] == 2
     assert options(@stretch, geometry({3200, 800}, {3200, 800}, :jpeg))[:shrink] == 8
   end
 
   test "a user quarter turn swaps the shrink axes when there is no EXIF turn" do
     geometry = geometry({3200, 800}, {3200, 800}, :jpeg)
 
-    assert options("rotate=90/" <> @stretch, geometry)[:shrink] == 4
+    assert options("rotate=90/" <> @stretch, geometry)[:shrink] == 2
     assert options(@stretch, geometry)[:shrink] == 8
   end
 
@@ -127,13 +129,13 @@ defmodule ImagePipe.Transform.ExecutorDecodeOptionsTest do
     plan = &options("w=400/h=300/kernel=" <> &1, geometry({3200, 2400}, {3200, 2400}, :jpeg))
 
     for kernel <- ~w(linear cubic mitchell lanczos2 lanczos3 mks2013 mks2021),
-        do: assert(plan.(kernel)[:shrink] == 8)
+        do: assert(plan.(kernel)[:shrink] == 4)
   end
 
   test "only the first group's kernel decides the shrink" do
     geometry = geometry({3200, 2400}, {3200, 2400}, :jpeg)
 
-    assert options("w=400/h=300/-/w=100/kernel=nearest", geometry)[:shrink] == 8
+    assert options("w=400/h=300/-/w=100/kernel=nearest", geometry)[:shrink] == 4
   end
 
   test "an SVG still renders at a nearest-neighbour resize target" do
@@ -155,9 +157,9 @@ defmodule ImagePipe.Transform.ExecutorDecodeOptionsTest do
 
   test "a resize target governs over the terminal reduction" do
     # min(3200/800, 2400/600) = 4, not the terminal's 75.
-    opts = options("w=800/h=600/output=blurhash", geometry({3200, 2400}, {3200, 2400}, :jpeg))
+    opts = options("w=800/h=600/output=blurhash", geometry({3200, 2400}, {3200, 2400}, :webp))
 
-    assert opts[:shrink] == 4
+    assert opts[:scale] == 0.25
   end
 
   test "a request without a resize, crop, or placeholder produces no shrink or scale" do
@@ -181,7 +183,8 @@ defmodule ImagePipe.Transform.ExecutorDecodeOptionsTest do
           detector: CornerObjectDetector
         )
 
-      assert plan.(:jpeg)[:shrink] == 2
+      # 3.75 leaves JPEG under the 4x it needs to shrink.
+      refute_shrink(plan.(:jpeg))
       assert plan.(:webp)[:scale] == 0.5
       refute_shrink(plan.(:png))
     end
@@ -191,22 +194,22 @@ defmodule ImagePipe.Transform.ExecutorDecodeOptionsTest do
     # The 1280x1280 crop for a 64x64 resize gives 20; the floor on the frame
     # caps it at 2400/640 = 3.75.
     opts =
-      options("crop=1280,1280/detect=face/w=64/h=64", geometry({2400, 1600}, {2400, 1600}, :jpeg),
+      options("crop=1280,1280/detect=face/w=64/h=64", geometry({2400, 1600}, {2400, 1600}, :webp),
         detector: CornerObjectDetector
       )
 
-    assert opts[:shrink] == 2
+    assert opts[:scale] == 0.5
   end
 
   test "the detection floor holds on the whole frame a detect crop searches" do
     # The detector sees the 6000x4000 frame, so the floor allows 6000/640 =
     # 9.4. The 800x600 crop for a 200 wide resize gives 4.
     opts =
-      options("crop=800,600/detect=face/w=200", geometry({6000, 4000}, {6000, 4000}, :jpeg),
+      options("crop=800,600/detect=face/w=200", geometry({6000, 4000}, {6000, 4000}, :webp),
         detector: CornerObjectDetector
       )
 
-    assert opts[:shrink] == 4
+    assert opts[:scale] == 0.25
   end
 
   test "a cover resize after a crop keeps the floor on the crop box it searches" do
@@ -224,11 +227,11 @@ defmodule ImagePipe.Transform.ExecutorDecodeOptionsTest do
     covering =
       options(
         "crop=2400,1600/detect=face/w=64/h=64/fit=cover",
-        geometry({2400, 1600}, {2400, 1600}, :jpeg),
+        geometry({2400, 1600}, {2400, 1600}, :webp),
         detector: CornerObjectDetector
       )
 
-    assert covering[:shrink] == 2
+    assert covering[:scale] == 0.5
   end
 
   test "a detect crop that covers the frame can't move, so it needs no floor" do
@@ -251,25 +254,25 @@ defmodule ImagePipe.Transform.ExecutorDecodeOptionsTest do
   end
 
   test "the detection floor needs a detector that can find the guide's classes" do
-    frame = geometry({2400, 1600}, {2400, 1600}, :jpeg)
+    frame = geometry({2400, 1600}, {2400, 1600}, :webp)
 
     assert options("w=64/h=64/fit=cover/detect=face", frame, detector: ObjectOnlyDetector)[
-             :shrink
-           ] == 8
+             :scale
+           ] == 0.125
 
     assert options("w=64/h=64/fit=cover/detect=car,face", frame, detector: ObjectOnlyDetector)[
-             :shrink
-           ] == 2
+             :scale
+           ] == 0.5
   end
 
   test "a required detector that isn't ready keeps no floor for a smart-face crop" do
-    frame = geometry({2400, 1600}, {2400, 1600}, :jpeg)
+    frame = geometry({2400, 1600}, {2400, 1600}, :webp)
     plan = &options("w=64/h=64/fit=cover/anchor=smart-face", frame, &1)
 
     # A required detector loads no models during a request, so the crop
     # falls back to attention.
-    assert plan.(detector: ColdFaceDetector, detector_required: true)[:shrink] == 8
-    assert plan.(detector: ColdFaceDetector)[:shrink] == 2
+    assert plan.(detector: ColdFaceDetector, detector_required: true)[:scale] == 0.125
+    assert plan.(detector: ColdFaceDetector)[:scale] == 0.5
   end
 
   test "a cover resize whose target has the frame's shape crops nothing, so it needs no floor" do
@@ -280,10 +283,10 @@ defmodule ImagePipe.Transform.ExecutorDecodeOptionsTest do
   end
 
   test "the detection floor never shrinks a decode more than its target does" do
-    frame = geometry({2400, 1600}, {2400, 1600}, :jpeg)
+    frame = geometry({2400, 1600}, {2400, 1600}, :webp)
     opts = options("w=1200/h=600/fit=cover/detect=face", frame, detector: CornerObjectDetector)
 
-    assert opts[:shrink] == 2
+    assert opts[:scale] == 0.5
   end
 
   test "the detection floor doesn't enlarge an SVG past its intrinsic size" do

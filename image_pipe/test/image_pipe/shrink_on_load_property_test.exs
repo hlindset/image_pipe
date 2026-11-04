@@ -72,7 +72,7 @@ defmodule ImagePipe.ShrinkOnLoadPropertyTest do
     check all(
             source_w <- integer(1200..3600),
             source_h <- integer(1200..3600),
-            target <- integer(60..div(source_w, 8)),
+            target <- integer(60..div(source_w, 16)),
             minimum_axis <- member_of(["min-w", "min-h"]),
             minimum <- integer(1..div(max(source_w, source_h), 2)),
             max_runs: 100

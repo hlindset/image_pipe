@@ -224,9 +224,9 @@ defmodule ImagePipe.DecodeTest do
     assert state.pending_orientation == geometry.pending_orientation
   end
 
-  test "shrink actually applied: a half-size resize_target halves the loaded dims and sets decode_shrink" do
+  test "shrink actually applied: a quarter-size resize_target halves the loaded dims and sets decode_shrink" do
     opts = source_opts(LargeJpegOrigin)
-    request = request(["w=2048", "h=1024"])
+    request = request(["w=1024", "h=512"])
 
     assert {:ok, %State{} = state} =
              Decode.with_image(resolved(opts), request, opts, fn state, _geometry ->

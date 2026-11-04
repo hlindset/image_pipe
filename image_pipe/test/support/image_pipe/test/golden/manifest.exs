@@ -92,7 +92,7 @@
       }
     },
     "crop_centered_shrunk_jpeg" => %{
-      fixture_sha256: "50156ba8ccc0a4528f78379bd185377cafa8aaeca9d25d17ff965fdf47b9b402",
+      fixture_sha256: "665945c85612ea45ddd053dcba50a75d4ec1280502cea0ace06cd3ef2589b781",
       structure: %{
         alpha?: false,
         bands: 3,
@@ -101,7 +101,7 @@
         icc: nil,
         interpretation: :VIPS_INTERPRETATION_sRGB,
         metadata: [],
-        orientation: 1
+        orientation: nil
       }
     },
     "crop_centered_shrunk_webp" => %{
@@ -510,7 +510,7 @@
       }
     },
     "progressive_blur" => %{
-      fixture_sha256: "3f0809499164c924a51546d595549ab000c7af7fed2e4daaf1a8b2596fed61d3",
+      fixture_sha256: "e284f6d7a37140912e7ea9c2e470050c1590fc50ca51c7d19062571f044c15d6",
       structure: %{
         alpha?: false,
         bands: 3,
@@ -519,7 +519,7 @@
         icc: nil,
         interpretation: :VIPS_INTERPRETATION_sRGB,
         metadata: [],
-        orientation: 1
+        orientation: nil
       }
     },
     "region" => %{

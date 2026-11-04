@@ -31,29 +31,38 @@ defmodule ImagePipe.Test.ImgproxyReference.Cases do
   @spec all() :: [t()]
   def all do
     [
+      # ImagePipe's JPEG shrink-on-load leaves the resize a 2x reduction, as
+      # libvips' thumbnail does, so its resampling differs from imgproxy's by up to
+      # 12 levels (image_plug-hw4f).
       %{
         id: "rs_fill_zone",
         kind: :png,
         source: "high_freq.jpg",
         native: "w=240/h=180/fit=cover/anchor=center",
         imgproxy: "rs:fill:240:180/g:ce",
-        tolerance: {2, 64}
+        tolerance: {14, 64}
       },
+      # ImagePipe's JPEG shrink-on-load leaves the resize a 2x reduction, as
+      # libvips' thumbnail does, so its resampling differs from imgproxy's by up to
+      # 15 levels (image_plug-hw4f).
       %{
         id: "rs_fit_zone",
         kind: :png,
         source: "high_freq.jpg",
         native: "w=300/h=300/fit=contain",
         imgproxy: "rs:fit:300:300",
-        tolerance: {2, 64}
+        tolerance: {17, 64}
       },
+      # ImagePipe's JPEG shrink-on-load leaves the resize a 2x reduction, as
+      # libvips' thumbnail does, so its resampling differs from imgproxy's by up to
+      # 23 levels (image_plug-hw4f).
       %{
         id: "rs_fill_zone_q4",
         kind: :png,
         source: "high_freq.jpg",
         native: "w=200/h=150/fit=cover",
         imgproxy: "rs:fill:200:150",
-        tolerance: {2, 64}
+        tolerance: {25, 64}
       },
       # Inline-crop placement cases use the aperiodic `:placement` grid, not `:marker`
       # (#239): a no-resize crop of the near-uniform marker field had zero discriminating
@@ -518,21 +527,27 @@ defmodule ImagePipe.Test.ImgproxyReference.Cases do
         imgproxy: "rs:fit:64:64/bg:255:0:0",
         tolerance: {2, 64}
       },
+      # ImagePipe's JPEG shrink-on-load leaves the resize a 2x reduction, as
+      # libvips' thumbnail does, so its resampling differs from imgproxy's by up to
+      # 3 levels (image_plug-hw4f).
       %{
         id: "blur_zone",
         kind: :png,
         source: "high_freq.jpg",
         native: "w=240/h=240/fit=contain/blur=3",
         imgproxy: "rs:fit:240:240/bl:3",
-        tolerance: {2, 64}
+        tolerance: {5, 64}
       },
+      # ImagePipe's JPEG shrink-on-load leaves the resize a 2x reduction, as
+      # libvips' thumbnail does, so its resampling differs from imgproxy's by up to
+      # 17 levels (image_plug-hw4f).
       %{
         id: "sharpen_zone",
         kind: :png,
         source: "high_freq.jpg",
         native: "w=240/h=240/fit=contain/sharpen=2",
         imgproxy: "rs:fit:240:240/sh:2",
-        tolerance: {2, 64}
+        tolerance: {19, 64}
       },
       %{
         id: "strip_exif",
@@ -1416,13 +1431,16 @@ defmodule ImagePipe.Test.ImgproxyReference.Cases do
         imgproxy: "rs:fill:240:180/f:avif",
         tolerance: {2, 64}
       },
+      # ImagePipe's JPEG shrink-on-load leaves the resize a 2x reduction, as
+      # libvips' thumbnail does, so its resampling differs from imgproxy's by up to
+      # 16 levels (image_plug-hw4f).
       %{
         id: "exif_2_cover",
         kind: :png,
         source: "exif_2.jpg",
         native: "w=200/h=150/fit=cover",
         imgproxy: "rs:fill:200:150",
-        tolerance: {2, 64}
+        tolerance: {18, 64}
       },
       %{
         id: "exif_2_crop_no",
@@ -1432,13 +1450,16 @@ defmodule ImagePipe.Test.ImgproxyReference.Cases do
         imgproxy: "c:200:120/g:no",
         tolerance: {2, 64}
       },
+      # ImagePipe's JPEG shrink-on-load leaves the resize a 2x reduction, as
+      # libvips' thumbnail does, so its resampling differs from imgproxy's by up to
+      # 16 levels (image_plug-hw4f).
       %{
         id: "exif_3_cover",
         kind: :png,
         source: "exif_3.jpg",
         native: "w=200/h=150/fit=cover",
         imgproxy: "rs:fill:200:150",
-        tolerance: {2, 64}
+        tolerance: {18, 64}
       },
       %{
         id: "exif_3_crop_no",
@@ -1448,13 +1469,16 @@ defmodule ImagePipe.Test.ImgproxyReference.Cases do
         imgproxy: "c:200:120/g:no",
         tolerance: {2, 64}
       },
+      # ImagePipe's JPEG shrink-on-load leaves the resize a 2x reduction, as
+      # libvips' thumbnail does, so its resampling differs from imgproxy's by up to
+      # 16 levels (image_plug-hw4f).
       %{
         id: "exif_4_cover",
         kind: :png,
         source: "exif_4.jpg",
         native: "w=200/h=150/fit=cover",
         imgproxy: "rs:fill:200:150",
-        tolerance: {2, 64}
+        tolerance: {18, 64}
       },
       %{
         id: "exif_4_crop_no",
@@ -1564,21 +1588,27 @@ defmodule ImagePipe.Test.ImgproxyReference.Cases do
       # (axis-swapping EXIF stacked with an axis-swapping user rotate). The user
       # rotate now flushes via the exact `vips_rot` instead of Image.rotate/2's
       # affine resampler, which had left a 1px black edge seam (#211).
+      # ImagePipe's JPEG shrink-on-load leaves the resize a 2x reduction, as
+      # libvips' thumbnail does, so its resampling differs from imgproxy's by up to
+      # 16 levels (image_plug-hw4f).
       %{
         id: "exif_5_cover_rot90",
         kind: :png,
         source: "exif_5.jpg",
         native: "rotate=90/w=200/h=150/fit=cover",
         imgproxy: "rs:fill:200:150/rot:90",
-        tolerance: {2, 64}
+        tolerance: {18, 64}
       },
+      # ImagePipe's JPEG shrink-on-load leaves the resize a 2x reduction, as
+      # libvips' thumbnail does, so its resampling differs from imgproxy's by up to
+      # 16 levels (image_plug-hw4f).
       %{
         id: "exif_7_cover_rot90",
         kind: :png,
         source: "exif_7.jpg",
         native: "rotate=90/w=200/h=150/fit=cover",
         imgproxy: "rs:fill:200:150/rot:90",
-        tolerance: {2, 64}
+        tolerance: {18, 64}
       },
       %{
         id: "exif_5_cover_fl",
@@ -1884,13 +1914,16 @@ defmodule ImagePipe.Test.ImgproxyReference.Cases do
         imgproxy: "ar:0/c:200:120:no",
         tolerance: {2, 64}
       },
+      # ImagePipe's JPEG shrink-on-load leaves the resize a 2x reduction, as
+      # libvips' thumbnail does, so its resampling differs from imgproxy's by up to
+      # 16 levels (image_plug-hw4f).
       %{
         id: "orient_none_cover",
         kind: :png,
         source: "exif_5.jpg",
         native: "orient=none/w=200/h=150/fit=cover",
         imgproxy: "ar:0/rs:fill:200:150",
-        tolerance: {2, 64}
+        tolerance: {18, 64}
       },
       # Resampling skew without any shift (best-fit offset 0,0, maxΔ 16); the
       # threshold sits just above the measured maximum. A 1px shift fails far past it.
@@ -1929,13 +1962,16 @@ defmodule ImagePipe.Test.ImgproxyReference.Cases do
         tolerance: {2, 64}
       },
       # EXIF 3 composed with rotate 180 nets to identity.
+      # ImagePipe's JPEG shrink-on-load leaves the resize a 2x reduction, as
+      # libvips' thumbnail does, so its resampling differs from imgproxy's by up to
+      # 18 levels (image_plug-hw4f).
       %{
         id: "exif3_rot180_identity",
         kind: :png,
         source: "exif_placement_3.jpg",
         native: "rotate=180/w=200/h=150/fit=contain",
         imgproxy: "rot:180/rs:fit:200:150",
-        tolerance: {2, 64}
+        tolerance: {20, 64}
       },
       # Resampling skew without any shift (best-fit offset 0,0, maxΔ 18); the
       # threshold sits just above the measured maximum. A 1px shift fails far past it.
@@ -2211,13 +2247,16 @@ defmodule ImagePipe.Test.ImgproxyReference.Cases do
         imgproxy: "rs:fill:200:150/g:soea:10:10",
         tolerance: {32, 64}
       },
+      # ImagePipe's JPEG shrink-on-load leaves the resize a 2x reduction, as
+      # libvips' thumbnail does, so its resampling differs from imgproxy's by up to
+      # 26 levels (image_plug-hw4f).
       %{
         id: "exif_large_fit",
         kind: :png,
         source: "exif_large_6.jpg",
         native: "w=300/h=300/fit=contain",
         imgproxy: "rs:fit:300:300",
-        tolerance: {2, 64}
+        tolerance: {28, 64}
       },
       # Resampling skew, no shift; threshold just above the measured maxΔ 32, from shrink-on-load.
       %{
@@ -2228,21 +2267,27 @@ defmodule ImagePipe.Test.ImgproxyReference.Cases do
         imgproxy: "c:800:600:nowe/rs:fit:200:200",
         tolerance: {36, 64}
       },
+      # ImagePipe's JPEG shrink-on-load leaves the resize a 2x reduction, as
+      # libvips' thumbnail does, so its resampling differs from imgproxy's by up to
+      # 32 levels (image_plug-hw4f).
       %{
         id: "exif_large_cover_focus",
         kind: :png,
         source: "exif_large_6.jpg",
         native: "w=300/h=200/fit=cover/focus=0.2,0.8",
         imgproxy: "rs:fill:300:200/g:fp:0.2:0.8",
-        tolerance: {2, 64}
+        tolerance: {34, 64}
       },
+      # ImagePipe's JPEG shrink-on-load leaves the resize a 2x reduction, as
+      # libvips' thumbnail does, so its resampling differs from imgproxy's by up to
+      # 32 levels (image_plug-hw4f).
       %{
         id: "exif_large_cover_dpr",
         kind: :png,
         source: "exif_large_6.jpg",
         native: "w=150/h=100/fit=cover/anchor=top/dpr=2",
         imgproxy: "rs:fill:150:100/g:no/dpr:2",
-        tolerance: {2, 64}
+        tolerance: {34, 64}
       },
       # Edge cases: a 2000×8 strip, where the short axis rounds towards zero.
       %{
@@ -2395,31 +2440,40 @@ defmodule ImagePipe.Test.ImgproxyReference.Cases do
       # stretch shrunk on load) hid in such combinations.
       #
       # A minimum that doesn't bind keeps the full load shrink (#782).
+      # ImagePipe's JPEG shrink-on-load leaves the resize a 2x reduction, as
+      # libvips' thumbnail does, so its resampling differs from imgproxy's by up to
+      # 23 levels (image_plug-hw4f).
       %{
         id: "dps_min_w_nonbinding",
         kind: :png,
         source: "high_freq.jpg",
         native: "w=200/min-w=100",
         imgproxy: "rs:fit:200:0/mw:100",
-        tolerance: {2, 64}
+        tolerance: {25, 64}
       },
       # Zoom scales the decode target with the resize.
+      # ImagePipe's JPEG shrink-on-load leaves the resize a 2x reduction, as
+      # libvips' thumbnail does, so its resampling differs from imgproxy's by up to
+      # 23 levels (image_plug-hw4f).
       %{
         id: "dps_zoom_half",
         kind: :png,
         source: "high_freq.jpg",
         native: "w=400/zoom=0.5",
         imgproxy: "rs:fit:400:0/z:0.5",
-        tolerance: {2, 64}
+        tolerance: {25, 64}
       },
       # Stretch on both axes may shrink on load by the smaller ratio.
+      # ImagePipe's JPEG shrink-on-load leaves the resize a 2x reduction, as
+      # libvips' thumbnail does, so its resampling differs from imgproxy's by up to
+      # 10 levels (image_plug-hw4f).
       %{
         id: "dps_stretch_both",
         kind: :png,
         source: "high_freq.jpg",
         native: "w=300/h=100/fit=stretch",
         imgproxy: "rs:force:300:100",
-        tolerance: {2, 64}
+        tolerance: {12, 64}
       },
       # Height-only stretch keeps the source width, so it can't shrink on load.
       %{
@@ -2438,21 +2492,27 @@ defmodule ImagePipe.Test.ImgproxyReference.Cases do
         imgproxy: "rs:fit:200:200/dpr:2",
         tolerance: {2, 64}
       },
+      # ImagePipe's JPEG shrink-on-load leaves the resize a 2x reduction, as
+      # libvips' thumbnail does, so its resampling differs from imgproxy's by up to
+      # 14 levels (image_plug-hw4f).
       %{
         id: "dps_pad_odd",
         kind: :png,
         source: "high_freq.jpg",
         native: "w=301/h=201/fit=contain/pad=10",
         imgproxy: "rs:fit:301:201/pd:10",
-        tolerance: {2, 64}
+        tolerance: {16, 64}
       },
+      # ImagePipe's JPEG shrink-on-load leaves the resize a 2x reduction, as
+      # libvips' thumbnail does, so its resampling differs from imgproxy's by up to
+      # 6 levels (image_plug-hw4f).
       %{
         id: "dps_cover_odd_exif",
         kind: :png,
         source: "exif_large_6.jpg",
         native: "w=333/h=111/fit=cover",
         imgproxy: "rs:fill:333:111",
-        tolerance: {2, 64}
+        tolerance: {8, 64}
       },
       # Orientation x geometry (image_plug-e4a.10): odd crops, offsets, edge gravity,
       # extends and focus points on the transposing EXIF orientations, where deferred
@@ -2490,13 +2550,16 @@ defmodule ImagePipe.Test.ImgproxyReference.Cases do
         imgproxy: "rs:fit:201:301/ex:1",
         tolerance: {2, 64}
       },
+      # ImagePipe's JPEG shrink-on-load leaves the resize a 2x reduction, as
+      # libvips' thumbnail does, so its resampling differs from imgproxy's by up to
+      # 20 levels (image_plug-hw4f).
       %{
         id: "orient_large_cover_focus_odd",
         kind: :png,
         source: "exif_large_6.jpg",
         native: "w=201/h=99/fit=cover/focus=0.7,0.3",
         imgproxy: "rs:fill:201:99/g:fp:0.7:0.3",
-        tolerance: {2, 64}
+        tolerance: {22, 64}
       },
       # Rounding and odd sizes (image_plug-e4a.10): centering ties on an odd source
       # and fractional percentage extents.
