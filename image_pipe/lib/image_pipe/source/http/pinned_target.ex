@@ -2,6 +2,7 @@ defmodule ImagePipe.Source.HTTP.PinnedTarget do
   @moduledoc false
 
   alias ImagePipe.Source.HTTP.PinnedPools
+  alias ImagePipe.Source.HTTP.Pool
 
   @minimum_attempt_ms 100
 
@@ -84,7 +85,7 @@ defmodule ImagePipe.Source.HTTP.PinnedTarget do
     url = %{req.url | host: address}
 
     [{:name, name} | request_options] =
-      finch |> Keyword.put(:conn_opts, conn_opts) |> named_pool()
+      finch |> Keyword.put(:conn_opts, conn_opts) |> Pool.named()
 
     key = {scheme(url), address, url.port, hostname, name}
     tag = PinnedPools.tag(hostname, PinnedPools.generation(key))
@@ -115,59 +116,6 @@ defmodule ImagePipe.Source.HTTP.PinnedTarget do
   defp scheme(%URI{scheme: "http"}), do: :http
 
   defp address(ip), do: ip |> :inet.ntoa() |> to_string()
-
-  # Given pool options, Req starts or finds their Finch instance through its
-  # one DynamicSupervisor on every request. A pool started here once, under
-  # ImagePipe's supervisor, is passed to Req by name instead. Req accepts only
-  # its build and request options alongside a name.
-  #
-  # A Finch instance registers its name before it starts its pool supervisor,
-  # so a registered name doesn't mean the instance is ready. The supervisor
-  # returns from start_child, even with :already_started, only once the
-  # instance has started, so the pid it returns is recorded and a fetch skips
-  # start_child only when the name still points at that pid.
-  @pools ImagePipe.Source.HTTP.Pools
-  @request_options [
-    :pool_tag,
-    :unix_socket,
-    :pool_timeout,
-    :receive_timeout,
-    :request_timeout,
-    :pool_strategy
-  ]
-
-  defp named_pool(finch) do
-    {request_options, pool_options} = Keyword.split(finch, @request_options)
-    name = pool_name(pool_options)
-
-    started = :persistent_term.get({@pools, name}, nil)
-
-    if started == nil or Process.whereis(name) != started do
-      start_pool(name, pool_options)
-    end
-
-    [name: name] ++ request_options
-  end
-
-  defp start_pool(name, pool_options) do
-    pid =
-      case DynamicSupervisor.start_child(
-             @pools,
-             {Finch, name: name, pools: %{default: [start_pool_metrics?: true] ++ pool_options}}
-           ) do
-        {:ok, pid} -> pid
-        {:error, {:already_started, pid}} -> pid
-      end
-
-    :persistent_term.put({@pools, name}, pid)
-  end
-
-  defp pool_name(pool_options) do
-    hash =
-      pool_options |> :erlang.term_to_binary() |> :erlang.md5() |> Base.encode32(padding: false)
-
-    Module.concat(@pools, hash)
-  end
 
   defp connection_identity(opts, %URI{scheme: "https", host: hostname}) do
     opts

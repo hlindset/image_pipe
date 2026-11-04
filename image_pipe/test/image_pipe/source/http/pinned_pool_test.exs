@@ -50,9 +50,71 @@ defmodule ImagePipe.Source.HTTP.PinnedPoolTest do
     fetch.()
     assert pools.() == before + 1
 
-    fetch.()
+    # A fetch through a running pool doesn't ask the supervisor to start it.
+    refute starts_child?(ImagePipe.Source.HTTP.Pools, fetch)
     assert pools.() == before + 1
     assert req_pools.() == req_before
+  end
+
+  test "unpinned fetches start their connection pool once, under ImagePipe's supervisor" do
+    bandit = start_supervised!({Bandit, plug: Origin, port: 0, ip: :loopback, startup_log: false})
+    {:ok, {_ip, port}} = ThousandIsland.listener_info(bandit)
+
+    # No validate_target, as for S3: the fetch connects without pinning.
+    req_options = [url: "http://localhost:#{port}/image", connect_options: [timeout: 4_322]]
+
+    fetch = fn ->
+      {:ok, response} = ReqStream.open(req_options, [])
+      assert Enum.join(response.stream) == "body"
+    end
+
+    pools = fn -> length(DynamicSupervisor.which_children(ImagePipe.Source.HTTP.Pools)) end
+    before = pools.()
+
+    refute starts_child?(Req.FinchSupervisor, fetch)
+    assert pools.() == before + 1
+
+    refute starts_child?(ImagePipe.Source.HTTP.Pools, fetch)
+    assert pools.() == before + 1
+  end
+
+  test "a fetch starts its pool again after the pool stopped" do
+    bandit = start_supervised!({Bandit, plug: Origin, port: 0, ip: :loopback, startup_log: false})
+    {:ok, {_ip, port}} = ThousandIsland.listener_info(bandit)
+    req_options = [url: "http://localhost:#{port}/image", connect_options: [timeout: 4_323]]
+
+    fetch = fn ->
+      {:ok, response} = ReqStream.open(req_options, [])
+      assert Enum.join(response.stream) == "body"
+    end
+
+    children = fn -> DynamicSupervisor.which_children(ImagePipe.Source.HTTP.Pools) end
+    before = children.()
+    fetch.()
+    [{_id, pool, _type, _modules}] = children.() -- before
+
+    :ok = DynamicSupervisor.terminate_child(ImagePipe.Source.HTTP.Pools, pool)
+
+    assert starts_child?(ImagePipe.Source.HTTP.Pools, fetch)
+    assert length(children.()) == length(before) + 1
+  end
+
+  # Whether `fun` makes the named supervisor handle a start_child call.
+  defp starts_child?(name, fun) do
+    pid = Process.whereis(name)
+    :erlang.trace(pid, true, [:receive, {:tracer, self()}])
+
+    try do
+      fun.()
+    after
+      :erlang.trace(pid, false, [:receive])
+    end
+
+    receive do
+      {:trace, ^pid, :receive, {:"$gen_call", _from, {:start_child, _spec}}} -> true
+    after
+      0 -> false
+    end
   end
 
   # The pool's name is registered before its supervisor starts its children, so
