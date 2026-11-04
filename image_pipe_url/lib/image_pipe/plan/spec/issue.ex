@@ -51,6 +51,8 @@ defmodule ImagePipe.Plan.Spec.Issue do
     * `:mutually_exclusive_options` - the options can't be combined, such as
       `extend` and `extend_ratio`.
     * `:unknown_preset` - a named preset isn't defined.
+    * `:too_many_presets` - the plan names more than 16 presets across all
+      groups, counting repeats.
     * `:pipeline_preset_with_group_options`, `:pipeline_preset_with_preset`,
       `:multiple_pipeline_presets` - a preset that defines several groups is
       combined with options or presets it can't be combined with.

@@ -18,6 +18,15 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `nowidth = "w=unset"` resolves like `/w=200`. Before, the unset still
   removed inherited options that depend on it, such as a default `enlarge`.
 
+### Security
+
+- **Breaking:** A plan may name at most 16 presets, counting each repeat and
+  every group. `validate/1` and `url/3` report a plan with more as the issue
+  `:too_many_presets`. Before, parsing time grew with the square of the
+  number of preset names in a group, so a URL that repeated a preset
+  containing an `unset` thousands of times took seconds of CPU. Combine presets
+  that a URL names together into fewer definitions.
+
 ## [0.6.0] - 2026-11-02
 
 ### Changed

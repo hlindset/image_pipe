@@ -1453,6 +1453,26 @@ defmodule ImagePipe.API.ParserTest do
       assert parse(["preset=retired", "w=800"], "images/cat.jpg", config) == parse(["w=800"])
     end
 
+    test "a request names at most 16 presets, counting repeats in every group" do
+      config = [presets: %{"soft" => "blur=2"}]
+      names = fn count -> "preset=" <> Enum.map_join(1..count, ",", fn _i -> "soft" end) end
+
+      assert {:ok, _spec} =
+               parse([names.(8), "w=800", "-", names.(8)], "images/cat.jpg", config)
+
+      assert {:error, {:invalid_request, [%Diagnostic{reason: :too_many_presets} = diagnostic]}} =
+               parse([names.(8), "w=800", "-", names.(9)], "images/cat.jpg", config)
+
+      assert diagnostic.message == "a request may name at most 16 presets"
+    end
+
+    test "too many presets fail before a preset lookup could run" do
+      names = "preset=" <> Enum.map_join(1..17, ",", &"remote#{&1}")
+
+      assert {:error, {:invalid_request, [%Diagnostic{reason: :too_many_presets}]}} =
+               Parser.preset_names(lexed([names], "images/cat.jpg"))
+    end
+
     property "a preset's position within its group does not change the request" do
       config = [presets: %{"mark" => "blur=2/format=webp"}]
       segments = ["preset=mark", "trim=auto", "w=800", "sharpen=1"]

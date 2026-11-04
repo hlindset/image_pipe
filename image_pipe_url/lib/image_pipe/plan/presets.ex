@@ -57,6 +57,10 @@ defmodule ImagePipe.Plan.Presets do
     :avif_options
   ]
 
+  # Each named preset is a layer, and resolving a layer reads every layer
+  # below it, so the names a request may write are capped.
+  @max_presets 16
+
   @type compiled :: %{groups: %{non_neg_integer() => [map()]}, request: [map()]}
   @type watermarks :: Validation.watermarks()
 
@@ -136,13 +140,8 @@ defmodule ImagePipe.Plan.Presets do
   # `origins` maps each result group to the request group it came from.
   @doc false
   def expand(groups, request, presets, defaults) do
-    unknown =
-      for {index, options} <- Enum.sort(groups),
-          name <- Map.get(options, :presets, []),
-          not Map.has_key?(presets, name),
-          do: issue(:unknown_preset, index, name)
-
-    with [] <- unknown,
+    with [] <- too_many(groups),
+         [] <- unknown(groups, presets),
          {:ok, layered} <- compose(groups, request, presets, defaults) do
       resolved = %{
         layered
@@ -154,6 +153,38 @@ defmodule ImagePipe.Plan.Presets do
     else
       [_ | _] = issues -> {:error, issues}
       {:error, _issues} = error -> error
+    end
+  end
+
+  defp unknown(groups, presets) do
+    for {index, options} <- Enum.sort(groups),
+        name <- Map.get(options, :presets, []),
+        not Map.has_key?(presets, name),
+        do: issue(:unknown_preset, index, name)
+  end
+
+  # The issue for the group holding the first name past the limit, counting
+  # repeats.
+  @doc false
+  def too_many(groups) do
+    groups
+    |> Enum.sort()
+    |> Enum.flat_map(fn {index, options} ->
+      Enum.map(Map.get(options, :presets, []), &{index, &1})
+    end)
+    |> Enum.drop(@max_presets)
+    |> case do
+      [] ->
+        []
+
+      [{index, _name} | _rest] ->
+        [
+          %Issue{
+            reason: :too_many_presets,
+            locations: [{:group, index, :presets}],
+            detail: %{max: @max_presets}
+          }
+        ]
     end
   end
 
@@ -183,6 +214,9 @@ defmodule ImagePipe.Plan.Presets do
   @doc false
   def message(%Issue{reason: :unknown_preset, detail: %{preset: name}}),
     do: "unknown preset: #{name}"
+
+  def message(%Issue{reason: :too_many_presets, detail: %{max: max}}),
+    do: "a request may name at most #{max} presets"
 
   def message(%Issue{reason: :pipeline_preset_with_group_options, detail: %{preset: name}}),
     do: "pipeline preset #{inspect(name)} cannot be combined with group options"
