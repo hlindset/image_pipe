@@ -29,15 +29,52 @@ defmodule ImagePipe.Cache.FileSystem.Root do
 
   # A root this VM already runs belongs to another cache, such as another
   # instance's, so the second one raises before it touches the owner file.
+  # The one exception is a root whose parent is gone, such as an instance
+  # killed outright: it still holds the name while it stops its children,
+  # so its restart waits for it, a bounded time, instead of failing.
   def start_link(opts) do
     case Supervisor.start_link(__MODULE__, opts, name: name(opts)) do
-      {:error, {:already_started, _pid}} ->
-        raise ArgumentError,
-              "cache root #{Store.root_dir(opts)} is already used by another cache in this " <>
-                "VM. Give each ImagePipe instance its own cache roots."
+      {:error, {:already_started, pid}} ->
+        if orphaned?(pid) and stopped?(pid),
+          do: start_link(opts),
+          else:
+            raise(
+              ArgumentError,
+              "cache root #{Store.root_dir(opts)} is already used by another cache in " <>
+                "this VM. Give each ImagePipe instance its own cache roots."
+            )
 
       started ->
         started
+    end
+  end
+
+  @orphan_wait_ms 5_000
+
+  # A running root is linked to its parent, the first of its ancestors, which
+  # may be named. A root that has exited counts as orphaned.
+  defp orphaned?(pid) do
+    with {:dictionary, dictionary} <- Process.info(pid, :dictionary),
+         [parent | _ancestors] <- Keyword.get(dictionary, :"$ancestors", []),
+         {:links, links} <- Process.info(pid, :links) do
+      parent_pid(parent) not in links
+    else
+      _gone -> true
+    end
+  end
+
+  defp parent_pid(parent) when is_pid(parent), do: parent
+  defp parent_pid(parent) when is_atom(parent), do: Process.whereis(parent)
+
+  defp stopped?(pid) do
+    ref = Process.monitor(pid)
+
+    receive do
+      {:DOWN, ^ref, :process, ^pid, _reason} -> true
+    after
+      @orphan_wait_ms ->
+        Process.demonitor(ref, [:flush])
+        false
     end
   end
 

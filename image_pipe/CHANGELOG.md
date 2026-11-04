@@ -54,6 +54,10 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   written, as the preset docs say: `/preset=nowidth/w=200` with
   `nowidth = "w=unset"` resolves like `/w=200`. Before, the unset still
   removed inherited options that depend on it, such as a default `enlarge`.
+- An ImagePipe instance that is killed outright restarts with its output
+  cache. Before, the restart could find the old cache still stopping, fail
+  with "cache root … is already used by another cache in this VM", and use
+  up its supervisor's restarts.
 
 ## [0.6.0] - 2026-11-02
 
