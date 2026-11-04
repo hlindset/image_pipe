@@ -82,12 +82,15 @@ defmodule ImagePipe.DecodeTest do
 
   defmodule CmykJpegOrigin do
     @moduledoc false
+    alias Vix.Vips.Image, as: VipsImage
+    alias Vix.Vips.Operation
+
     # A 900x1200 CMYK JPEG: a 2.25x reduction to 400 wide.
     def call(conn, _opts) do
-      {:ok, base} = Vix.Vips.Operation.black(900, 1200, bands: 4)
-      {:ok, base} = Vix.Vips.Operation.cast(base, :VIPS_FORMAT_UCHAR)
-      {:ok, base} = Vix.Vips.Operation.copy(base, interpretation: :VIPS_INTERPRETATION_CMYK)
-      {:ok, body} = Vix.Vips.Image.write_to_buffer(base, ".jpg")
+      {:ok, base} = Operation.black(900, 1200, bands: 4)
+      {:ok, base} = Operation.cast(base, :VIPS_FORMAT_UCHAR)
+      {:ok, base} = Operation.copy(base, interpretation: :VIPS_INTERPRETATION_CMYK)
+      {:ok, body} = VipsImage.write_to_buffer(base, ".jpg")
 
       conn
       |> Plug.Conn.put_resp_content_type("image/jpeg")
