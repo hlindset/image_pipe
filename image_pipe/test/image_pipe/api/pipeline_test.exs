@@ -119,8 +119,7 @@ defmodule ImagePipe.API.PipelineTest do
                       0.125,
                       1.0e-12
 
-      # JPEG leaves the resize a 2x reduction.
-      assert preflight_options(["w=400"], {3200, 2405}, :jpeg)[:shrink] == 4
+      assert preflight_options(["w=400"], {3200, 2405}, :jpeg)[:shrink] == 8
 
       png = preflight_options(["w=400"], {3200, 2405}, :png)
       refute Keyword.has_key?(png, :shrink)

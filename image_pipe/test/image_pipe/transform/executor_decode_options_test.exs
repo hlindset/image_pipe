@@ -58,7 +58,7 @@ defmodule ImagePipe.Transform.ExecutorDecodeOptionsTest do
     # resize a 2x reduction.
     assert options("region=0,800,2000,40/w=50", jpeg)[:shrink] == 2
     assert options("region=0,800,2000,40/w=50", webp)[:scale] == 0.25
-    assert options("region=0,800,2000,100/w=50", jpeg)[:shrink] == 4
+    assert options("region=0,800,2000,100/w=50", jpeg)[:shrink] == 8
   end
 
   test "an SVG renders past its intrinsic size without enlarge" do
@@ -129,13 +129,13 @@ defmodule ImagePipe.Transform.ExecutorDecodeOptionsTest do
     plan = &options("w=400/h=300/kernel=" <> &1, geometry({3200, 2400}, {3200, 2400}, :jpeg))
 
     for kernel <- ~w(linear cubic mitchell lanczos2 lanczos3 mks2013 mks2021),
-        do: assert(plan.(kernel)[:shrink] == 4)
+        do: assert(plan.(kernel)[:shrink] == 8)
   end
 
   test "only the first group's kernel decides the shrink" do
     geometry = geometry({3200, 2400}, {3200, 2400}, :jpeg)
 
-    assert options("w=400/h=300/-/w=100/kernel=nearest", geometry)[:shrink] == 4
+    assert options("w=400/h=300/-/w=100/kernel=nearest", geometry)[:shrink] == 8
   end
 
   test "an SVG still renders at a nearest-neighbour resize target" do

@@ -136,8 +136,8 @@ defmodule ImagePipe.WorkBudgetTest do
 
   # `buffer_loads` counts decodes from memory: each quality probe decodes its
   # candidate to score it.
-  test "autoquality on a small WebP output probes five qualities", %{config: config} do
-    assert_budget(config, "/w=200/autoquality=75/format=webp/src/high_freq.jpg", buffer_loads: 5)
+  test "autoquality on a small WebP output probes three qualities", %{config: config} do
+    assert_budget(config, "/w=200/autoquality=75/format=webp/src/high_freq.jpg", buffer_loads: 3)
   end
 
   # A later enlarge, pixelate, or sharpen reads the blurred image in

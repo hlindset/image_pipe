@@ -223,7 +223,7 @@ defmodule ImagePipe.API.OrientationMatrixTest do
         )
 
       # The display width's ratio, 6, gives JPEG shrink 2. The storage width's,
-      # 8, would give 4 and load 400x300.
+      # 8, would give 8 and load 200x150.
       assert {loaded_w, loaded_h} == {800, 600},
              "loaded (pre-flush) dims #{inspect({loaded_w, loaded_h})} != expected {800, 600} " <>
                "— the decode shrink was computed against the wrong axis pair"

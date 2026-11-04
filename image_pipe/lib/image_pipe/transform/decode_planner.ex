@@ -107,11 +107,13 @@ defmodule ImagePipe.Transform.DecodePlanner do
 
   defp append_load_option(base, _format, _load_shrink), do: base
 
-  # JPEG's block shrink acts like a box filter that also sharpens. As in
-  # libvips' thumbnail, the shrink leaves the resize kernel at least a 2x
-  # reduction, which smooths it: a 2-4x reduction decodes at full size.
-  defp jpeg_shrink_n(load_shrink) when load_shrink >= 16, do: 8
-  defp jpeg_shrink_n(load_shrink) when load_shrink >= 8, do: 4
+  # JPEG's block shrink acts like a box filter that also sharpens. Below 8x,
+  # as in libvips' thumbnail, the shrink leaves the resize kernel at least a
+  # 2x reduction, which smooths it: a 2-4x reduction decodes at full size,
+  # where the block shrink showed most (2-3x downscales up to 115 levels off
+  # a full-decode resize). From 8x the shrink is 8: the margin cost a 12 MP
+  # source 40% more time at 10x for little visible gain.
+  defp jpeg_shrink_n(load_shrink) when load_shrink >= 8, do: 8
   defp jpeg_shrink_n(load_shrink) when load_shrink >= 4, do: 2
   defp jpeg_shrink_n(_), do: 1
 

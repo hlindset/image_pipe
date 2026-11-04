@@ -10,12 +10,12 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Breaking:** `client_presets` refuses a pipeline preset (one with several
   groups) at startup. It answered `400` with any signed URL that had group
   options. Remove pipeline presets from `client_presets`.
-- JPEG shrink-on-load leaves the resize at least a 2x reduction, as libvips'
-  `thumbnail` does. A 2–4x downscale decodes at full size, and a 4–16x one
-  shrinks one step less than before. Larger downscales are unchanged. These
-  downscales are sharper and alias less, for about 10% more decode time at
-  2–4x and 1–2% at 4–16x. Their output differs slightly from earlier
-  releases and from imgproxy.
+- Below 8x, JPEG shrink-on-load leaves the resize at least a 2x reduction,
+  as libvips' `thumbnail` does: a 2–4x downscale decodes at full size, and a
+  4–8x one shrinks by 2 instead of 4. These downscales are sharper and alias
+  less, and take longer, since the decode reads up to four times as many
+  pixels. Downscales of 8x and more are unchanged. Output of 2–8x downscales
+  differs slightly from earlier releases and from imgproxy.
 
 ### Fixed
 

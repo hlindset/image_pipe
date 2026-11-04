@@ -16,11 +16,11 @@ defmodule ImagePipe.Transform.DecodePlannerTest do
     end
   end
 
-  # As libvips' thumbnail does, the resize kernel keeps at least a 2x
-  # reduction to smooth the block shrink.
-  test "JPEG shrink leaves the resize at least a 2x reduction" do
+  # Below 8x, as libvips' thumbnail does, the resize kernel keeps at least a
+  # 2x reduction to smooth the block shrink. From 8x the shrink is 8.
+  test "JPEG shrink leaves the resize at least a 2x reduction below 8x" do
     assert DecodePlanner.open_options(:jpeg, {6400, 4800}, {400, nil})[:shrink] == 8
-    assert DecodePlanner.open_options(:jpeg, {3200, 2400}, {400, nil})[:shrink] == 4
+    assert DecodePlanner.open_options(:jpeg, {3200, 2400}, {400, nil})[:shrink] == 8
     assert DecodePlanner.open_options(:jpeg, {3000, 2000}, {400, nil})[:shrink] == 2
     assert DecodePlanner.open_options(:jpeg, {1600, 1200}, {400, nil})[:shrink] == 2
 
@@ -61,7 +61,7 @@ defmodule ImagePipe.Transform.DecodePlannerTest do
 
   test "DPR and zoom inflated targets prevent over-shrinking" do
     assert DecodePlanner.open_options(:jpeg, {4000, 2667}, {666.0, nil})[:shrink] == 2
-    assert DecodePlanner.open_options(:jpeg, {4000, 2667}, {400.0, nil})[:shrink] == 4
+    assert DecodePlanner.open_options(:jpeg, {4000, 2667}, {400.0, nil})[:shrink] == 8
   end
 
   test "an extent close to its resize target does not shrink" do
