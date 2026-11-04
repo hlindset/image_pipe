@@ -7,6 +7,11 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- The release no longer keeps idle schedulers for file work spinning
+  (`+sbwtdio none` instead of `very_short`). In benchmarks on 2 CPUs with
+  one or two concurrent clients, the server used up to 26% less CPU per
+  request. Requests per second changed by up to 5% either way, except
+  cache hits with two clients, which were 11% faster.
 - **Breaking:** The server refuses to start with these settings, which
   never worked as written:
   - An `auth_token` or `[stats] token` with whitespace, which clients can't

@@ -2,13 +2,15 @@
 ## -mode/-name/-sname/-setcookie are configured via env vars, do not set them here
 
 ## A scheduler that runs out of work spins for a while before it sleeps, which
-## takes CPU from libvips threads and, in a container, from its CPU quota.
+## takes CPU from libvips threads and, in a container, from its CPU quota. On
+## the Performance workflow (2 CPUs), turning off the dirty I/O schedulers'
+## spin cut CPU per request by up to 26% in every case family against
+## very_short, with requests per second within 5% either way (cache hits at
+## two clients 11% faster). The default, short, cost more CPU than
+## very_short.
 +sbwt none
 +sbwtdcpu none
-## Dirty I/O schedulers still spin briefly: a cache hit makes about ten file
-## calls, and waking a sleeping scheduler for each cut hit throughput by 17 to
-## 30%.
-+sbwtdio very_short
++sbwtdio none
 ## libvips runs on dirty CPU schedulers and recurses through an image's whole
 ## lazy graph when it reads or frees it. ImagePipe bounds that depth, and 8 MB
 ## stacks (default 320 KB) leave room for anything it misses.
