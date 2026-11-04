@@ -5,6 +5,67 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking:** `client_presets` refuses a pipeline preset (one with several
+  groups) at startup. It answered `400` with any signed URL that had group
+  options. Remove pipeline presets from `client_presets`.
+- Below 8x, JPEG shrink-on-load leaves the resize at least a 2x reduction,
+  as libvips' `thumbnail` does: a 2–4x downscale decodes at full size, and a
+  4–8x one shrinks by 2 instead of 4. These downscales are sharper and alias
+  less, and take longer, since the decode reads up to four times as many
+  pixels. Downscales of 8x and more, and CMYK JPEG sources, whose color
+  conversion costs more per pixel, are unchanged. Output of 2–8x downscales
+  of other JPEGs differs slightly from earlier releases and from imgproxy.
+
+### Fixed
+
+- A watermark asset whose origin answers a revalidation with `304` is no
+  longer downloaded again in full for the next new variant. Its bytes,
+  already held in memory, are reused.
+- While an S3 credential provider (STS, instance metadata, a container
+  endpoint) is failing and no valid credentials are held, it is called again
+  at most every five seconds rather than for every request. Requests in
+  between fail with the same `credentials_unavailable` error.
+- An output that keeps the source's metadata (`meta=keep`, or
+  `strip_metadata: false`) sets an XMP `tiff:Orientation` to `1`, as it
+  already did for the EXIF orientation tag. Before, XMP readers such as Adobe
+  apps turned the delivered image again.
+- A client preset named twice, such as `preset=poster,poster/`, is accepted
+  instead of answering `403`.
+- A client preset that isn't in `client_presets` logs the reason `client
+  preset not allowed`, with the `:client_preset_not_allowed` error in
+  telemetry, instead of `invalid signature`. The response is still `403`
+  with the body `invalid signature`.
+- A client preset works on a signed URL that names presets in its first
+  group: the client's presets apply first and the signed ones after them,
+  instead of answering `400` "duplicate option". The client's `preset=`
+  segment also no longer counts toward the 64 option segments a URL may
+  have.
+- When a new original can't be staged in a file (a full or unwritable tmp
+  directory), requests for other sizes of it share the copy held in memory,
+  instead of downloading it again one after another.
+- While a cache write larger than 256 MiB (or a twentieth of
+  `max_size_bytes`, if that's smaller) is in progress, other cache writes
+  are stored instead of dropped.
+- An image whose embedded ICC profile has a sound header but tag data that
+  LittleCMS can't use is served as if it had no profile. Before, every
+  request for it failed with `415` or `422`, and so did every request that
+  used it as a watermark.
+- Under the default metadata policy (`keep_copyright: true`), an output whose
+  source has no copyright or artist no longer carries a 180–190-byte EXIF
+  block that libvips built from the resolution alone. When a copyright is
+  kept, the EXIF `ColorSpace` of an sRGB result is sRGB rather than
+  Uncalibrated.
+- An `unset` in a preset that a later layer writes again counts as never
+  written, as the preset docs say: `/preset=nowidth/w=200` with
+  `nowidth = "w=unset"` resolves like `/w=200`. Before, the unset still
+  removed inherited options that depend on it, such as a default `enlarge`.
+- An ImagePipe instance that is killed outright restarts with its output
+  cache. Before, the restart could find the old cache still stopping, fail
+  with "cache root … is already used by another cache in this VM", and use
+  up its supervisor's restarts.
+
 ## [0.6.0] - 2026-11-02
 
 ### Added

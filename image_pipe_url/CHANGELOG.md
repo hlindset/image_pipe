@@ -5,6 +5,19 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- With `preset_lookup: true`, `validate/1` and `url/3` report an unknown
+  watermark that the plan names itself, even in a group that names a preset
+  missing from `:presets`. Before, they accepted a URL the server always
+  refuses with `400`.
+- A client `preset=` segment written before `sig=` no longer counts toward
+  the 64 option segments a URL may have.
+- An `unset` in a preset that a later layer writes again counts as never
+  written, as the preset docs say: `/preset=nowidth/w=200` with
+  `nowidth = "w=unset"` resolves like `/w=200`. Before, the unset still
+  removed inherited options that depend on it, such as a default `enlarge`.
+
 ## [0.6.0] - 2026-11-02
 
 ### Changed

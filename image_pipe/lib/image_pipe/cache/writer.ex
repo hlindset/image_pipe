@@ -8,8 +8,9 @@ defmodule ImagePipe.Cache.Writer do
   #
   # The write's counters (an `:atomics` array) hold the bytes the writer
   # confirmed, which the sink reads to drop a write the client gets too far
-  # ahead of, the bytes counted as pending for the write, and whether the
-  # writer has finished. A write still unfinished after its maximum age is
+  # ahead of, the bytes counted as pending for the write and how many of
+  # them are exempt from the root's limit, and whether the writer has
+  # finished. A write still unfinished after its maximum age is
   # dropped. The limit is a guess (image_plug-sole).
   @moduledoc false
 
@@ -28,9 +29,10 @@ defmodule ImagePipe.Cache.Writer do
   @confirmed 1
   @reserved 2
   @finished 3
+  @exempt 4
 
   @doc "New counters for a write."
-  def counters, do: :atomics.new(3, [])
+  def counters, do: :atomics.new(4, [])
 
   @doc "The bytes the writer has written."
   def confirmed(counters), do: :atomics.get(counters, @confirmed)
@@ -44,7 +46,11 @@ defmodule ImagePipe.Cache.Writer do
   writer has already finished, and `:full` past the root's pending limit.
   """
   def reserve(counters, pending, bytes) do
-    with :ok <- Writers.reserve(pending, bytes, :atomics.get(counters, @reserved)) do
+    held = :atomics.get(counters, @reserved)
+    exempt? = :atomics.get(counters, @exempt) > 0
+
+    with {:ok, exempted} <- Writers.reserve(pending, bytes, held, exempt?) do
+      :atomics.add(counters, @exempt, exempted)
       :atomics.add(counters, @reserved, bytes)
 
       # The writer releases what's counted when it finishes. A reservation
@@ -58,8 +64,13 @@ defmodule ImagePipe.Cache.Writer do
     end
   end
 
-  defp release(counters, pending),
-    do: Writers.release(pending, :atomics.exchange(counters, @reserved, 0))
+  defp release(counters, pending) do
+    Writers.release(
+      pending,
+      :atomics.exchange(counters, @reserved, 0),
+      :atomics.exchange(counters, @exempt, 0)
+    )
+  end
 
   def start_link(args), do: GenServer.start_link(__MODULE__, args)
 

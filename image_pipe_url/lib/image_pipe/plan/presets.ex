@@ -328,22 +328,50 @@ defmodule ImagePipe.Plan.Presets do
 
   defp pipeline?(preset), do: map_size(preset.groups) > 1
 
-  # A group's options from its layers, lowest first.
+  # A group's options from its layers, lowest first. Each layer comes with
+  # the keys the layers above it write.
   defp resolve_group(layers) do
-    layers |> Enum.reduce([], &clear_group_unsets/2) |> override_group()
+    layers
+    |> Enum.zip(written_above(layers))
+    |> Enum.reduce([], &clear_group_unsets/2)
+    |> override_group()
   end
 
-  defp clear_group_unsets(next, lower) do
-    case for({key, :unset} <- next, do: key) do
-      [] ->
+  defp written_above(layers) do
+    layers
+    |> Enum.reverse()
+    |> Enum.map_reduce(MapSet.new(), fn layer, above ->
+      written = for {key, value} <- layer, value != :unset, into: above, do: key
+      {above, written}
+    end)
+    |> elem(0)
+    |> Enum.reverse()
+  end
+
+  # An unset that a higher layer replaces counts as never written: it still
+  # clears the values below it, which the replacement overrides anyway, but
+  # not the options those values kept in effect.
+  defp clear_group_unsets({next, above}, lower) do
+    case Enum.split_with(for({key, :unset} <- next, do: key), &MapSet.member?(above, &1)) do
+      {[], []} ->
         lower ++ [next]
 
-      unsets ->
-        cleared = Enum.map(lower, &Map.drop(&1, group_cleared_keys(unsets)))
+      {replaced, unsets} ->
         written = Map.reject(next, fn {_key, value} -> value == :unset end)
-        stale = lower |> override_group() |> Validation.inert_keys()
-        drop_unset_dependents(cleared, written, Map.keys(next), stale) ++ [written]
+
+        lower
+        |> clear_live_unsets(unsets, written, Map.keys(next))
+        |> Enum.map(&Map.drop(&1, group_cleared_keys(replaced)))
+        |> Kernel.++([written])
     end
+  end
+
+  defp clear_live_unsets(lower, [], _written, _next_keys), do: lower
+
+  defp clear_live_unsets(lower, unsets, written, next_keys) do
+    cleared = Enum.map(lower, &Map.drop(&1, group_cleared_keys(unsets)))
+    stale = lower |> override_group() |> Validation.inert_keys()
+    drop_unset_dependents(cleared, written, next_keys, stale)
   end
 
   defp group_cleared_keys(unsets),

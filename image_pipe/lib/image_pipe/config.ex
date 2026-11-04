@@ -410,7 +410,9 @@ defmodule ImagePipe.Config do
                 doc: """
                 Presets defined in `:presets` that a client may add to a signed \
                 URL by writing `preset=<name>/` before its `sig=` segment, without \
-                a new signature. Needs `:keys`. \
+                a new signature. Presets with several groups \
+                ([pipeline presets](presets.md#single-group-and-pipeline-presets)) \
+                can't be listed. Needs `:keys`. \
                 See [letting clients choose a preset](signing-urls.md#let-clients-choose-a-preset).
                 """
               ]
@@ -598,7 +600,8 @@ defmodule ImagePipe.Config do
   end
 
   # Only static presets, so that a name no signature covers never reaches the
-  # preset lookup.
+  # preset lookup. A pipeline preset can't stand beside the signed part's
+  # group options, so it can't be a client preset.
   defp client_presets!(options, presets, url) do
     case Keyword.fetch!(options, :client_presets) do
       [] ->
@@ -619,6 +622,17 @@ defmodule ImagePipe.Config do
             raise ArgumentError,
                   "invalid ImagePipe configuration: client_presets names presets " <>
                     "that :presets doesn't define: #{inspect(missing)}"
+        end
+
+        case Enum.filter(names, &(map_size(presets[:presets][&1].groups) > 1)) do
+          [] ->
+            :ok
+
+          pipelines ->
+            raise ArgumentError,
+                  "invalid ImagePipe configuration: client_presets names " <>
+                    "#{inspect(pipelines)}, which are pipeline presets (with several " <>
+                    "groups). A client preset must have one group"
         end
     end
   end

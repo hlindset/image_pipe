@@ -488,6 +488,29 @@ defmodule ImagePipe.URLTest do
       assert {:error, {:invalid_request, _issues}} = IP.URL.url(group, "photo.jpg")
     end
 
+    test "under a lookup, a watermark the plan names is still checked" do
+      lookup =
+        IP.URL.config(
+          validate_against: [
+            presets: %{"a" => "blur=1"},
+            preset_lookup: true,
+            watermarks: [:logo]
+          ]
+        )
+
+      for presets <- [["unknown"], ["a"]] do
+        plan = IP.URL.new(lookup) |> IP.URL.group(presets: presets, watermark: :nope)
+
+        assert {:error, [%{reason: :unknown_watermark, locations: [{:group, 0, :watermark}]}]} =
+                 IP.URL.validate(plan)
+      end
+
+      assert {:ok, []} =
+               IP.URL.new(lookup)
+               |> IP.URL.group(presets: ["unknown"], watermark: :logo)
+               |> IP.URL.validate()
+    end
+
     test "issues name the builder's own groups when an unset-only group drops out" do
       static = IP.URL.config(validate_against: [presets: %{}])
       lookup = IP.URL.config(validate_against: [presets: %{}, preset_lookup: true])

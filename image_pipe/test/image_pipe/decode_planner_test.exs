@@ -16,16 +16,32 @@ defmodule ImagePipe.Transform.DecodePlannerTest do
     end
   end
 
-  test "JPEG shrink is the largest supported power of two within the load ratio" do
+  # Below 8x, as libvips' thumbnail does, the resize kernel keeps at least a
+  # 2x reduction to smooth the block shrink. From 8x the shrink is 8.
+  test "JPEG shrink leaves the resize at least a 2x reduction below 8x" do
+    assert DecodePlanner.open_options(:jpeg, {6400, 4800}, {400, nil})[:shrink] == 8
     assert DecodePlanner.open_options(:jpeg, {3200, 2400}, {400, nil})[:shrink] == 8
-    assert DecodePlanner.open_options(:jpeg, {3000, 2000}, {400, nil})[:shrink] == 4
-    assert DecodePlanner.open_options(:jpeg, {1000, 800}, {400, nil})[:shrink] == 2
+    assert DecodePlanner.open_options(:jpeg, {3000, 2000}, {400, nil})[:shrink] == 2
+    assert DecodePlanner.open_options(:jpeg, {1600, 1200}, {400, nil})[:shrink] == 2
 
-    refute_shrink(DecodePlanner.open_options(:jpeg, {600, 400}, {400, nil}))
+    refute_shrink(DecodePlanner.open_options(:jpeg, {1500, 1000}, {400, nil}))
+    refute_shrink(DecodePlanner.open_options(:jpeg, {1000, 800}, {400, nil}))
+  end
+
+  # A CMYK JPEG converts every decoded pixel through its profile, so it
+  # keeps the largest shrink within the reduction.
+  test "a CMYK JPEG shrinks by the largest power of two within the load ratio" do
+    cmyk = &DecodePlanner.open_options(:jpeg, &1, {400, nil}, cmyk?: true)[:shrink]
+
+    assert cmyk.({900, 1200}) == 2
+    assert cmyk.({1600, 1200}) == 4
+    assert cmyk.({3000, 2000}) == 4
+    assert cmyk.({3200, 2400}) == 8
+    assert DecodePlanner.open_options(:jpeg, {900, 1200}, {400, nil})[:shrink] == nil
   end
 
   test "two-axis targets use the tighter ratio" do
-    assert DecodePlanner.open_options(:jpeg, {3200, 2400}, {400, 600})[:shrink] == 4
+    assert DecodePlanner.open_options(:jpeg, {3200, 2400}, {400, 600})[:shrink] == 2
   end
 
   test "single-axis targets constrain only their own axis" do
@@ -42,7 +58,7 @@ defmodule ImagePipe.Transform.DecodePlannerTest do
     refute_shrink(DecodePlanner.open_options(:svg, {100, 50}, nil))
   end
 
-  test "WebP scales by JPEG's shrink factors" do
+  test "WebP scales by the largest power of two within the load ratio" do
     opts = DecodePlanner.open_options(:webp, {1600, 1200}, {333 * 1.1, nil})
 
     assert opts[:scale] == 0.25
@@ -56,8 +72,8 @@ defmodule ImagePipe.Transform.DecodePlannerTest do
   end
 
   test "DPR and zoom inflated targets prevent over-shrinking" do
-    assert DecodePlanner.open_options(:jpeg, {4000, 2667}, {1332.0, nil})[:shrink] == 2
-    assert DecodePlanner.open_options(:jpeg, {4000, 2667}, {800.0, nil})[:shrink] == 4
+    assert DecodePlanner.open_options(:jpeg, {4000, 2667}, {666.0, nil})[:shrink] == 2
+    assert DecodePlanner.open_options(:jpeg, {4000, 2667}, {400.0, nil})[:shrink] == 8
   end
 
   test "an extent close to its resize target does not shrink" do

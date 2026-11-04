@@ -79,6 +79,48 @@ defmodule ImagePipe.ClientPresetsWireTest do
     assert size(response) == {30, 20}
   end
 
+  test "an allowlisted preset may be named twice", %{url_config: url_config, mount: mount} do
+    response =
+      get("/preset=poster,poster" <> IP.URL.sign_path("/src/photo.png", url_config), mount)
+
+    assert response.status == 200
+    assert size(response) == {30, 30}
+  end
+
+  test "a client preset joins the signer's presets, which win", %{
+    url_config: url_config,
+    mount: mount
+  } do
+    response =
+      get(
+        "/preset=poster" <> IP.URL.sign_path("/preset=internal/src/photo.png", url_config),
+        mount
+      )
+
+    assert response.status == 200
+    assert size(response) == {10, 30}
+    assert_received {:cache_lookup, _entry, key}
+
+    # The same plan and cache key as the signer writing both names.
+    signer = get(IP.URL.sign_path("/preset=poster,internal/src/photo.png", url_config), mount)
+    assert size(signer) == {10, 30}
+    assert_received {:cache_lookup, _entry, ^key}
+  end
+
+  test "the client preset doesn't count toward the option segment limit", %{
+    url_config: url_config,
+    mount: mount
+  } do
+    options = Enum.map_join(1..64, "/", fn _i -> "pad=1" end)
+    # Repeated pad options give a 400 for duplicates, so only the lexer's
+    # segment limit is under test here.
+    signed = IP.URL.sign_path("/" <> options <> "/src/photo.png", url_config)
+
+    response = get("/preset=poster" <> signed, mount)
+    assert response.status == 400
+    refute response.resp_body =~ "too many option segments"
+  end
+
   test "a signer-written leading preset still verifies", %{url_config: url_config, mount: mount} do
     response = get(IP.URL.sign_path("/preset=internal/src/photo.png", url_config), mount)
 
@@ -143,6 +185,16 @@ defmodule ImagePipe.ClientPresetsWireTest do
     test "names outside the static presets raise", %{sources: sources} do
       assert_raise ArgumentError, ~r/client_presets.*"missing"/, fn ->
         IP.config(Keyword.put(options(sources), :client_presets, ["poster", "missing"]))
+      end
+    end
+
+    test "pipeline presets can't be client presets", %{sources: sources} do
+      presets = Map.put(@presets, "pipe", "w=20/-/blur=1")
+
+      assert_raise ArgumentError, ~r/client_presets.*"pipe".*pipeline/, fn ->
+        IP.config(
+          Keyword.merge(options(sources), presets: presets, client_presets: ["poster", "pipe"])
+        )
       end
     end
 

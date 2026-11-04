@@ -1,8 +1,8 @@
 defmodule ImagePipe.Cache.File do
   # A cache body whose size matches its metadata. Bodies are hashed and
   # synced to disk when written and never rewritten in place, so a hit checks
-  # only the size, which catches truncation. A decode failure re-hashes a
-  # cached original. Close it after delivery, including HEAD and 304.
+  # only the size, which catches truncation. Close it after delivery,
+  # including HEAD and 304.
   #
   # A body read from disk is open. A remembered one is only stat'ed, since
   # delivery sends it by path. A body evicted between that stat and the send

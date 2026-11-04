@@ -169,7 +169,8 @@ number as `:sig_key` from the
 A client, such as a mobile app that picks an image size for its screen, can
 add a preset to a signed URL without a new signature. List the presets
 clients may add. Each must be a preset defined in the server's configuration
-([defining presets](defining-presets.md)):
+([defining presets](defining-presets.md)), and not a
+[pipeline preset](presets.md#single-group-and-pipeline-presets):
 
 <!-- tabs-open -->
 
@@ -214,12 +215,14 @@ https://img.example.com/images/preset=poster-640/sig=Kq3vY1Tn…/src/photos%2Fbe
 All three URLs carry the same signature. Name several presets separated by
 commas, such as `preset=poster-320,dark/`. To check the list, request a URL
 with a preset that isn't in it. The server answers `403` with the body
-`invalid signature`.
+`invalid signature`, and logs the reason `client preset not allowed`.
 
 Options in the signed part of the URL override the preset's options. With a
 signed `/h=200/src/photos%2Fbeach.jpg`, `preset=poster-320` gives an image
-320 pixels wide and 200 high. An `expires` in the signed part applies with
-every preset.
+320 pixels wide and 200 high. Presets in the signed part's first group
+apply after the client's, so their options win too: a client's `preset=poster-320/` on a
+signed `/preset=dark/src/…` works as `preset=poster-320,dark`. An `expires`
+in the signed part applies with every preset.
 
 The signature doesn't cover the preset, so:
 

@@ -6,7 +6,9 @@ defmodule ImagePipe.Transform.SourceGeometry do
   # geometry and realized decode scaling belong to `ImagePipe.Transform.State`.
   #
   # `pages` is the number of pages or frames the source declares (1 for a still
-  # image). `debug_facts` carries best-effort, non-sensitive source facts collected by
+  # image). `cmyk?` is whether the source's pixels are CMYK, which decode
+  # planning needs because their conversion costs per decoded pixel.
+  # `debug_facts` carries best-effort, non-sensitive source facts collected by
   # `ImagePipe.Decode` for the debug headers; `%{}` when collection failed or
   # the geometry was built elsewhere.
   #
@@ -26,6 +28,7 @@ defmodule ImagePipe.Transform.SourceGeometry do
     :pending_orientation,
     :source_format,
     pages: 1,
+    cmyk?: false,
     debug_facts: %{},
     source_check: nil
   ]
@@ -36,6 +39,7 @@ defmodule ImagePipe.Transform.SourceGeometry do
           pending_orientation: PendingOrientation.t(),
           source_format: Format.source_format(),
           pages: pos_integer(),
+          cmyk?: boolean(),
           debug_facts: map(),
           source_check: (-> :ok | {:error, term()}) | nil
         }

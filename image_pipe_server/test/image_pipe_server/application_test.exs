@@ -29,6 +29,49 @@ defmodule ImagePipeServer.ApplicationTest do
       refute log =~ "warmup"
     end
 
+    test "warms up without the request defaults, so no source is fetched" do
+      test = self()
+
+      origin = fn conn ->
+        send(test, :origin_fetch)
+        Plug.Conn.send_resp(conn, 404, "")
+      end
+
+      config =
+        ImagePipe.config(
+          allow_unsigned: true,
+          sources: [
+            web: [
+              adapter: ImagePipe.Source.HTTP,
+              match: [scheme: ["http"]],
+              options: [
+                allowed_hosts: ["origin.test"],
+                address_resolver: fn _host -> {:ok, [{93, 184, 216, 34}]} end,
+                req_options: [plug: origin]
+              ]
+            ]
+          ],
+          watermarks: %{logo: [source: "http://origin.test/mark.png"]},
+          request_defaults: "wm=logo"
+        )
+
+      start_supervised!({ImagePipe, name: __MODULE__.Defaults, config: config})
+
+      log = capture_log(fn -> assert ImagePipeServer.Warmup.run(__MODULE__.Defaults) == :ok end)
+
+      refute log =~ "warmup"
+      refute_received :origin_fetch
+    end
+
+    test "starts the listener when the warmup runs past its deadline" do
+      log =
+        capture_log(fn ->
+          assert ImagePipeServer.Warmup.run(ImagePipeServer.ImagePipe, 0) == :ok
+        end)
+
+      assert log =~ "warmup: didn't finish within 0 ms"
+    end
+
     test "serves an image from the configured File mount", %{base: base} do
       assert {:ok, %{status: 200, body: body}} =
                Req.get(base <> "/w=4/format=png/src/pic.png", retry: false, decode_body: false)

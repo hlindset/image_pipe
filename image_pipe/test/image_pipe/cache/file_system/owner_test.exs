@@ -7,6 +7,7 @@ defmodule ImagePipe.Cache.FileSystem.OwnerTest do
   alias ImagePipe.Cache.FileSystem.Owner
   alias ImagePipe.Cache.FileSystem.OwnerWatch
   alias ImagePipe.Cache.FileSystem.Root
+  alias ImagePipe.Cache.FileSystem.Store
 
   @moduletag :tmp_dir
 
@@ -106,6 +107,54 @@ defmodule ImagePipe.Cache.FileSystem.OwnerTest do
     assert message =~ "cache root #{root} is already used by another cache in this VM"
     assert File.read!(path) == claimed
     refute Owner.refused?(root)
+  end
+
+  test "a cache restarted after its parent was killed waits for the old one to stop", %{
+    tmp_dir: root
+  } do
+    opts = [root: root, max_size_bytes: 1_000_000, host: "this-host"]
+    test = self()
+
+    {:ok, parent} = Supervisor.start_link([{Root, opts}], strategy: :one_for_one)
+    Process.unlink(parent)
+    [{_id, old, _type, _modules}] = Supervisor.which_children(parent)
+
+    # A writer that holds its shutdown keeps the old root stopping, and so
+    # holding its name, until the test releases it.
+    holder = fn ->
+      Process.flag(:trap_exit, true)
+      send(test, {:holding, self()})
+
+      receive do
+        {:EXIT, _writers, :shutdown} -> send(test, :stopping)
+      end
+
+      receive do
+        :release -> :ok
+      end
+    end
+
+    spec = %{
+      id: :holder,
+      start: {Task, :start_link, [holder]},
+      restart: :temporary,
+      shutdown: :infinity
+    }
+
+    {:ok, _pid} = FileSystem.Writers.start_child(Store.root_dir(opts), spec)
+    assert_receive {:holding, writer}
+
+    old_ref = Process.monitor(old)
+    Process.exit(parent, :kill)
+    assert_receive :stopping
+
+    restarted = Task.async(fn -> Root.start_link(opts) end)
+    await_waiting(restarted.pid)
+    send(writer, :release)
+
+    assert_receive {:DOWN, ^old_ref, :process, ^old, _reason}
+    assert {:ok, new} = Task.await(restarted)
+    assert new != old
   end
 
   test "a second instance on a root another instance uses fails to start", %{tmp_dir: root} do
@@ -318,6 +367,14 @@ defmodule ImagePipe.Cache.FileSystem.OwnerTest do
     case Registry.lookup(FileSystem.registry_name(root), root) do
       [{pid, _value}] when pid != crashed -> pid
       _crashed_or_restarting -> restarted_admission(root, crashed)
+    end
+  end
+
+  # The restarted root waits in `Root.start_link/1` for the old one to stop.
+  defp await_waiting(pid) do
+    case Process.info(pid, :current_function) do
+      {:current_function, {Root, :stopped?, 1}} -> :ok
+      _running -> await_waiting(pid)
     end
   end
 end

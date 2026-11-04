@@ -130,6 +130,31 @@ defmodule ImagePipe.Telemetry.SummaryTest do
     end
   end
 
+  test "a client preset off the allowlist logs its own reason behind the signature's 403", ctx do
+    key = String.duplicate("a1", 32)
+
+    options =
+      start(ctx,
+        keys: [key],
+        presets: %{"poster" => "w=30", "internal" => "w=10"},
+        client_presets: ["poster"]
+      )
+
+    signed = ImagePipe.URL.sign_path("/src/beach.jpg", ImagePipe.URL.config(keys: [key]))
+    response = request("/preset=internal" <> signed, Caches.plug(options), options)
+
+    assert response.status == 403
+    assert response.resp_body == "invalid signature"
+
+    assert_received {:summary, _m,
+                     %{
+                       status: 403,
+                       result: :parser_error,
+                       error: :client_preset_not_allowed,
+                       reason: "client preset not allowed"
+                     }}
+  end
+
   test "a signature sent to an instance without keys carries the reason the response gives",
        ctx do
     options = start(ctx)

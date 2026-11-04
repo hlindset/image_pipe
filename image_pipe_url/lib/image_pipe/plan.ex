@@ -265,9 +265,9 @@ defmodule ImagePipe.Plan do
   end
 
   # Keeps an issue when every location is in a group without an unknown
-  # preset, and a conflict between options the plan sets itself, since a
-  # preset can't remove them. Locations are numbered as the plan numbers its
-  # groups.
+  # preset, and a conflict between options the plan sets itself or a
+  # watermark it names, since a preset can't remove those. Locations are
+  # numbered as the plan numbers its groups.
   defp in_plan_groups(issue, indexed, origins, request, tainted) do
     locations =
       Enum.map(issue.locations, fn
@@ -281,11 +281,11 @@ defmodule ImagePipe.Plan do
         {:request, _key} -> false
       end)
 
-    plan_conflict? =
-      issue.reason == :mutually_exclusive_options and
+    plan_issue? =
+      issue.reason in [:mutually_exclusive_options, :unknown_watermark] and
         Enum.all?(issue.locations, &written?(&1, indexed, origins, request))
 
-    case checked? or plan_conflict? do
+    case checked? or plan_issue? do
       true -> [%{issue | locations: locations}]
       false -> []
     end

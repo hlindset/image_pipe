@@ -100,12 +100,12 @@ defmodule ImagePipe.API.CropRatioTrimWireTest do
       storage_dimensions: {800, 600},
       display_dimensions: {800, 600},
       pending_orientation: %PendingOrientation{},
-      source_format: :jpeg
+      source_format: :webp
     }
 
     {:ok, lexed} = Path.extract("/crop=200,200/crop-ratio=2/h=25/src/image.jpg", "")
     {:ok, request} = Parser.parse(lexed, [])
-    assert Executor.decode_options(request, geometry)[:shrink] == 4
+    assert Executor.decode_options(request, geometry)[:scale] == 0.25
   end
 
   test "out-of-range crop ratios fail before source access" do

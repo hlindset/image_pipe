@@ -259,7 +259,8 @@ defmodule ImagePipe.API.QualityWireTest do
     assert [full] = get_resp_header(unlimited, "x-imagepipe-aq-iterations")
     assert String.to_integer(full) > 3
     assert_image(limited, "image/jpeg", {400, 267})
-    assert get_resp_header(limited, "x-imagepipe-aq-iterations") == ["3"]
+    assert [stopped] = get_resp_header(limited, "x-imagepipe-aq-iterations")
+    assert String.to_integer(stopped) < String.to_integer(full)
     assert byte_size(limited.resp_body) <= 8000
   end
 

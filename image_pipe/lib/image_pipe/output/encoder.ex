@@ -72,7 +72,7 @@ defmodule ImagePipe.Output.Encoder do
 
   defp lazy_output(finalized, resolved_output, mime_type, suffix, opts) do
     image_module = Keyword.get(opts, :image_module, VixImage)
-    vsuffix = vix_suffix(suffix, resolved_output.quality, save_tokens(resolved_output))
+    vsuffix = vix_suffix(suffix, resolved_output.quality, save_tokens(resolved_output, finalized))
     stream = image_module.write_to_stream(finalized, vsuffix)
 
     if Keyword.get(opts, :encode_ahead, false),
@@ -157,7 +157,7 @@ defmodule ImagePipe.Output.Encoder do
           {:ok, binary()} | {:error, {:encode, Exception.t(), list()}}
   def encode_to_buffer(%VixImage{} = image, %Resolved{} = resolved_output, quality) do
     {_mime_type, suffix} = output_format(resolved_output)
-    vsuffix = vix_suffix(suffix, {:quality, quality}, save_tokens(resolved_output))
+    vsuffix = vix_suffix(suffix, {:quality, quality}, save_tokens(resolved_output, image))
 
     case VixImage.write_to_buffer(image, vsuffix) do
       {:ok, binary} -> {:ok, binary}
@@ -179,9 +179,9 @@ defmodule ImagePipe.Output.Encoder do
     end
   end
 
-  defp save_tokens(%Resolved{} = resolved) do
+  defp save_tokens(%Resolved{} = resolved, image) do
     options = resolved.encoder_options || default_encoder_options(resolved.format)
-    Enum.reject([keep_token(resolved) | encoder_tokens(options)], &is_nil/1)
+    Enum.reject([keep_token(resolved, image) | encoder_tokens(options)], &is_nil/1)
   end
 
   # Without settings from the host or the request, JPEG and PNG still get the
@@ -191,20 +191,24 @@ defmodule ImagePipe.Output.Encoder do
   defp default_encoder_options(_format), do: nil
 
   # Stripping happens when libvips saves: its `keep` option leaves out EXIF,
-  # XMP, IPTC, and other metadata, so nothing is parsed or removed first. The
-  # ICC profile left by color finalization stays. EXIF stays for kept
-  # copyright and artist, and for a density other than 72 dpi: libvips writes
-  # density into EXIF for every format but PNG, which has pHYs. Viewers
-  # assume 72 dpi without it.
-  defp keep_token(%Resolved{strip_metadata: false}), do: nil
+  # XMP, IPTC, and other metadata. The ICC profile left by color
+  # finalization stays. EXIF stays when the image still has EXIF fields (a
+  # kept copyright or artist), and for a density other than 72 dpi: libvips
+  # writes density into EXIF for every format but PNG, which has pHYs.
+  # Viewers assume 72 dpi without it. A kept EXIF block with no fields would
+  # hold only the resolution and an Uncalibrated ColorSpace.
+  defp keep_token(%Resolved{strip_metadata: false}, _image), do: nil
 
-  defp keep_token(%Resolved{} = resolved),
-    do: if(exif_kept?(resolved), do: "keep=icc:exif", else: "keep=icc")
+  defp keep_token(%Resolved{} = resolved, image),
+    do: if(exif_kept?(resolved, image), do: "keep=icc:exif", else: "keep=icc")
 
-  defp exif_kept?(%Resolved{keep_copyright: true}), do: true
+  defp exif_kept?(%Resolved{format: format, dpi: dpi}, image),
+    do: exif_fields(image) != [] or (format != :png and dpi not in [nil, 72])
 
-  defp exif_kept?(%Resolved{format: format, dpi: dpi}),
-    do: format != :png and dpi not in [nil, 72]
+  defp exif_fields(image) do
+    {:ok, names} = VixImage.header_field_names(image)
+    Enum.filter(names, &String.starts_with?(&1, "exif-"))
+  end
 
   # libvips suffix tokens (k=v, dash-named) from the negotiated encoder-option struct.
   defp encoder_tokens(nil), do: []
@@ -637,26 +641,18 @@ defmodule ImagePipe.Output.Encoder do
   # Removes the metadata fields a save that keeps EXIF would write, leaving
   # copyright and artist when they're kept. The libvips EXIF writer rebuilds
   # the block from the individual `exif-*` fields, such as GPS, so removing
-  # only the serialized `exif-data` blob isn't enough. Without kept EXIF,
-  # the save's `keep` option drops the metadata instead (see `keep_token/1`).
-  defp strip_metadata(image, %Resolved{} = resolved) do
-    cond do
-      not resolved.strip_metadata ->
-        {:ok, image}
+  # only the serialized `exif-data` blob isn't enough. The save keeps EXIF
+  # only when fields remain or a density needs it (see `keep_token/2`), and
+  # its `keep` option drops the other metadata.
+  defp strip_metadata(image, %Resolved{strip_metadata: false}), do: {:ok, image}
 
-      resolved.keep_copyright ->
-        minimize_metadata(image, [:copyright, :artist])
+  defp strip_metadata(image, %Resolved{keep_copyright: true}),
+    do: minimize_metadata(image, [:copyright, :artist])
 
-      exif_kept?(resolved) ->
-        {:ok, names} = VixImage.header_field_names(image)
-
-        VipsHeader.edit(
-          image,
-          for(name <- names, String.starts_with?(name, "exif-"), do: {:remove, name})
-        )
-
-      true ->
-        {:ok, image}
+  defp strip_metadata(image, %Resolved{}) do
+    case exif_fields(image) do
+      [] -> {:ok, image}
+      names -> VipsHeader.edit(image, Enum.map(names, &{:remove, &1}))
     end
   end
 
@@ -675,8 +671,29 @@ defmodule ImagePipe.Output.Encoder do
 
     VipsHeader.edit(
       image,
-      Enum.map(names, &{:remove, &1}) ++ kept ++ if(icc, do: [set_icc(icc)], else: [])
+      Enum.map(names, &{:remove, &1}) ++
+        kept ++ kept_color_space(image, icc, kept) ++ if(icc, do: [set_icc(icc)], else: [])
     )
+  end
+
+  # Kept EXIF needs a ColorSpace, which libvips writes as Uncalibrated when
+  # the field is missing. Color finalization set it for the result when the
+  # source had one. Without one, a result without a profile is sRGB.
+  defp kept_color_space(_image, _icc, []), do: []
+
+  defp kept_color_space(image, icc, _kept) do
+    case {header_value(image, "exif-ifd2-ColorSpace"), icc} do
+      {nil, nil} -> [{:set, "exif-ifd2-ColorSpace", :gchararray, "1"}]
+      {nil, _icc} -> []
+      {value, _icc} -> [{:set, "exif-ifd2-ColorSpace", :gchararray, leading_number(value)}]
+    end
+  end
+
+  # libvips reports EXIF fields as text that starts with the value, such as
+  # "1 (sRGB, Short, 1 components, 2 bytes)".
+  defp leading_number(value) do
+    {number, _rest} = Integer.parse(value)
+    Integer.to_string(number)
   end
 
   # Workaround for `image` 0.72.0: `Image.exif/1` parses the whole EXIF

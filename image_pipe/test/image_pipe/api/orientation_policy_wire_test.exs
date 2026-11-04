@@ -85,6 +85,26 @@ defmodule ImagePipe.API.OrientationPolicyWireTest do
            ]
   end
 
+  for {form, xmp} <- [
+        attribute: ~s(<rdf:Description tiff:Orientation="6"/>),
+        element: ~s(<rdf:Description><tiff:Orientation>6</tiff:Orientation></rdf:Description>)
+      ],
+      policy <- ["auto", "none"] do
+    test "orient=#{policy} with retained metadata normalizes an XMP #{form} orientation" do
+      base = marked_image_with_xmp(unquote(xmp))
+
+      output =
+        image(
+          "/orient=#{unquote(policy)}/meta=keep/format=jpeg/src/images/x.jpg",
+          oriented(base, 6)
+        )
+
+      assert {:ok, xmp} = VipsImage.header_value(output, "xmp-data")
+      assert xmp =~ ~r{tiff:Orientation(="|>)1}
+      refute xmp =~ ~r{tiff:Orientation(="|>)6}
+    end
+  end
+
   test "EXIF flush and metadata cleanup preserve corrupt-tail decode classification" do
     body =
       "priv/static/images/beach.jpg"
@@ -312,6 +332,22 @@ defmodule ImagePipe.API.OrientationPolicyWireTest do
         )
 
         :ok
+      end)
+
+    Image.write!(tagged, :memory, suffix: ".jpg")
+  end
+
+  defp marked_image_with_xmp(description) do
+    image = marked_image() |> Image.open!(access: :random)
+
+    packet =
+      ~s(<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF ) <>
+        ~s(xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" ) <>
+        ~s(xmlns:tiff="http://ns.adobe.com/tiff/1.0/">#{description}</rdf:RDF></x:xmpmeta>)
+
+    {:ok, tagged} =
+      VipsImage.mutate(image, fn mutable ->
+        VipsMutableImage.set(mutable, "xmp-data", :VipsBlob, packet)
       end)
 
     Image.write!(tagged, :memory, suffix: ".jpg")

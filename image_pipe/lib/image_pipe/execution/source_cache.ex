@@ -212,8 +212,9 @@ defmodule ImagePipe.Execution.SourceCache do
 
   # The requests waiting for this download each get their own hard link to
   # the staged original, tracked for that request, or the bytes of one held
-  # in memory. A link that can't be made leaves its request queued, to take
-  # the lease next. Nothing is shared for an original that may not be stored.
+  # in memory, including one staging buffered after its file failed. A link
+  # that can't be made leaves its request queued, to take the lease next.
+  # Nothing is shared for an original that may not be stored.
   defp share_download(
          lease,
          {:ok, %Acquisition{response: %Response{} = response, record: record} = acquisition},
@@ -252,7 +253,10 @@ defmodule ImagePipe.Execution.SourceCache do
     end
   end
 
-  defp shared_copy(_acquisition, _response, _pid), do: :error
+  # Staging fell back to memory after its file couldn't be opened or
+  # written. The bytes need no lease of their own.
+  defp shared_copy(acquisition, %Response{path: nil}, _pid),
+    do: {:ok, %{acquisition | lease: :unavailable}}
 
   # A request waiting behind another one's download gives up a second after
   # that download's own deadline, with the same timeout error.

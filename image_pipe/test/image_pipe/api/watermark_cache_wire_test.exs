@@ -168,6 +168,18 @@ defmodule ImagePipe.API.WatermarkCacheWireTest do
     assert get_resp_header(again, "etag") == [etag]
   end
 
+  test "a new variant reuses a revalidated asset's bytes", %{config: config, state: state} do
+    assert get(@path, config).status == 200
+    Agent.update(state, &%{&1 | now: &1.now + 120})
+    flush()
+
+    variant = get("/w=12/wm=logo/format=png/src/https://origin.test/image.png", config)
+    assert variant.status == 200
+    assert center(variant) == [255, 0, 0]
+    assert_received {:origin, "mark.png", [~s("mark.png-v1")]}
+    refute_received {:origin, "mark.png", []}
+  end
+
   test "a failed watermark releases the staged main source", %{config: config} do
     response = get("/wm=missing/format=png/src/https://origin.test/image.png", config)
 
