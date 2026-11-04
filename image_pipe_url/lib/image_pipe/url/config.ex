@@ -71,7 +71,7 @@ defmodule ImagePipe.URL.Config do
                   name it and the request-wide options are not checked, because
                   only the server can resolve the name. The other groups are
                   still checked, and so are conflicts between options the plan
-                  sets itself.
+                  sets itself and watermarks it names.
                   """
                 ],
                 watermarks: [
