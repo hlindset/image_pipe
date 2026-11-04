@@ -155,14 +155,21 @@ defmodule ImagePipe.PresetLookupTest do
     end
   end
 
-  test "a request may look up any number of presets", %{body: body} do
-    names = for n <- 1..40, do: "p#{n}"
-    lookup = lookup(presets: Map.new(names, &{&1, "w=30/format=png"}))
+  test "a request may look up 16 presets, and more is a 400 before any lookup", %{body: body} do
+    names = for n <- 1..17, do: "p#{n}"
 
-    response =
-      get(config(body, preset_lookup: lookup), "/preset=#{Enum.join(names, ",")}/src/photo.png")
+    config =
+      config(body, preset_lookup: lookup(presets: Map.new(names, &{&1, "w=30/format=png"})))
 
-    assert response.status == 200
+    path = fn names -> "/preset=#{Enum.join(names, ",")}/src/photo.png" end
+
+    assert get(config, path.(Enum.take(names, 16))).status == 200
+    assert_received {:preset_fetch, _names}
+
+    response = get(config, path.(names))
+    assert response.status == 400
+    assert response.resp_body =~ "at most 16 presets"
+    refute_received {:preset_fetch, _names}
   end
 
   test "a URL with malformed options is a 400 before any lookup", %{body: body} do

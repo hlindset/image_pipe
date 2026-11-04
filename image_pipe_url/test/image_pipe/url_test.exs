@@ -401,6 +401,17 @@ defmodule ImagePipe.URLTest do
                IP.URL.validate(IP.URL.new(bare) |> IP.URL.group(resize: [fit: :cover]))
     end
 
+    test "a URL names at most 16 presets" do
+      config = IP.URL.config(validate_against: [presets: %{"card" => "w=30"}])
+
+      url = fn count ->
+        IP.URL.new(config) |> IP.URL.group(presets: List.duplicate("card", count))
+      end
+
+      assert {:ok, []} = IP.URL.validate(url.(16))
+      assert {:error, [%{reason: :too_many_presets}]} = IP.URL.validate(url.(17))
+    end
+
     test "a name the known presets lack is unknown unless the server has a lookup" do
       static = IP.URL.config(validate_against: [presets: %{"card" => "w=30"}])
 

@@ -41,6 +41,8 @@ effect is [ignored](#ignored-options) instead. ImagePipe also rejects:
 - Percent escapes, such as `%20`, anywhere in the options.
 - Empty segments (`//`) and the segments `.` and `..` in the options.
 - More than 64 option segments before the source, counting each `-`.
+- More than 16 [preset](#named-presets) names in all groups together,
+  counting each repeat.
 
 ## Image paths
 

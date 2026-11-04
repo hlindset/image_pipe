@@ -66,6 +66,16 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   with "cache root … is already used by another cache in this VM", and use
   up its supervisor's restarts.
 
+### Security
+
+- **Breaking:** A URL may name at most 16 presets, counting each repeat, every
+  group, and a client's presets written before `sig=`. A URL with more
+  answers `400` before fetching the source. Before, processing time grew
+  with the square of the number of preset names in a group, so a URL that
+  repeated a preset containing an `unset` thousands of times took seconds
+  of CPU, and with `client_presets` any client could send one. Combine presets
+  that a URL names together into fewer definitions.
+
 ## [0.6.0] - 2026-11-02
 
 ### Added

@@ -87,6 +87,20 @@ defmodule ImagePipe.ClientPresetsWireTest do
     assert size(response) == {30, 30}
   end
 
+  test "client and signed presets past the preset limit answer 400 before any fetch", %{
+    url_config: url_config,
+    mount: mount
+  } do
+    client = "/preset=" <> Enum.map_join(1..9, ",", fn _i -> "poster" end)
+    signed = "/preset=" <> Enum.map_join(1..8, ",", fn _i -> "internal" end)
+
+    response = get(client <> IP.URL.sign_path(signed <> "/src/photo.png", url_config), mount)
+
+    assert response.status == 400
+    assert response.resp_body =~ "at most 16 presets"
+    refute_received :source_fetch
+  end
+
   test "a client preset joins the signer's presets, which win", %{
     url_config: url_config,
     mount: mount

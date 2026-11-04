@@ -216,6 +216,9 @@ All three URLs carry the same signature. Name several presets separated by
 commas, such as `preset=poster-320,dark/`. To check the list, request a URL
 with a preset that isn't in it. The server answers `403` with the body
 `invalid signature`, and logs the reason `client preset not allowed`.
+Presets the client adds count toward the
+[limit of 16](requesting-images.md#url-structure) together with those in
+the signed part. Over the limit, the server answers `400`.
 
 Options in the signed part of the URL override the preset's options. With a
 signed `/h=200/src/photos%2Fbeach.jpg`, `preset=poster-320` gives an image

@@ -81,10 +81,19 @@ defmodule ImagePipe.API.Parser do
   @doc false
   @spec preset_names(lexed()) ::
           {:ok, [String.t()]} | {:error, {:invalid_request, [Diagnostic.t()]}}
-  def preset_names(%{segments: segments} = lexed) do
+  def preset_names(%{segments: segments, source: {_marker, _source, source_span}} = lexed) do
     case parse_options(segments, client_preset(lexed)) do
-      {parsed, _occurrences, []} ->
-        {:ok, Presets.references(parsed.groups)}
+      {parsed, occurrences, []} ->
+        case Presets.too_many(parsed.groups) do
+          [] ->
+            {:ok, Presets.references(parsed.groups)}
+
+          issues ->
+            fallback = whole_path_span(source_span)
+
+            {:error,
+             {:invalid_request, Enum.map(issues, &preset_diagnostic(&1, occurrences, fallback))}}
+        end
 
       {_parsed, _occurrences, errors} ->
         {:error, {:invalid_request, errors}}
