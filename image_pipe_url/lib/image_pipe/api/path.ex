@@ -103,6 +103,7 @@ defmodule ImagePipe.API.Path do
   @spec extract(String.t(), String.t()) ::
           {:ok,
            %{
+             client_preset: {raw :: String.t(), span()} | nil,
              segments: [{raw :: String.t(), span()}],
              source: {:src | :src64 | :enc, decoded_tail :: String.t(), span()}
            }}

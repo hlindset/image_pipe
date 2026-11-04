@@ -1,7 +1,7 @@
 %{
   cases: %{
     "avif_q60" => %{
-      fixture_sha256: "12173836d3d8e73419cc3fa99f9b4d8393ff0f92da5d37373baf17cedf0e4c79",
+      fixture_sha256: "2c147946b5609abc1beb6bfc15623727b74895a1be798a54c6c97a06bf414add",
       structure: %{
         alpha?: false,
         bands: 3,
