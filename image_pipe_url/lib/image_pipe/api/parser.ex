@@ -35,6 +35,7 @@ defmodule ImagePipe.API.Parser do
 
   @type span :: Diagnostic.span()
   @type lexed :: %{
+          optional(:client_preset) => {String.t(), span()} | nil,
           segments: [{String.t(), span()}],
           source: {:src | :src64 | :enc, String.t(), span()}
         }
@@ -45,8 +46,8 @@ defmodule ImagePipe.API.Parser do
   """
   @spec parse(lexed(), keyword()) ::
           {:ok, Spec.t()} | {:error, {:invalid_request, [Diagnostic.t()]}}
-  def parse(%{segments: segments, source: {_marker, _source, source_span}}, config) do
-    {parsed, occurrences, parse_errors} = parse_options(segments)
+  def parse(%{segments: segments, source: {_marker, _source, source_span}} = lexed, config) do
+    {parsed, occurrences, parse_errors} = parse_options(segments, client_preset(lexed))
     whole_path_span = whole_path_span(source_span)
 
     {groups, request, preset_errors, occurrences, origins} =
@@ -80,8 +81,8 @@ defmodule ImagePipe.API.Parser do
   @doc false
   @spec preset_names(lexed()) ::
           {:ok, [String.t()]} | {:error, {:invalid_request, [Diagnostic.t()]}}
-  def preset_names(%{segments: segments}) do
-    case parse_options(segments) do
+  def preset_names(%{segments: segments} = lexed) do
+    case parse_options(segments, client_preset(lexed)) do
       {parsed, _occurrences, []} ->
         {:ok, Presets.references(parsed.groups)}
 
@@ -105,8 +106,11 @@ defmodule ImagePipe.API.Parser do
     end
   end
 
-  defp parse_options(segments) do
-    {groups, structure_errors} = split_groups(segments)
+  defp client_preset(lexed), do: Map.get(lexed, :client_preset)
+
+  defp parse_options(segments, client_preset \\ nil) do
+    {groups, structure_errors} =
+      split_groups(if client_preset, do: [client_preset | segments], else: segments)
 
     {occurrences, group_count} =
       groups
@@ -114,6 +118,7 @@ defmodule ImagePipe.API.Parser do
       |> Enum.flat_map(fn {segments, index} ->
         Enum.map(segments, &classify_segment(&1, index))
       end)
+      |> join_client_presets(client_preset)
       |> drop_request_only_groups()
 
     errors =
@@ -127,6 +132,23 @@ defmodule ImagePipe.API.Parser do
     }
 
     {parsed, occurrences, errors}
+  end
+
+  # A client preset segment comes first in group 0. When the signed part
+  # also names presets there, the client's names go in front of them, so the
+  # signer's presets win as the signer's options do.
+  defp join_client_presets(occurrences, nil), do: occurrences
+
+  defp join_client_presets([client | rest] = occurrences, _client_preset) do
+    case Enum.filter(rest, &(&1.group_index == 0 and &1.key == "preset")) do
+      [%{result: {:ok, names}} = signed] ->
+        {:ok, client_names} = client.result
+        joined = %{signed | result: {:ok, client_names ++ names}}
+        Enum.map(rest, &if(&1 == signed, do: joined, else: &1))
+
+      _no_signed_preset ->
+        occurrences
+    end
   end
 
   # A request option's scope comes from the option, not its position, so a

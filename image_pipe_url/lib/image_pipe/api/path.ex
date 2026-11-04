@@ -10,8 +10,8 @@ defmodule ImagePipe.API.Path do
   #     allocate diagnostics.
   #   * `extract/2` lexes and decodes only after `Signature.verify/3` succeeds
   #     against the same path's `split_signature/1` output. It skips the
-  #     signature segment, keeps a client preset segment before it, and
-  #     returns no signature data.
+  #     signature segment, returns a client preset segment before it apart
+  #     from the signed segments, and returns no signature data.
   #
   # Both take the raw mount-relative path: `""` or a string starting with `/`,
   # with the mount prefix and query string already removed.
@@ -20,7 +20,8 @@ defmodule ImagePipe.API.Path do
   # including the skipped signature segment in their offsets.
   #
   # Lexing stops with `:too_many_segments` after `@max_option_segments`
-  # non-source segments, bounding work on hostile paths.
+  # signed non-source segments, bounding work on hostile paths. The client
+  # preset segment doesn't count, since the signer can't account for it.
   @moduledoc false
 
   alias ImagePipe.API.Diagnostic
@@ -87,12 +88,12 @@ defmodule ImagePipe.API.Path do
   Full lexing of the mount-relative raw path and its query string into option/flag/separator segments
   plus a terminal source, called only after `Signature.verify/3` has
   succeeded. Skips the `sig=` segment internally (without validating it),
-  lexing a client preset segment before it as an option, but never returns
-  signature data — `split_signature/1` is the raw
+  returning a client preset segment before it as `:client_preset` (or
+  `nil`), but never returns signature data — `split_signature/1` is the raw
   prefix's only interpreter.
 
-  Returns `{:ok, %{segments: [{raw, span}], source: {:src | :src64 | :enc, source, span}}}`
-  on success. `src` is percent-decoded once, `src64` is base64url-decoded,
+  Returns `{:ok, %{client_preset: {raw, span} | nil, segments: [{raw, span}],
+  source: {:src | :src64 | :enc, source, span}}}` on success. `src` is percent-decoded once, `src64` is base64url-decoded,
   and `enc` remains an opaque token for authenticated decryption by
   `ImagePipe.API`.
 
@@ -114,8 +115,10 @@ defmodule ImagePipe.API.Path do
         []
       end
 
-    {segments, rest} = lex_start(path)
-    lex_segments(path, rest, segments, query_errors, length(segments))
+    {client_preset, rest} = lex_start(path)
+
+    with {:ok, lexed} <- lex_segments(path, rest, [], query_errors, 0),
+         do: {:ok, Map.put(lexed, :client_preset, client_preset)}
   end
 
   # -- shared raw segment splitting --------------------------------------
@@ -136,16 +139,16 @@ defmodule ImagePipe.API.Path do
 
   # -- sig-segment skip (extract/2 only) ---------------------------------
 
-  # The segments lexed before the signature (a client preset segment, or
-  # none) and the path to lex after it.
+  # The client preset segment before the signature (or nil) and the path to
+  # lex after it.
   defp lex_start(path) do
     case split_client_presets(path) do
       {[], ^path} ->
-        {[], skip_signature(path)}
+        {nil, skip_signature(path)}
 
       {_names, from_sig} ->
         prefix = binary_part(path, 1, byte_size(path) - byte_size(from_sig) - 1)
-        {[{prefix, {1, byte_size(prefix)}}], skip_signature(from_sig)}
+        {{prefix, {1, byte_size(prefix)}}, skip_signature(from_sig)}
     end
   end
 

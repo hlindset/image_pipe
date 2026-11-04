@@ -11,6 +11,8 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   watermark that the plan names itself, even in a group that names a preset
   missing from `:presets`. Before, they accepted a URL the server always
   refuses with `400`.
+- A client `preset=` segment written before `sig=` no longer counts toward
+  the 64 option segments a URL may have.
 
 ## [0.6.0] - 2026-11-02
 

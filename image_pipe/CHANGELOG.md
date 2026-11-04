@@ -5,6 +5,12 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking:** `client_presets` refuses a pipeline preset (one with several
+  groups) at startup. It answered `400` with any signed URL that had group
+  options. Remove pipeline presets from `client_presets`.
+
 ### Fixed
 
 - A watermark asset whose origin answers a revalidation with `304` is no
@@ -24,6 +30,11 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   preset not allowed`, with the `:client_preset_not_allowed` error in
   telemetry, instead of `invalid signature`. The response is still `403`
   with the body `invalid signature`.
+- A client preset works on a signed URL that names presets in its first
+  group: the client's presets apply first and the signed ones after them,
+  instead of answering `400` "duplicate option". The client's `preset=`
+  segment also no longer counts toward the 64 option segments a URL may
+  have.
 
 ## [0.6.0] - 2026-11-02
 

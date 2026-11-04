@@ -108,14 +108,26 @@ defmodule ImagePipe.API.PathTest do
   end
 
   describe "extract/2 happy paths" do
-    test "lexes a client preset segment and skips the sig= segment after it" do
+    test "returns a client preset segment apart and skips the sig= segment after it" do
       path = "/preset=poster-320/sig=ABC/h=200/src/x"
 
       assert {:ok,
               %{
-                segments: [{"preset=poster-320", {1, 17}}, {"h=200", {27, 5}}],
+                client_preset: {"preset=poster-320", {1, 17}},
+                segments: [{"h=200", {27, 5}}],
                 source: {:src, "x", {37, 1}}
               }} = Path.extract(path, "")
+
+      assert {:ok, %{client_preset: nil}} = Path.extract("/sig=ABC/h=200/src/x", "")
+    end
+
+    test "a client preset segment doesn't count toward the segment limit" do
+      options = Enum.map_join(1..Path.max_option_segments(), "/", fn i -> "w=#{i}" end)
+
+      assert {:ok, %{segments: segments}} =
+               Path.extract("/preset=a/sig=ABC/" <> options <> "/src/x", "")
+
+      assert length(segments) == Path.max_option_segments()
     end
 
     test "lexes option segments and a src source, with byte-exact spans" do
