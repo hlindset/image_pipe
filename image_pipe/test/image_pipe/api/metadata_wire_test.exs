@@ -62,6 +62,32 @@ defmodule ImagePipe.API.MetadataWireTest do
     assert "313/1000" <> _ = header(kept, "exif-ifd0-WhitePoint")
   end
 
+  test "a source without metadata gets no EXIF block under the default policy" do
+    config =
+      mount(
+        body:
+          Image.write!(Image.new!(32, 21, color: :white), :memory,
+            suffix: ".jpg",
+            strip_metadata: true
+          )
+      )
+
+    for format <- ["jpeg", "png", "webp", "avif"] do
+      image = response("format=#{format}", config) |> decoded()
+      assert header(image, "exif-data") == nil, format
+    end
+  end
+
+  test "a kept copyright on an sRGB result has EXIF ColorSpace sRGB" do
+    for body <- [metadata_jpeg(%{"exif-ifd2-ColorSpace" => "1"}), metadata_jpeg()],
+        format <- ["jpeg", "png", "webp"] do
+      image = response("format=#{format}", mount(body: body)) |> decoded()
+      # libvips headers, since `Image.exif/1` can't read PNG EXIF (image_plug-2dl7).
+      assert "(c) ACME" <> _ = header(image, "exif-ifd0-Copyright"), format
+      assert "1 (sRGB" <> _ = header(image, "exif-ifd2-ColorSpace"), format
+    end
+  end
+
   test "a converted result with kept EXIF has the target's ColorSpace" do
     srgb = mount(body: metadata_jpeg(%{"exif-ifd2-ColorSpace" => "1"}))
     p3 = response("format=jpeg/meta=keep/profile=display-p3", srgb) |> decoded()

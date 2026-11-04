@@ -45,6 +45,11 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   LittleCMS can't use is served as if it had no profile. Before, every
   request for it failed with `415` or `422`, and so did every request that
   used it as a watermark.
+- Under the default metadata policy (`keep_copyright: true`), an output whose
+  source has no copyright or artist no longer carries a 180–190-byte EXIF
+  block that libvips built from the resolution alone. When a copyright is
+  kept, the EXIF `ColorSpace` of an sRGB result is sRGB rather than
+  Uncalibrated.
 
 ## [0.6.0] - 2026-11-02
 
