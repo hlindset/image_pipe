@@ -102,7 +102,7 @@ defmodule ImagePipe.RawFile do
   end
 
   defp directory?(path) do
-    match?({:ok, file_info(type: :directory)}, :file.read_file_info(path, [:raw]))
+    match?({:ok, file_info(type: :directory)}, :file.read_file_info(path, [:raw, time: :posix]))
   end
 
   defp time(opts), do: Keyword.get(opts, :time, :universal)
