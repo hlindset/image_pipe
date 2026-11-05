@@ -523,8 +523,10 @@ Span. Wraps a lookup in the output cache or in the instance's memory.
   - `:cache` (atom): `:disabled`, `:hit`, `:miss`, or `:read_error`. A read
     error is served as a miss.
   - `:bytes` (integer): the size of the cached body, on a hit for a processed
-    response. The span ends before the body is read, so its duration doesn't
-    include reading it.
+    response. The span ends before a body sent from its file is read, so its
+    duration doesn't include reading it. A body of 64 KB or less is read
+    within the span on its second hit, when the cache reads it to
+    [keep in memory](cache.md#cache-process-and-restarts).
   - `:cache_key` and `:entry`: as on start.
   - `:error` (atom): the error category, on a read error.
 

@@ -57,7 +57,10 @@ defmodule ImagePipeServer.Config.Reference do
         "for what happens when an original is forgotten. " <>
         "`output.max_remembered_entries` is how many recently served entries the cache " <>
         "keeps in memory, about 1.1 KB each. It defaults to one for each 50 KB of " <>
-        "`output.max_size_bytes`, at least 1,000 and at most 50,000.",
+        "`output.max_size_bytes`, at least 1,000 and at most 50,000. " <>
+        "`output.max_remembered_bytes` is how many bytes of recently served bodies of " <>
+        "64 KB or less the cache keeps in memory. Set it to `0` when `output.root` is on a " <>
+        "`tmpfs`, where those bodies would be held in memory twice.",
     processing:
       "Defaults and limits for every image the server processes. The limits on " <>
         "originals, intermediate images, and results are described in " <>
@@ -68,6 +71,13 @@ defmodule ImagePipeServer.Config.Reference do
         "See [limiting concurrent processing](../../image_pipe/docs/processing-controls.md).",
     http:
       "Response settings: the CORS origin and the HTTP cache headers. See [serving images through a CDN](../../image_pipe/docs/serving-through-a-cdn.md).",
+    delivery:
+      "Where the server keeps what slow clients haven't read yet, and how much. Up to " <>
+        "4 MB of each response waits in memory, and the rest in a spool file in the " <>
+        "`image_pipe` directory under `tmp_dir`, which also holds originals while " <>
+        "requests use them. `tmp_dir` must exist. `max_buffered_bytes` and `max_spooled_bytes` cap " <>
+        "the memory and the spool files across all responses, in bytes, and " <>
+        "`max_spooled_bytes = 0` turns spooling off. See [slow clients](../../image_pipe/docs/deployment.md#slow-clients).",
     telemetry:
       "`log_level` is the lowest level the server logs. `log_requests` logs one line per " <>
         "image request at `info`, or at `warning` for a `4xx`, a result that didn't come " <>
@@ -91,7 +101,8 @@ defmodule ImagePipeServer.Config.Reference do
     stats:
       "`enabled` turns on `GET /stats`, which answers with JSON, and `GET /metrics`, which " <>
         "answers with Prometheus text. They report each cache's size, its hits and misses " <>
-        "since the server started, and the free space on the disk that holds it. Every " <>
+        "since the server started, the free space on the disk that holds it, and what " <>
+        "slow clients hold in memory and spool files. Every " <>
         "request must send `Authorization: Bearer <token>` with `token`, which is required " <>
         "when `enabled` is true and needs at least 32 characters and no whitespace. The `[server]` `auth_token` doesn't give access to them. With " <>
         "`health_port`, that listener serves them too. See " <>
@@ -193,7 +204,8 @@ defmodule ImagePipeServer.Config.Reference do
     "webp_options.effort" => "`4`",
     "avif_options.effort" => "`3`",
     "avif_options.subsample_mode" => ~s(`"off"`),
-    "svg.max_render_pixels" => "four times `max_input_pixels`"
+    "svg.max_render_pixels" => "four times `max_input_pixels`",
+    "tmp_dir" => "`TMPDIR`, or `/tmp`"
   }
 
   defp table(schema) do

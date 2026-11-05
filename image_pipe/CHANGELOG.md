@@ -5,14 +5,30 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- The `:image_pipe` application environment sets where slow clients'
+  spool files and downloaded originals go (`tmp_dir`) and how much slow
+  clients may hold in memory and in spool files (`max_buffered_bytes` and
+  `max_spooled_bytes`, 256 MB and 2 GB by default). See
+  `ImagePipe.Settings`. `ImagePipe.delivery_stats/0` reports the bytes
+  held in memory and in spool files.
+- A file system cache keeps the bodies of recently served entries of 64 KB
+  or less in memory, up to its new `max_remembered_bytes` (64 MB by
+  default), and sends a kept body without reading its file. Set it to `0`
+  when `root` is on a `tmpfs`, which already holds the files in memory. `ImagePipe.cache_stats/1` reports
+  `:remembered_bytes` and `:max_remembered_bytes`.
+
 ### Changed
 
 - A cache hit on a recently served entry no longer checks its body file
   before sending it. This saves a file system call on every such hit: a
   HEAD hit took about half the time, and GET hits gained 3–11% in
-  throughput. A GET whose body was deleted still generates the image again,
-  and a HEAD answers from memory. A body changed in place is now sent even
-  if its size changed, and a shorter one ends the response early.
+  throughput. A GET whose body was deleted generates the image again,
+  unless the cache keeps that body in memory, and a HEAD answers from
+  memory. A body changed in place is now sent even
+  if its size changed, and a shorter one ends the response early. A body
+  kept in memory is sent as it was kept.
 - **Breaking:** `client_presets` refuses a pipeline preset (one with several
   groups) at startup. It answered `400` with any signed URL that had group
   options. Remove pipeline presets from `client_presets`.

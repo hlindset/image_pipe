@@ -1,6 +1,7 @@
 defmodule ImagePipe.Execution.Staging do
   # Where originals are staged while requests use them: a directory only this
-  # VM's user can read, under the system's temporary directory. `Resources`
+  # VM's user can read, under `ImagePipe.Settings`' `tmp_dir` or the system's
+  # temporary directory. `Resources`
   # tracks each staged file for the process that uses it and deletes it when
   # that process stops. The sweep removes files a VM that died left behind.
   @moduledoc false
@@ -15,9 +16,19 @@ defmodule ImagePipe.Execution.Staging do
   @recheck_ms 10_000
   @staged ~r/\A\.image-pipe-[A-Za-z0-9_-]+\.tmp\z/
 
+  @base {__MODULE__, :base}
+
+  @doc false
+  # Sets the directory that holds the staging directory, or nil for the
+  # system's temporary directory.
+  @spec init(Path.t() | nil) :: :ok
+  def init(base), do: :persistent_term.put(@base, base)
+
   # Staged originals live in their own directory, so the sweep lists only
   # them, not the whole tmp directory.
-  def dir, do: Path.join(System.tmp_dir!(), "image_pipe")
+  def dir, do: Path.join(base(), "image_pipe")
+
+  defp base, do: :persistent_term.get(@base, nil) || System.tmp_dir!()
 
   def temporary_path(dir), do: Path.join(dir, ".image-pipe-#{random()}.tmp")
 
@@ -87,7 +98,7 @@ defmodule ImagePipe.Execution.Staging do
 
   # The VM's user owns a file it just created.
   defp own_uid do
-    probe = Path.join(System.tmp_dir!(), ".image-pipe-#{random()}.uid")
+    probe = Path.join(base(), ".image-pipe-#{random()}.uid")
 
     with :ok <- RawFile.write(probe, "", [:exclusive]) do
       try do

@@ -54,6 +54,17 @@ defmodule ImagePipe.Cache.FileSystem.Store do
                       repeated hit reads only the body file. Defaults to one for each \
                       50 KB of `max_size_bytes`, at least 1,000 and at most 50,000.
                       """
+                    ],
+                    max_remembered_bytes: [
+                      type: :non_neg_integer,
+                      default: 64 * 1024 * 1024,
+                      doc: """
+                      Bytes of recently served bodies of 64 KB or less that the cache \
+                      keeps in memory. Once a body is kept, a hit sends it without \
+                      reading the body file. `0` keeps none, which suits a `root` on a \
+                      memory-backed file system such as `tmpfs`, where the bodies \
+                      would be held in memory twice.
+                      """
                     ]
                   )
 
@@ -131,7 +142,7 @@ defmodule ImagePipe.Cache.FileSystem.Store do
   def get(%Key{} = key, opts, sighting?, remembered?, decode) when is_list(opts) do
     case paths(key, opts) do
       {:ok, paths} ->
-        case read_entry(paths, remembered?, decode) do
+        case read_entry(paths, remembered?, decode, opts) do
           {:hit, entry, hit} ->
             sight_hit(sighting?, opts, key, hit)
             {:hit, entry}
@@ -392,20 +403,35 @@ defmodule ImagePipe.Cache.FileSystem.Store do
   # body isn't opened or stat'ed, since delivery sends it by path. Every
   # reader handles a body evicted since: a send fails before any header and
   # looks the entry up again, and an open is a miss.
-  defp read_entry(paths, false, decode), do: read_stored(paths, decode)
+  defp read_entry(paths, false, decode, _opts), do: read_stored(paths, decode)
 
-  defp read_entry(paths, true, decode) do
+  defp read_entry(paths, true, decode, opts) do
     case Memo.get(paths.root, paths.hash) do
-      {entry, hit} -> read_remembered(paths, entry, hit)
+      {entry, hit} -> {:hit, %{entry | body: remembered_body(paths, hit, opts)}, hit}
       nil -> read_stored(paths, decode)
     end
   end
 
-  defp read_remembered(paths, entry, hit) do
+  # A small body is sent from memory. One not kept yet is read whole, which
+  # takes one file call where sending it by path takes three, and offered to
+  # Admission to keep. A body that won't read is left for delivery to find
+  # gone or truncated.
+  defp remembered_body(paths, hit, opts) do
     path = Path.join(paths.dir, hit.body_filename)
+    size = hit.body_byte_size
 
-    {:hit,
-     %{entry | body: CacheFile.remembered(path, hit.body_byte_size, paths.root, paths.hash)}, hit}
+    with true <- Memo.keeps_body?(paths.root, size),
+         nil <- Memo.body(paths.root, paths.hash),
+         epoch = Memo.epoch(paths.root, paths.hash),
+         {:ok, bytes} when byte_size(bytes) == size <- RawFile.read(path) do
+      with {:ok, pid} <- lookup_admission(opts),
+           do: Admission.keep_body(pid, paths.hash, epoch, bytes)
+
+      bytes
+    else
+      bytes when is_binary(bytes) -> bytes
+      _other -> CacheFile.remembered(path, size, paths.root, paths.hash)
+    end
   end
 
   defp read_stored(paths, decode) do

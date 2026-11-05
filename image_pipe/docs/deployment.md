@@ -215,13 +215,50 @@ as well.
 ImagePipe streams each image as it is encoded, and frees the request's
 processing slot when the encode ends. The part of the response that a client
 hasn't read yet waits in memory, up to 4 MB per request, and anything beyond
-that in a file in the system temporary directory, kept until the download
-ends (see [deadlines](processing-controls.md#deadlines)). Across all
-requests, a node keeps about 256 MB in memory and 2 GB in those files at
-most, plus up to one chunk per response. Give that directory room for a
-little more than 2 GB, and point `TMPDIR` elsewhere if it can't hold that
-(see [downloaded originals](cache.md#downloaded-originals)). When it is a
-`tmpfs`, those files use memory.
+that in a spool file, kept until the download ends (see
+[deadlines](processing-controls.md#deadlines)). Spool files go in the same
+directory as [downloaded originals](cache.md#downloaded-originals). Across
+all requests, a node keeps at most 256 MB in memory and 2 GB in spool files
+by default, plus up to one chunk per response.
+
+`tmp_dir` sets the directory, which defaults to the system temporary
+directory, and `max_buffered_bytes` and `max_spooled_bytes` set the two
+limits. `tmp_dir` must exist and have room for a little more than
+`max_spooled_bytes`:
+
+<!-- tabs-open -->
+
+### Plug
+
+Set them in the `:image_pipe` application environment, described in
+`ImagePipe.Settings`:
+
+```elixir
+# config/runtime.exs
+config :image_pipe,
+  tmp_dir: "/var/lib/my_app/tmp",
+  max_buffered_bytes: 128 * 1024 * 1024,
+  max_spooled_bytes: 512 * 1024 * 1024
+```
+
+`ImagePipe.delivery_stats/0` reports how much each holds.
+
+### image_pipe_server
+
+```toml
+[delivery]
+tmp_dir = "/var/lib/image_pipe/tmp"
+max_buffered_bytes = 134217728
+max_spooled_bytes = 536870912
+```
+
+[`/stats` and `/metrics`](../../image_pipe_server/docs/server-deployment.md#cache-stats)
+report how much each holds.
+
+<!-- tabs-close -->
+
+When `tmp_dir` is a `tmpfs`, spool files use memory, so lower
+`max_spooled_bytes` or point `tmp_dir` at a disk.
 
 When the encode has nowhere left to put what a slow client hasn't read, it
 waits for the client (see [deadlines](processing-controls.md#deadlines) for
@@ -253,7 +290,7 @@ in `processing_pool`.
 `max_input_pixels` caps the decoded original, and `max_intermediate_pixels`
 caps frames read during processing.
 
-An instance also keeps two things in memory that `max_size_bytes` doesn't
+An instance also keeps three things in memory that `max_size_bytes` doesn't
 count:
 
 - The originals it remembers, about 1 KB each for a local file and 1.4 KB
@@ -264,6 +301,9 @@ count:
   the cache's `max_remembered_entries` (see `ImagePipe.Cache.FileSystem`):
   at most about 55 MB by default. See
   [Cache process and restarts](cache.md#cache-process-and-restarts).
+- The bodies of recently served cache entries of 64 KB or less, up to the
+  cache's `max_remembered_bytes` (see `ImagePipe.Cache.FileSystem`): 64 MB
+  by default.
 
 libvips also keeps its recent operations and their images in an operation
 cache, 100 operations by default. Each request decodes its original again, so

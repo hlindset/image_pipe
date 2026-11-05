@@ -26,6 +26,9 @@ defmodule ImagePipeServer.Config do
     * `[pool]` - `ImagePipe.ProcessingPool` options. `max_concurrency`
       defaults to the VM's online schedulers.
     * `[http]` - the delivery options of `ImagePipe.Plug.init/1`.
+    * `[delivery]` - the `ImagePipe.Settings` that `config/runtime.exs` puts
+      in the `:image_pipe` application environment, read with
+      `delivery_settings/2` before the library starts.
     * `[telemetry]` - `log_level` is the lowest level the server logs.
       `log_requests` attaches the default Logger, and `log_stages` adds its
       stage lines. `log_format` is `text` or a JSON format, and `log_colors`
@@ -169,6 +172,30 @@ defmodule ImagePipeServer.Config do
     ConfigError -> nil
   end
 
+  @doc false
+  # The `[delivery]` settings alone, read before any application starts,
+  # since the library applies them when it starts. A configuration that
+  # doesn't load gives nil: starting reports its error.
+  @spec delivery_settings(%{String.t() => String.t()}, Path.t()) :: keyword() | nil
+  def delivery_settings(env, default_path) do
+    env
+    |> Tree.read!(default_path)
+    |> Map.take(["delivery"])
+    |> Convert.options!([delivery: [type: Convert.table(delivery_schema())]], [])
+    |> Keyword.get(:delivery, [])
+    |> delivery!()
+  rescue
+    ConfigError -> nil
+  end
+
+  defp delivery_schema, do: ImagePipe.Settings.options_schema()
+
+  # Only the keys the file sets, so the library keeps its own defaults.
+  defp delivery!(options) do
+    _validated = validate!(options, delivery_schema(), "delivery")
+    options
+  end
+
   defp logging(telemetry) do
     %{
       log_level: Keyword.get(telemetry, :log_level, :info),
@@ -197,6 +224,7 @@ defmodule ImagePipeServer.Config do
       processing: [type: Convert.table(processing_schema())],
       pool: [type: Convert.table(pool_schema())],
       http: [type: Convert.table(http_schema())],
+      delivery: [type: Convert.table(delivery_schema())],
       telemetry: [type: Convert.table(@telemetry_schema)],
       stats: [type: Convert.table(@stats_schema)]
     ]
@@ -353,6 +381,7 @@ defmodule ImagePipeServer.Config do
       sections |> Keyword.get(:processing, []) |> Keyword.pop(:detector_warmup, :all)
 
     image_pipe = image_pipe!(Keyword.put(sections, :processing, processing), pool)
+    _delivery = delivery!(Keyword.get(sections, :delivery, []))
     instance!(image_pipe, detector_warmup)
     signed!(Keyword.get(sections, :url, []))
 

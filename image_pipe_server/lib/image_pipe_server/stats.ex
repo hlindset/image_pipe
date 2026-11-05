@@ -4,8 +4,8 @@ defmodule ImagePipeServer.Stats do
 
   `GET /stats` answers with JSON and `GET /metrics` with Prometheus text.
   Both report, for each cache, `ImagePipe.cache_stats/1` and the free and
-  total space of the filesystem that holds its root, and how many originals
-  the instance remembers. Every request must send
+  total space of the filesystem that holds its root, how many originals
+  the instance remembers, and `ImagePipe.delivery_stats/0`. Every request must send
   `Authorization: Bearer <token>` with the stats token, or gets a 401.
   `ImagePipeServer.Router` serves them on the image listener, ahead of the
   image auth token, and `ImagePipeServer.Health` on the `health_port`
@@ -74,7 +74,9 @@ defmodule ImagePipeServer.Stats do
   # The health listener runs while the instance starts and drains, when
   # there are no stats to read, as `/health/ready` answers then too.
   defp snapshot(%{instance: instance, roots: roots, disk: disk}) do
-    with {:ok, stats} <- cache_stats(instance), do: {:ok, read_snapshot(stats, roots, disk)}
+    with {:ok, stats} <- cache_stats(instance) do
+      {:ok, Map.put(read_snapshot(stats, roots, disk), :delivery, ImagePipe.delivery_stats())}
+    end
   end
 
   defp cache_stats(instance) do
@@ -96,6 +98,8 @@ defmodule ImagePipeServer.Stats do
     entries: "Entries the cache stores.",
     remembered_entries: "Entries whose metadata the cache keeps in memory.",
     max_remembered_entries: "The most entries whose metadata the cache keeps in memory.",
+    remembered_bytes: "Bytes of bodies the cache keeps in memory.",
+    max_remembered_bytes: "The most bytes of bodies the cache keeps in memory.",
     counting?: "1 until the cache has counted the entries on disk at startup.",
     refused: "1 when another node owns the cache's root, so this node doesn't use it.",
     available: "0 when the cache didn't report its bytes and entries within a second.",
@@ -112,6 +116,7 @@ defmodule ImagePipeServer.Stats do
   ]
 
   defp prometheus(snapshot) do
+    {delivery, snapshot} = Map.pop!(snapshot, :delivery)
     {originals, caches} = Map.pop(snapshot, :originals)
     caches = Enum.sort(caches)
     # A refused cache has no counts.
@@ -168,7 +173,25 @@ defmodule ImagePipeServer.Stats do
       end
     ]
 
-    IO.iodata_to_binary([gauges, lookups, errors, originals(originals)])
+    IO.iodata_to_binary([gauges, lookups, errors, originals(originals), delivery(delivery)])
+  end
+
+  @delivery [
+    buffered_bytes: "Bytes held in memory for clients that haven't read them yet.",
+    max_buffered_bytes: "The most bytes held in memory for slow clients.",
+    spooled_bytes: "Bytes in spool files for clients that haven't read them yet.",
+    max_spooled_bytes: "The most bytes in spool files for slow clients."
+  ]
+
+  defp delivery(stats) do
+    for {field, help} <- @delivery do
+      name = "image_pipe_delivery_" <> Atom.to_string(field)
+
+      [
+        header(name, help, "gauge"),
+        [name, " ", Integer.to_string(Map.fetch!(stats, field)), ?\n]
+      ]
+    end
   end
 
   defp originals(nil), do: []

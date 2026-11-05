@@ -104,7 +104,12 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
     limit =
       Keyword.get_lazy(opts, :max_remembered_entries, fn -> Memo.limit_for(max_size_bytes) end)
 
-    :ok = Memo.start(Keyword.fetch!(opts, :root), limit)
+    :ok =
+      Memo.start(
+        Keyword.fetch!(opts, :root),
+        limit,
+        Keyword.get(opts, :max_remembered_bytes, 64 * 1024 * 1024)
+      )
 
     state = %State{
       registry: Keyword.fetch!(opts, :registry),
@@ -255,8 +260,20 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
   def miss(server, key_hash) when is_binary(key_hash),
     do: GenServer.cast(server, {:miss, key_hash})
 
+  @doc """
+  Asks Admission to keep a body a request read from disk, unless its entry
+  changed since `epoch` (see `ImagePipe.Cache.FileSystem.Memo`).
+  """
+  def keep_body(server, key_hash, epoch, bytes),
+    do: GenServer.cast(server, {:keep_body, key_hash, epoch, bytes})
+
   @impl true
   def handle_cast({:miss, key_hash}, state), do: {:noreply, sighting(state, key_hash)}
+
+  def handle_cast({:keep_body, key_hash, epoch, bytes}, state) do
+    Memo.keep_body(state.root, key_hash, epoch, bytes)
+    {:noreply, state}
+  end
 
   # A hit on an untracked key, read before the startup scan reached it, is
   # counted when its entry is still stored, and evicts back under the cap if
@@ -356,7 +373,9 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
       max_bytes: state.max_size_bytes,
       counting?: not state.counted?,
       remembered_entries: Memo.size(state.root),
-      max_remembered_entries: Memo.limit(state.root)
+      max_remembered_entries: Memo.limit(state.root),
+      remembered_bytes: Memo.body_bytes(state.root),
+      max_remembered_bytes: Memo.max_body_bytes(state.root)
     }
 
     {:reply, usage, state}

@@ -358,12 +358,13 @@ table leaves out, from `AWS_WEB_IDENTITY_TOKEN_FILE`, `AWS_ROLE_ARN`,
 
 ### `[cache]`
 
-`output` caches processed images on the local filesystem. It needs `root` and `max_size_bytes`. `vary_on` names request headers and cookies whose values select separate processed copies (see [Vary](../../image_pipe/docs/cdn-http-cache.md#vary)). See [caching processed images](../../image_pipe/docs/caching-processed-images.md). `max_remembered_originals` is how many originals the server remembers in memory, with or without a cache: about 1 KB for each local file and 1.4 KB for each image from an origin. It defaults to one for each 50 KB of `output.max_size_bytes`, at least 10,000 and at most 200,000. See [originals and processed images](../../image_pipe/docs/caching-and-freshness.md#originals-and-processed-images) for what happens when an original is forgotten. `output.max_remembered_entries` is how many recently served entries the cache keeps in memory, about 1.1 KB each. It defaults to one for each 50 KB of `output.max_size_bytes`, at least 1,000 and at most 50,000.
+`output` caches processed images on the local filesystem. It needs `root` and `max_size_bytes`. `vary_on` names request headers and cookies whose values select separate processed copies (see [Vary](../../image_pipe/docs/cdn-http-cache.md#vary)). See [caching processed images](../../image_pipe/docs/caching-processed-images.md). `max_remembered_originals` is how many originals the server remembers in memory, with or without a cache: about 1 KB for each local file and 1.4 KB for each image from an origin. It defaults to one for each 50 KB of `output.max_size_bytes`, at least 10,000 and at most 200,000. See [originals and processed images](../../image_pipe/docs/caching-and-freshness.md#originals-and-processed-images) for what happens when an original is forgotten. `output.max_remembered_entries` is how many recently served entries the cache keeps in memory, about 1.1 KB each. It defaults to one for each 50 KB of `output.max_size_bytes`, at least 1,000 and at most 50,000. `output.max_remembered_bytes` is how many bytes of recently served bodies of 64 KB or less the cache keeps in memory. Set it to `0` when `output.root` is on a `tmpfs`, where those bodies would be held in memory twice.
 
 | Key | Type | Default |
 | --- | --- | --- |
 | `output.max_size_bytes` | integer > 0 | required |
 | `output.max_remembered_entries` | integer > 0 |  |
+| `output.max_remembered_bytes` | integer ≥ 0 | `67108864` |
 | `output.root` | string (absolute path) | required |
 | `output.max_body_bytes` | integer ≥ 0 |  |
 | `vary_on` | array of `{ header = … }` or `{ cookie = … }` (string) |  |
@@ -453,6 +454,16 @@ Response settings: the CORS origin and the HTTP cache headers. See [serving imag
 | `allow_origin` | string |  |
 | `http_cache` | `"validators"` or `"auto"` or `"public"` or `"private"` | `"validators"` |
 
+### `[delivery]`
+
+Where the server keeps what slow clients haven't read yet, and how much. Up to 4 MB of each response waits in memory, and the rest in a spool file in the `image_pipe` directory under `tmp_dir`, which also holds originals while requests use them. `tmp_dir` must exist. `max_buffered_bytes` and `max_spooled_bytes` cap the memory and the spool files across all responses, in bytes, and `max_spooled_bytes = 0` turns spooling off. See [slow clients](../../image_pipe/docs/deployment.md#slow-clients).
+
+| Key | Type | Default |
+| --- | --- | --- |
+| `tmp_dir` | string | `TMPDIR`, or `/tmp` |
+| `max_buffered_bytes` | integer ≥ 0 | `268435456` |
+| `max_spooled_bytes` | integer ≥ 0 | `2147483648` |
+
 ### `[telemetry]`
 
 `log_level` is the lowest level the server logs. `log_requests` logs one line per image request at `info`, or at `warning` for a `4xx`, a result that didn't come out as requested, or a failed cache read, and `error` for a `5xx` or a response that failed partway through sending. A low-priority request that a full processing pool turned away logs its `503` at `info`. `log_requests` also logs a `warning` line for each failed or dropped cache write, a `warning` line for each request without a valid `auth_token`, and an `info` line for each request outside `mount_path`. With `log_requests` on, `log_stages` also logs a line for each stage of each request, for debugging. `log_format` is `text`, or one JSON object per line: `json`, or `gcp`, `datadog`, or `elastic` for those log collectors' field names. `log_colors` colors `text` lines by level. With `trust_traceparent`, a request with a W3C `traceparent` header joins the caller's trace when [tracing](server-deployment.md#tracing) is on. Any client can send that header. With `trust_request_id`, an incoming `x-request-id` of 1 to 200 letters, digits, and `-_.:+/=` tags the request's log lines instead of a generated ID.
@@ -469,7 +480,7 @@ Response settings: the CORS origin and the HTTP cache headers. See [serving imag
 
 ### `[stats]`
 
-`enabled` turns on `GET /stats`, which answers with JSON, and `GET /metrics`, which answers with Prometheus text. They report each cache's size, its hits and misses since the server started, and the free space on the disk that holds it. Every request must send `Authorization: Bearer <token>` with `token`, which is required when `enabled` is true and needs at least 32 characters and no whitespace. The `[server]` `auth_token` doesn't give access to them. With `health_port`, that listener serves them too. See [cache stats](server-deployment.md#cache-stats).
+`enabled` turns on `GET /stats`, which answers with JSON, and `GET /metrics`, which answers with Prometheus text. They report each cache's size, its hits and misses since the server started, the free space on the disk that holds it, and what slow clients hold in memory and spool files. Every request must send `Authorization: Bearer <token>` with `token`, which is required when `enabled` is true and needs at least 32 characters and no whitespace. The `[server]` `auth_token` doesn't give access to them. With `health_port`, that listener serves them too. See [cache stats](server-deployment.md#cache-stats).
 
 | Key | Type | Default |
 | --- | --- | --- |
