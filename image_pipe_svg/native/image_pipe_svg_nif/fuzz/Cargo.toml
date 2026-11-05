@@ -16,7 +16,7 @@ unexpected_cfgs = { level = "warn", check-cfg = ["cfg(fuzzing)"] }
 [dependencies]
 libfuzzer-sys = "0.4"
 base64 = "0.23"
-resvg = { version = "=0.48.1", default-features = false, features = ["text", "raster-images"] }
+resvg = { version = "=0.49.0", default-features = false, features = ["text", "raster-images"] }
 imagesize = "0.15"
 
 # Keep this crate out of any workspace above it.

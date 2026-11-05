@@ -1,0 +1,6 @@
+# deepmerge has no fixed release. Only @sveltejs/vite-plugin-svelte uses it,
+# at build time, to merge the fiddle's own Vite config: no untrusted input.
+[[IgnoredVulns]]
+id = "GHSA-gcqx-w48m-w2h4"
+ignoreUntil = 2027-02-04
+reason = "No fixed deepmerge release; dev-only use on trusted build config"
