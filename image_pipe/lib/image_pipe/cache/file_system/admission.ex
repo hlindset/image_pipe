@@ -24,6 +24,7 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
   alias ImagePipe.Cache.FileSystem.Sweep
   alias ImagePipe.Cache.FileSystem.Writers
   alias ImagePipe.Cache.Lookups
+  alias ImagePipe.Cache.MemoryLimit
   alias ImagePipe.Telemetry
 
   @sample 16
@@ -102,7 +103,9 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
     max_size_bytes = Keyword.fetch!(opts, :max_size_bytes)
 
     limit =
-      Keyword.get_lazy(opts, :max_remembered_entries, fn -> Memo.limit_for(max_size_bytes) end)
+      Keyword.get_lazy(opts, :max_remembered_entries, fn ->
+        Memo.limit_for(max_size_bytes, MemoryLimit.bytes())
+      end)
 
     :ok =
       Memo.start(

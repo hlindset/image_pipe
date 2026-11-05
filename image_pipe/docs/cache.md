@@ -318,8 +318,9 @@ again.
 The process also keeps the metadata of recently served entries in memory, so
 a repeated hit reads only the body file from disk. The process holds one
 entry's metadata for each 50 KB of `max_size_bytes`, from 1,000 to 50,000
-entries, at about 1.1 KB each: about 22 MB for a 1 GB cache, and at most
-about 55 MB. Set `max_remembered_entries` to change the number of entries.
+entries, at about 1.4 KB each: about 28 MB for a 1 GB cache, and at most
+about 70 MB. In a container with a memory limit, the process holds at most
+one entry for each 50 KB of that limit, about 3% of it. Set `max_remembered_entries` to change the number of entries.
 The process also keeps the bodies of recently served entries of 64 KB or
 less, up to `max_remembered_bytes`, 64 MB by default. Once a body is kept, a
 hit sends it without reading a file. Set it to `0` when `root` is on a memory-backed file

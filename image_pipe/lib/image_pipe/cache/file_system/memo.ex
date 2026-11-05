@@ -31,9 +31,16 @@ defmodule ImagePipe.Cache.FileSystem.Memo do
   @max_body 65_536
 
   # Unless `max_remembered_entries` sets it, one row for each 50 KB the cache
-  # may store, from 1,000 to 50,000.
-  @spec limit_for(pos_integer()) :: pos_integer()
-  def limit_for(max_size_bytes), do: max_size_bytes |> div(50_000) |> max(1_000) |> min(50_000)
+  # may store and for each 50 KB of the memory limit, whichever is fewer,
+  # from 1,000 to 50,000. A row takes about 1.4 KB, so the rows fit in 2.8%
+  # of the limit above the floor.
+  @spec limit_for(pos_integer(), pos_integer() | nil) :: pos_integer()
+  def limit_for(max_size_bytes, memory_limit) do
+    min(max_size_bytes, memory_limit || max_size_bytes)
+    |> div(50_000)
+    |> max(1_000)
+    |> min(50_000)
+  end
 
   # Creates the root's tables, owned by the calling process.
   @spec start(Path.t(), pos_integer(), non_neg_integer()) :: :ok

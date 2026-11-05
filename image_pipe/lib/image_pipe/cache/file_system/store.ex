@@ -51,8 +51,10 @@ defmodule ImagePipe.Cache.FileSystem.Store do
                       type: :pos_integer,
                       doc: """
                       How many recently served entries the cache keeps in memory, so a \
-                      repeated hit reads only the body file. Defaults to one for each \
-                      50 KB of `max_size_bytes`, at least 1,000 and at most 50,000.
+                      repeated hit reads only the body file. Each takes about 1.4 KB. \
+                      Defaults to one for each 50 KB of `max_size_bytes`, or of the \
+                      cgroup memory limit when the node has a smaller one, as in a \
+                      container, from 1,000 to 50,000.
                       """
                     ],
                     max_remembered_bytes: [
