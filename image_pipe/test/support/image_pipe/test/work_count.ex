@@ -2,7 +2,8 @@ defmodule ImagePipe.Test.WorkCount do
   @moduledoc """
   Counts the work a function does across every process: the libvips
   operations ImagePipe calls through Vix, its memory copies, and the files it
-  opens and the bytes it reads from them through Erlang.
+  opens and the bytes it reads from them through Erlang, and the EXIF blocks
+  it parses in Elixir.
 
       {conn, work} = WorkCount.measure(fn -> ImagePipe.Plug.call(conn, config) end)
       work.loads #=> 1
@@ -19,13 +20,15 @@ defmodule ImagePipe.Test.WorkCount do
           loads: non_neg_integer(),
           copies: non_neg_integer(),
           icc: non_neg_integer(),
+          exif_parses: non_neg_integer(),
           file_bytes: %{String.t() => non_neg_integer()},
           file_opens: %{String.t() => pos_integer()}
         }
 
   @traced [
     {Vix.Nif, :nif_vips_operation_call, 2},
-    {Vix.Nif, :nif_image_copy_memory, 1}
+    {Vix.Nif, :nif_image_copy_memory, 1},
+    {Image, :exif, 1}
   ]
   # File reads are matched to their path through the device `open` returns.
   @returned [{:file, :open, 2}, {:file, :read, 2}]
@@ -72,6 +75,7 @@ defmodule ImagePipe.Test.WorkCount do
       loads: Enum.count(operations, &String.starts_with?(&1, "VipsForeignLoad")),
       copies: Enum.count(calls, &match?({_pid, {Vix.Nif, :nif_image_copy_memory, _}}, &1)),
       icc: Enum.count(operations, &String.starts_with?(&1, "icc_")),
+      exif_parses: Enum.count(calls, &match?({_pid, {Image, :exif, _}}, &1)),
       file_bytes: file_bytes(calls),
       file_opens:
         Enum.frequencies(

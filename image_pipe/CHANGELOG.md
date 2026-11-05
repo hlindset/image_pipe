@@ -23,6 +23,12 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   pixels. Downscales of 8x and more, and CMYK JPEG sources, whose color
   conversion costs more per pixel, are unchanged. Output of 2–8x downscales
   of other JPEGs differs slightly from earlier releases and from imgproxy.
+- Requests with the default `keep_copyright: true` take less time when the
+  source has EXIF metadata. The EXIF block is now read once, and not at all
+  when it has no copyright or artist field. A 300-pixel-wide JPEG from a
+  camera photo with 40 KB of EXIF took about 50 ms instead of about 70 ms.
+  Without either field, a request is about as fast as with `meta=strip`,
+  which removes all metadata. The output is unchanged.
 
 ### Fixed
 

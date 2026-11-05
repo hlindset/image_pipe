@@ -12,6 +12,8 @@ defmodule ImagePipe.WorkBudgetTest do
 
   alias ImagePipe.Test.Caches
   alias ImagePipe.Test.WorkCount
+  alias Vix.Vips.Image, as: VixImage
+  alias Vix.Vips.MutableImage
 
   @moduletag :tmp_dir
 
@@ -186,6 +188,38 @@ defmodule ImagePipe.WorkBudgetTest do
       )
 
     assert_budget(config, "/w=200/format=jpeg/src/high_freq.avif", loads: 1)
+  end
+
+  # Keeping copyright and artist (the default) parses the source's EXIF
+  # block only when it has one of them, and then once.
+  test "an EXIF block without copyright or artist isn't parsed", %{config: config} do
+    assert_budget(config, "/w=200/format=jpeg/src/exif_6.jpg", exif_parses: 0)
+  end
+
+  test "an EXIF block with a copyright is parsed once", %{dir: dir} do
+    source = Path.join(dir, "copyright")
+    File.mkdir_p!(source)
+
+    {:ok, image} =
+      VixImage.mutate(Image.open!(Path.join(@sources, "high_freq.jpg")), fn mutable ->
+        MutableImage.set(mutable, "exif-ifd0-Copyright", :gchararray, "(c) Jane Doe")
+      end)
+
+    Image.write!(image, Path.join(source, "copyright.jpg"))
+
+    config =
+      ImagePipe.Plug.init(
+        allow_unsigned: true,
+        sources: [
+          path: [
+            adapter: ImagePipe.Source.File,
+            match: :path,
+            options: [root: source, root_id: "work-budget-copyright"]
+          ]
+        ]
+      )
+
+    assert_budget(config, "/w=200/format=jpeg/src/copyright.jpg", exif_parses: 1)
   end
 
   # JPEG has no alpha, so padding fills with the white the encoder would

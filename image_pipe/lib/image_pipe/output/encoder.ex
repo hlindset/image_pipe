@@ -663,17 +663,28 @@ defmodule ImagePipe.Output.Encoder do
     {:ok, names} = VixImage.header_field_names(image)
     icc = header_value(image, "icc-profile-data")
 
-    kept =
-      for field <- keep,
-          value = Map.get(kept_exif(image), field),
-          value not in [nil, ""],
-          do: {:set, Image.Exif.field(field), :gchararray, value}
+    kept = kept_fields(image, names, keep)
 
     VipsHeader.edit(
       image,
       Enum.map(names, &{:remove, &1}) ++
         kept ++ kept_color_space(image, icc, kept) ++ if(icc, do: [set_icc(icc)], else: [])
     )
+  end
+
+  # Parsing the EXIF block costs milliseconds for a camera's, so it's parsed
+  # once, and only when the header has a field to keep.
+  defp kept_fields(image, names, keep) do
+    if Enum.any?(keep, &(Image.Exif.field(&1) in names)) do
+      exif = kept_exif(image)
+
+      for field <- keep,
+          value = Map.get(exif, field),
+          value not in [nil, ""],
+          do: {:set, Image.Exif.field(field), :gchararray, value}
+    else
+      []
+    end
   end
 
   # Kept EXIF needs a ColorSpace, which libvips writes as Uncalibrated when
