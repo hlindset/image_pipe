@@ -57,8 +57,8 @@ defmodule ImagePipe.Plan.Presets do
     :avif_options
   ]
 
-  # Each named preset is a layer, and resolving a layer reads every layer
-  # below it, so the names a request may write are capped.
+  # Each named preset adds its layers to the request, so the names a request
+  # may write are capped.
   @max_presets 16
 
   @type compiled :: %{groups: %{non_neg_integer() => [map()]}, request: [map()]}
@@ -363,11 +363,16 @@ defmodule ImagePipe.Plan.Presets do
   defp pipeline?(preset), do: map_size(preset.groups) > 1
 
   # A group's options from its layers, lowest first. Each layer comes with
-  # the keys the layers above it write.
+  # the keys the layers above it write. Only the topmost write of an option
+  # can take effect, since the layers above it replace or clear its lower
+  # writes alike, so the layers below are kept as one map from each option
+  # to its topmost write and that write's layer. Each layer then costs the
+  # same however many lie below it.
   defp resolve_group(layers) do
     layers
     |> Enum.zip(written_above(layers))
-    |> Enum.reduce([], &clear_group_unsets/2)
+    |> Enum.with_index()
+    |> Enum.reduce(%{}, &clear_group_unsets/2)
     |> override_group()
   end
 
@@ -385,25 +390,25 @@ defmodule ImagePipe.Plan.Presets do
   # An unset that a higher layer replaces counts as never written: it still
   # clears the values below it, which the replacement overrides anyway, but
   # not the options those values kept in effect.
-  defp clear_group_unsets({next, above}, lower) do
+  defp clear_group_unsets({{next, above}, index}, lower) do
+    written = for {key, value} <- next, value != :unset, into: %{}, do: {key, {index, value}}
+
     case Enum.split_with(for({key, :unset} <- next, do: key), &MapSet.member?(above, &1)) do
       {[], []} ->
-        lower ++ [next]
+        Map.merge(lower, written)
 
       {replaced, unsets} ->
-        written = Map.reject(next, fn {_key, value} -> value == :unset end)
-
         lower
         |> clear_live_unsets(unsets, written, Map.keys(next))
-        |> Enum.map(&Map.drop(&1, group_cleared_keys(replaced)))
-        |> Kernel.++([written])
+        |> Map.drop(group_cleared_keys(replaced))
+        |> Map.merge(written)
     end
   end
 
   defp clear_live_unsets(lower, [], _written, _next_keys), do: lower
 
   defp clear_live_unsets(lower, unsets, written, next_keys) do
-    cleared = Enum.map(lower, &Map.drop(&1, group_cleared_keys(unsets)))
+    cleared = Map.drop(lower, group_cleared_keys(unsets))
     stale = lower |> override_group() |> Validation.inert_keys()
     drop_unset_dependents(cleared, written, next_keys, stale)
   end
@@ -423,33 +428,36 @@ defmodule ImagePipe.Plan.Presets do
   # Options that were already inert, or that this layer sets, stay so that
   # validation reports them.
   defp drop_unset_dependents(lower, written, next_keys, stale) do
-    (lower ++ [written])
+    lower
+    |> Map.merge(written)
     |> override_group()
     |> Validation.inert_keys()
     |> Enum.reject(&(&1 in next_keys or MapSet.member?(stale, &1)))
     |> case do
-      [] ->
-        lower
-
-      inert ->
-        drop_unset_dependents(Enum.map(lower, &Map.drop(&1, inert)), written, next_keys, stale)
+      [] -> lower
+      inert -> drop_unset_dependents(Map.drop(lower, inert), written, next_keys, stale)
     end
   end
 
-  # Unset-free layers, top down: an option no higher layer replaced clears
-  # what it overrides below it.
-  defp override_group(layers) do
-    cover? = layers |> Enum.reduce(%{}, &Map.merge(&2, &1)) |> cover_resize_consumer?()
+  # The topmost writes, top down by layer: an option no higher layer replaced
+  # clears what it overrides below it.
+  defp override_group(writes) do
+    options = Map.new(writes, fn {key, {_layer, value}} -> {key, value} end)
+    cover? = cover_resize_consumer?(options)
 
-    layers
-    |> Enum.reverse()
-    |> Enum.map_reduce(MapSet.new(), fn layer, replaced ->
-      effective = Map.drop(layer, MapSet.to_list(replaced))
+    writes
+    |> Enum.group_by(fn {_key, {layer, _value}} -> layer end, fn {key, {_layer, value}} ->
+      {key, value}
+    end)
+    |> Enum.sort_by(&elem(&1, 0), :desc)
+    |> Enum.reduce({%{}, MapSet.new()}, fn {_layer, layer}, {merged, replaced} ->
+      effective =
+        for {key, value} <- layer, not MapSet.member?(replaced, key), into: %{}, do: {key, value}
+
       overridden = Map.keys(effective) ++ group_overrides(effective, cover?)
-      {effective, MapSet.union(replaced, MapSet.new(overridden))}
+      {Map.merge(effective, merged), MapSet.union(replaced, MapSet.new(overridden))}
     end)
     |> elem(0)
-    |> Enum.reduce(%{}, &Map.merge/2)
   end
 
   defp group_overrides(options, cover?) do
@@ -469,25 +477,33 @@ defmodule ImagePipe.Plan.Presets do
     families ++ region
   end
 
-  # The request options from their layers, lowest first.
+  # The request options from their layers, lowest first. An unset clears its
+  # option from every lower layer, so each option keeps the layer of its
+  # highest unset, and only writes from that layer up count.
   defp resolve_request(layers) do
-    layers |> Enum.reduce([], &clear_request_unsets/2) |> override_request()
+    indexed = Enum.with_index(layers)
+    floors = Enum.reduce(indexed, %{}, &request_unset_floors/2)
+
+    indexed
+    |> Enum.map(fn {layer, index} ->
+      layer
+      |> drop_unset()
+      |> Map.filter(fn {key, _value} -> index >= Map.get(floors, key, 0) end)
+    end)
+    |> override_request()
   end
 
-  defp clear_request_unsets(next, lower) do
-    cleared =
-      Enum.reduce(next, lower, fn
-        {key, :unset}, lower ->
-          Enum.map(lower, &Map.drop(&1, family_of(key, @request_override_families)))
+  defp request_unset_floors({layer, index}, floors) do
+    Enum.reduce(layer, floors, fn
+      {key, :unset}, floors ->
+        Enum.reduce(family_of(key, @request_override_families), floors, &Map.put(&2, &1, index))
 
-        {key, {:unset, _value}}, lower ->
-          Enum.map(lower, &Map.delete(&1, key))
+      {key, {:unset, _value}}, floors ->
+        Map.put(floors, key, index)
 
-        _option, lower ->
-          lower
-      end)
-
-    cleared ++ [drop_unset(next)]
+      _option, floors ->
+        floors
+    end)
   end
 
   # `q` sets every format, so a layer's `q` replaces lower layers' per-format
