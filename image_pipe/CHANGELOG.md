@@ -51,6 +51,11 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   which matters most for `304` answers and deep paths. A matching stat means
   the path still reaches the file it reached before. Any other file is
   checked as before.
+- A JPEG made from an image with an alpha channel is encoded straight from
+  the processed image, instead of from a copy held in memory. Converting a
+  24-megapixel PNG with an alpha channel to JPEG took about 180 ms instead
+  of 235 ms. Requests that resize the image, or that use `autoquality` or
+  `max-bytes`, take as long as before, and the output is unchanged.
 
 ### Fixed
 

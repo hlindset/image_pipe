@@ -291,8 +291,11 @@ defmodule ImagePipe.Output.Encoder do
   # encodes its input once per probe, so either buffers a lazy input first:
   # checking a lazy padded frame and then encoding it ran the chain under it
   # twice (45-75% slower), and each probe would repeat a lazy blur or resize.
+  # A format without alpha flattens the band away, so it needs no check, and
+  # its encode reads the lazy frame once: a JPEG from a 24-megapixel RGBA
+  # PNG took 180 ms instead of 235 ms, and held no RGBA frame.
   defp buffer_input(image, resolved) do
-    if Image.has_alpha?(image) or search?(resolved) do
+    if keeps_alpha?(image, resolved) or search?(resolved) do
       case VixImage.copy_memory(image) do
         {:ok, buffered} -> {:ok, buffered}
         {:error, reason} -> {:error, {:decode, reason}}
@@ -303,7 +306,7 @@ defmodule ImagePipe.Output.Encoder do
   end
 
   defp finalize_buffered(image, resolved, source_color) do
-    opaque_alpha? = opaque_alpha?(image)
+    opaque_alpha? = keeps_alpha?(image, resolved) and opaque_alpha?(image)
 
     with {:ok, flattened} <- flatten_for_format(image, resolved),
          {:ok, image} <- color_result(flattened, resolved, source_color),
@@ -319,9 +322,11 @@ defmodule ImagePipe.Output.Encoder do
   # band's minimum takes 1-3 ms on a buffered 1.5 megapixel image. Color
   # finalization keeps alpha as it is, so the band is checked on its input,
   # before a lazy ICC transform would have to run for it, and dropped after.
+  defp keeps_alpha?(image, %Resolved{format: format}),
+    do: Image.has_alpha?(image) and Format.supports_alpha?(format)
+
   defp opaque_alpha?(image) do
-    with true <- Image.has_alpha?(image),
-         {:ok, opaque} <- opaque_value(VixImage.format(image)),
+    with {:ok, opaque} <- opaque_value(VixImage.format(image)),
          {:ok, alpha} <- Operation.extract_band(image, VixImage.bands(image) - 1),
          {:ok, {^opaque, _position}} <- Operation.min(alpha) do
       true
