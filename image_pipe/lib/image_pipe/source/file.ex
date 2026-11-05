@@ -67,9 +67,10 @@ defmodule ImagePipe.Source.File do
   A file that isn't `stable: :immutable` is identified by the SHA-256 of its
   bytes. After hashing, its size, mtime, ctime, inode, and device are kept,
   and a later request whose stat matches reuses the hash without reading the
-  file. Stat times have one-second resolution, so a file whose mtime or ctime
-  falls in the second it was hashed is hashed again on the next request. On
-  a network filesystem the times come from the server's clock.
+  file or checking the path for links again. Stat times have one-second
+  resolution, so a file whose mtime or ctime falls in the second it was
+  hashed is hashed again on the next request. On a network filesystem the
+  times come from the server's clock.
 
   ## Options
 
@@ -128,22 +129,48 @@ defmodule ImagePipe.Source.File do
 
   @impl Source
   def fetch(%Resolved{fetch: fetch}, opts, runtime_opts) do
-    with {:ok, path} <- safe_path(opts, fetch[:segments]),
+    now = Keyword.get(runtime_opts, :clock, &now/0).()
+    previous = Keyword.get(runtime_opts, :source_validation)
+
+    # A stat that matches the evidence names the inode an earlier walk found
+    # inside the root, so the walk and its readlink per segment are skipped.
+    # The path may reach it another way now, say through a moved parent and a
+    # link, but it serves no bytes it didn't serve before. Any other file,
+    # such as one reached through a parent swapped for a link, is walked.
+    # Anything else, errors included, gets the walk's answer.
+    if previous && unchanged_stat?(opts, fetch[:segments], previous, now, runtime_opts),
+      do: not_modified(previous, now),
+      else: walked(opts, fetch[:segments], previous, now, runtime_opts)
+  end
+
+  defp unchanged_stat?(opts, segments, previous, now, runtime_opts) do
+    path = Path.join([Keyword.fetch!(opts, :root) | segments])
+
+    with {:ok, stat} <- regular_file(path),
+         :ok <- within_limit(stat, runtime_opts) do
+      unchanged?(previous, evidence(Keyword.fetch!(opts, :verify), path, stat, now))
+    else
+      _error -> false
+    end
+  end
+
+  defp walked(opts, segments, previous, now, runtime_opts) do
+    with {:ok, path} <- safe_path(opts, segments),
          {:ok, stat} <- regular_file(path),
          :ok <- within_limit(stat, runtime_opts) do
-      now = Keyword.get(runtime_opts, :clock, &now/0).()
       evidence = evidence(Keyword.fetch!(opts, :verify), path, stat, now)
-
-      previous = Keyword.get(runtime_opts, :source_validation)
 
       # ctime changes with the file's mode, owner, and ACLs, so a matching
       # stat means the file's own permissions are unchanged. Only a file that
       # will be read is opened.
       if unchanged?(previous, evidence),
-        do: {:not_modified, %{previous | requested_at: now, received_at: now}},
+        do: not_modified(previous, now),
         else: changed(path, evidence)
     end
   end
+
+  defp not_modified(previous, now),
+    do: {:not_modified, %{previous | requested_at: now, received_at: now}}
 
   defp changed(path, evidence) do
     with :ok <- readable(path), do: {:ok, %Response{path: path, origin: evidence}}

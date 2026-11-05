@@ -29,6 +29,12 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   camera photo with 40 KB of EXIF took about 50 ms instead of about 70 ms.
   Without either field, a request is about as fast as with `meta=strip`,
   which removes all metadata. The output is unchanged.
+- With `verify: :stat`, a local file whose stat matches the one recorded
+  for its path is no longer checked for symbolic links in each directory of
+  the path. The check now takes one stat call instead of one per directory,
+  which matters most for `304` answers and deep paths. A matching stat means
+  the path still reaches the file it reached before. Any other file is
+  checked as before.
 
 ### Fixed
 
