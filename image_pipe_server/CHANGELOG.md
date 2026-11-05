@@ -22,6 +22,9 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- The startup warmup also loads the code that serves requests, so the
+  first request from a file or HTTP source no longer takes about three times
+  as long as the next. The loaded code uses about 5 MB of memory.
 - The release no longer keeps idle schedulers for file work spinning
   (`+sbwtdio none` instead of `very_short`). In benchmarks on 2 CPUs with
   one or two concurrent clients, the server used up to 26% less CPU per

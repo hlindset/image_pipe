@@ -2,9 +2,12 @@ defmodule ImagePipeServer.Warmup do
   @moduledoc false
   # Processes a small image once in each output format before the listener
   # starts, so the first requests don't wait for the processing code to load
-  # or for libvips to set up an encoder. Started as a supervisor child that
-  # returns :ignore once it's done, or once its deadline passes. A failure is
-  # logged and doesn't stop the server.
+  # or for libvips to set up an encoder. Then it loads the rest of the request
+  # path's code: the listener, the Plug, URL parsing, sources, the cache, and
+  # the HTTP client. The release runs in interactive mode, which loads each
+  # module on first use. Started as a supervisor child that returns :ignore
+  # once it's done, or once its deadline passes. A failure is logged and
+  # doesn't stop the server.
 
   require Logger
 
@@ -12,6 +15,21 @@ defmodule ImagePipeServer.Warmup do
   # Its own prefix keeps these requests out of the server's logs and traces.
   @telemetry_prefix [:image_pipe_server, :warmup]
   @deadline 5_000
+  # About 5 MB of code. Every module in the release would be about 140 MB.
+  @request_path [
+    :image_pipe,
+    :image_pipe_url,
+    :bandit,
+    :thousand_island,
+    :plug,
+    :plug_crypto,
+    :mime,
+    :req,
+    :finch,
+    :mint,
+    :hpax,
+    :nimble_pool
+  ]
 
   @doc false
   def child_spec(instance) do
@@ -63,6 +81,13 @@ defmodule ImagePipeServer.Warmup do
         {:ok, _result} -> :ok
         {:error, reason} -> Logger.warning("warmup: #{format} failed: #{inspect(reason)}")
       end
+    end
+
+    modules = Enum.flat_map(@request_path, &Application.spec(&1, :modules))
+
+    case :code.ensure_modules_loaded(modules) do
+      :ok -> :ok
+      {:error, failed} -> Logger.warning("warmup: modules failed to load: #{inspect(failed)}")
     end
   end
 end
