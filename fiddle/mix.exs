@@ -46,6 +46,9 @@ defmodule ImagePipeFiddle.MixProject do
       {:image_pipe_svg, path: "../image_pipe_svg"},
       {:rustler, "~> 0.38.0", runtime: false, override: true},
       {:image_vision, "~> 0.4"},
+      # exla 0.13 doesn't compile against fine 0.2, and image_vision needs
+      # exla below 1.0, so fine stays on 0.1 until image_vision allows exla 1.0.
+      {:fine, "~> 0.1.6", runtime: false},
       {:ortex, "~> 0.1"},
       {:phoenix, "~> 1.8.7"},
       {:phoenix_vite, "~> 0.6"},
