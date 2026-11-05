@@ -141,6 +141,46 @@ defmodule ImagePipe.Source.FileTest do
     assert SourceFile.fetch(resolved, opts, []) == {:error, {:source, :unreadable}}
   end
 
+  describe "with stat evidence from an earlier fetch" do
+    setup %{root: root} do
+      {:ok, opts} = SourceFile.validate_options(root: root, root_id: "fixture-root")
+      runtime = [clock: fn -> System.os_time(:second) + 10 end]
+      {:ok, cat} = SourceFile.resolve(%SourcePath{segments: ~w(images cat.jpg)}, opts, [])
+      {:ok, %Response{origin: evidence}} = SourceFile.fetch(cat, opts, runtime)
+      %{opts: opts, cat: cat, runtime: [source_validation: evidence] ++ runtime}
+    end
+
+    # A matching stat names a file the walk already found inside the root, so
+    # the walk is skipped: a link it would refuse still reaches that file.
+    test "a matching stat skips the path walk", ctx do
+      File.ln_s!(Path.join(ctx.root, "images/cat.jpg"), Path.join(ctx.root, "images/alias.jpg"))
+      {:ok, alias} = SourceFile.resolve(%SourcePath{segments: ~w(images alias.jpg)}, ctx.opts, [])
+
+      assert {:not_modified, _origin} = SourceFile.fetch(ctx.cat, ctx.opts, ctx.runtime)
+      assert {:not_modified, _origin} = SourceFile.fetch(alias, ctx.opts, ctx.runtime)
+      assert SourceFile.fetch(alias, ctx.opts, []) == {:error, {:source, :denied_path}}
+    end
+
+    test "a parent directory replaced by a link out of the root is refused", ctx do
+      outside =
+        Path.join(System.tmp_dir!(), "image-pipe-outside-#{System.unique_integer([:positive])}")
+
+      File.mkdir_p!(outside)
+      File.write!(Path.join(outside, "cat.jpg"), "secret")
+      on_exit(fn -> File.rm_rf!(outside) end)
+      File.rename!(Path.join(ctx.root, "images"), Path.join(ctx.root, "kept"))
+      File.ln_s!(outside, Path.join(ctx.root, "images"))
+
+      assert SourceFile.fetch(ctx.cat, ctx.opts, ctx.runtime) ==
+               {:error, {:source, :denied_path}}
+    end
+
+    test "the body limit still applies", ctx do
+      assert SourceFile.fetch(ctx.cat, ctx.opts, [max_body_bytes: 1] ++ ctx.runtime) ==
+               {:error, {:source, :body_too_large}}
+    end
+  end
+
   test "file source defaults to content identity with internal cache in auto mode", %{
     root: root
   } do
