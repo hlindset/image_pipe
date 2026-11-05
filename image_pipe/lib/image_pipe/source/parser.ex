@@ -68,11 +68,11 @@ defmodule ImagePipe.Source.Parser do
   end
 
   defp scheme_translate(scheme, source) when is_map_key(@http_schemes, scheme) do
-    build_url(Map.fetch!(@http_schemes, scheme), source, URI.parse(source))
+    build_url(Map.fetch!(@http_schemes, scheme), source, split_url(source))
   end
 
   defp scheme_translate("s3", source) do
-    build_s3(source, URI.parse(source))
+    build_s3(source, split_url(source))
   end
 
   defp scheme_translate(scheme, source) do
@@ -89,7 +89,7 @@ defmodule ImagePipe.Source.Parser do
        %URL{
          scheme: scheme,
          host: String.downcase(uri.host),
-         port: port || uri.port,
+         port: port || default_port(scheme),
          path: path,
          query: encode_query(uri.query)
        }}
@@ -97,6 +97,9 @@ defmodule ImagePipe.Source.Parser do
       {:error, reason} -> {:error, {:invalid_source, reason}}
     end
   end
+
+  defp default_port(:http), do: 80
+  defp default_port(:https), do: 443
 
   defp build_s3(source, %URI{} = uri) do
     with :ok <- validate_uri_authority(uri),
@@ -264,6 +267,109 @@ defmodule ImagePipe.Source.Parser do
   end
 
   # Grammar checks scan bytes: OTP 28 and later rebuild a regex at every use.
+
+  @authority_end Map.from_keys(~c"/?#", true)
+  @path_end Map.from_keys(~c"?#", true)
+  @query_end %{?# => true}
+  @line_end %{?\n => true}
+  @colon %{?: => true}
+
+  @doc false
+  # Splits a `scheme://` source into the userinfo, host, path, query, and
+  # fragment `URI.parse/1` finds, following the RFC 3986 appendix B regex it
+  # uses, quirks included: the userinfo ends at the last `@` before any line
+  # feed, an empty one is nil, and the fragment ends at a line feed.
+  def split_url(source) do
+    # A scheme holds no `:`, so the first one starts its `://`.
+    {_scheme, "://" <> rest} = take_until(source, @colon)
+    {authority, rest} = take_until(rest, @authority_end)
+    {path, rest} = take_until(rest, @path_end)
+    {query, rest} = split_query(rest)
+    {userinfo, host} = split_authority(authority)
+
+    %URI{
+      userinfo: userinfo,
+      host: host,
+      path: nil_if_empty(path),
+      query: query,
+      fragment: split_fragment(rest)
+    }
+  end
+
+  # Splits at the first byte in `stops`, a map from byte to `true`. A scan
+  # beats `:binary.match/2`, which builds its matcher at every call.
+  defp take_until(string, stops), do: take_until(string, stops, 0)
+
+  defp take_until(string, stops, at) do
+    case string do
+      <<_head::binary-size(^at), char, _rest::binary>> when is_map_key(stops, char) ->
+        {binary_part(string, 0, at), binary_part(string, at, byte_size(string) - at)}
+
+      <<_head::binary-size(^at), _char, _rest::binary>> ->
+        take_until(string, stops, at + 1)
+
+      _end ->
+        {string, ""}
+    end
+  end
+
+  defp split_query("?" <> rest) do
+    {query, rest} = take_until(rest, @query_end)
+    {query, rest}
+  end
+
+  defp split_query(rest), do: {nil, rest}
+
+  defp split_fragment("#" <> rest), do: rest |> take_until(@line_end) |> elem(0)
+  defp split_fragment(""), do: nil
+
+  defp split_authority(""), do: {nil, ""}
+
+  defp split_authority(authority) do
+    {userinfo, host_port} = split_userinfo(authority)
+    {userinfo, host_port |> raw_host() |> nil_if_empty() |> trim_brackets()}
+  end
+
+  defp split_userinfo(authority) do
+    {line, _rest} = take_until(authority, @line_end)
+
+    case last_at(line, 0, nil) do
+      nil ->
+        {nil, authority}
+
+      at ->
+        {nil_if_empty(binary_part(authority, 0, at)),
+         binary_part(authority, at + 1, byte_size(authority) - at - 1)}
+    end
+  end
+
+  defp last_at(<<?@, rest::binary>>, at, _last), do: last_at(rest, at + 1, at)
+  defp last_at(<<_char, rest::binary>>, at, last), do: last_at(rest, at + 1, last)
+  defp last_at(<<>>, _at, last), do: last
+
+  # A bracketed `[a-zA-Z0-9:.]*` literal, or everything up to the first `:`.
+  defp raw_host("[" <> rest = host_port) do
+    case ip_literal(rest, 1) do
+      {:ok, length} -> binary_part(host_port, 0, length)
+      :error -> host_port |> take_until(@colon) |> elem(0)
+    end
+  end
+
+  defp raw_host(host_port), do: host_port |> take_until(@colon) |> elem(0)
+
+  defp ip_literal("]" <> _rest, length), do: {:ok, length + 1}
+
+  defp ip_literal(<<char, rest::binary>>, length)
+       when char in ?a..?z or char in ?A..?Z or char in ?0..?9 or char in [?:, ?.],
+       do: ip_literal(rest, length + 1)
+
+  defp ip_literal(_rest, _length), do: :error
+
+  defp trim_brackets(nil), do: nil
+  defp trim_brackets(host), do: host |> String.trim_leading("[") |> String.trim_trailing("]")
+
+  defp nil_if_empty(""), do: nil
+  defp nil_if_empty(value), do: value
 
   # The scheme of a `[a-zA-Z][a-zA-Z0-9+.-]*://` prefix.
   defp scheme(<<first, rest::binary>> = source) when first in ?a..?z or first in ?A..?Z,
