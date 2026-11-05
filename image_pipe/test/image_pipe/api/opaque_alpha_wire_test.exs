@@ -23,7 +23,7 @@ defmodule ImagePipe.API.OpaqueAlphaWireTest do
     }
   end
 
-  for format <- ~w(png avif webp) do
+  for format <- ~w(png avif webp jpeg) do
     test "an opaque alpha band encodes like no alpha as #{format}", sources do
       plain = response("format=#{unquote(format)}", sources.rgb)
       with_alpha = response("format=#{unquote(format)}", sources.opaque_rgba)
@@ -51,6 +51,19 @@ defmodule ImagePipe.API.OpaqueAlphaWireTest do
     output = decode(response)
     assert Image.has_alpha?(output)
     assert Image.get_pixel!(output, 5, 5) == [10, 20, 30, 0]
+  end
+
+  test "a transparent area flattens onto white as jpeg", sources do
+    {:ok, image} = Image.open(sources.opaque_rgba)
+    {:ok, image} = Image.Draw.rect(image, 0, 0, 40, 40, color: [0, 0, 0, 0])
+    response = response("format=jpeg", png(image))
+
+    assert response.status == 200
+    output = decode(response)
+    refute Image.has_alpha?(output)
+    assert Enum.all?(Image.get_pixel!(output, 20, 20), &(&1 >= 250))
+    corner = Image.get_pixel!(output, Image.width(output) - 1, Image.height(output) - 1)
+    assert corner != Image.get_pixel!(output, 20, 20)
   end
 
   defp png(image), do: Image.write!(image, :memory, suffix: ".png")
