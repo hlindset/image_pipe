@@ -114,6 +114,33 @@ or CDN in front of it, and have it connect to the server with HTTP/1.1.
   the header, for example with unsigned URLs. Pass it as a secret:
   `IPS_SERVER__AUTH_TOKEN_FILE=/run/secrets/auth_token`.
 
+Have the proxy reuse its connections to the server. A cache hit on a new
+connection takes about twice the server's CPU of one on a reused connection.
+Most CDNs and load balancers reuse connections, but check that yours does,
+with an idle timeout below `read_timeout`. nginx sends HTTP/1.0 with
+`Connection: close` and opens a new connection for each request unless you
+configure it:
+
+```nginx
+upstream image_pipe {
+  server images:8080;
+  keepalive 32;
+  keepalive_timeout 5s;
+}
+
+server {
+  location / {
+    proxy_pass http://image_pipe;
+    proxy_http_version 1.1;
+    proxy_set_header Connection "";
+  }
+}
+```
+
+The `keepalive_timeout` in the `upstream` block must stay below
+`read_timeout`. Its default of 60 seconds is longer, and a request nginx sends
+on a connection the server has just closed can fail with a `502`.
+
 ## Health and shutdown
 
 The server has two health checks:
