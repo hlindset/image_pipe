@@ -5,6 +5,15 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `[delivery]` sets where slow clients' spool files and downloaded
+  originals go (`tmp_dir`) and how much slow clients may hold in memory and
+  in spool files (`max_buffered_bytes` and `max_spooled_bytes`). Lower
+  `max_spooled_bytes` when `/tmp` is a `tmpfs`, where spool files use
+  memory. `/stats` and `/metrics` report the bytes held in memory and in
+  spool files.
+
 ### Changed
 
 - The release no longer keeps idle schedulers for file work spinning

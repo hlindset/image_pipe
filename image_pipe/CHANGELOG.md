@@ -5,6 +5,15 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- The `:image_pipe` application environment sets where slow clients'
+  spool files and downloaded originals go (`tmp_dir`) and how much slow
+  clients may hold in memory and in spool files (`max_buffered_bytes` and
+  `max_spooled_bytes`, 256 MB and 2 GB by default). See
+  `ImagePipe.Settings`. `ImagePipe.delivery_stats/0` reports the bytes
+  held in memory and in spool files.
+
 ### Changed
 
 - A cache hit on a recently served entry no longer checks its body file

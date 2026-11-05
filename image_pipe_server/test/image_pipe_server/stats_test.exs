@@ -161,7 +161,17 @@ defmodule ImagePipeServer.StatsTest do
     assert conn.status == 200
     assert ["application/json" <> _] = get_resp_header(conn, "content-type")
 
-    assert %{"output" => output, "originals" => originals} = JSON.decode!(conn.resp_body)
+    assert %{"output" => output, "originals" => originals, "delivery" => delivery} =
+             JSON.decode!(conn.resp_body)
+
+    assert %{
+             "buffered_bytes" => buffered,
+             "max_buffered_bytes" => 268_435_456,
+             "spooled_bytes" => spooled,
+             "max_spooled_bytes" => 2_147_483_648
+           } = delivery
+
+    assert is_integer(buffered) and is_integer(spooled)
 
     assert %{
              "max_bytes" => 10_000_000,
@@ -196,6 +206,11 @@ defmodule ImagePipeServer.StatsTest do
     assert conn.resp_body =~ ~s(image_pipe_cache_max_remembered_entries{cache="output"} 1000\n)
     assert conn.resp_body =~ ~s(image_pipe_remembered_originals 0\n)
     assert conn.resp_body =~ ~s(image_pipe_max_remembered_originals 10000\n)
+    assert conn.resp_body =~ ~s(# TYPE image_pipe_delivery_buffered_bytes gauge\n)
+    assert conn.resp_body =~ ~r/^image_pipe_delivery_buffered_bytes \d+\n/m
+    assert conn.resp_body =~ ~s(image_pipe_delivery_max_buffered_bytes 268435456\n)
+    assert conn.resp_body =~ ~r/^image_pipe_delivery_spooled_bytes \d+\n/m
+    assert conn.resp_body =~ ~s(image_pipe_delivery_max_spooled_bytes 2147483648\n)
   end
 
   test "needs the stats token, even with the image auth token", %{opts: opts} do

@@ -5,9 +5,9 @@ defmodule ImagePipe.Application do
     top_level?: true,
     deps: [
       ImagePipe.Cache,
-      ImagePipe.Delivery,
       ImagePipe.Execution,
       ImagePipe.Output,
+      ImagePipe.Settings,
       ImagePipe.Source,
       ImagePipe.SrgbProfile
     ]
@@ -15,14 +15,13 @@ defmodule ImagePipe.Application do
   use Application
 
   alias ImagePipe.Cache.OutputWork
-  alias ImagePipe.Delivery.Budget
   alias ImagePipe.Execution.Staging
   alias ImagePipe.Output.Capabilities
 
   @impl true
   def start(_type, _args) do
     Capabilities.probe()
-    Budget.init()
+    ImagePipe.Settings.apply!(Application.get_all_env(:image_pipe))
 
     children = [
       ImagePipe.SrgbProfile,

@@ -35,6 +35,31 @@ defmodule ImagePipeServer.ConfigTest do
     end
   end
 
+  describe "delivery_settings/2" do
+    @tag :tmp_dir
+    test "reads the keys [delivery] sets, from the file and the environment", %{tmp_dir: dir} do
+      env = %{
+        "IPS_CONFIG_TOML" =>
+          "[delivery]\ntmp_dir = #{inspect(dir)}\n[sources.x]\nadapter = \"file\"",
+        "IPS_DELIVERY__MAX_SPOOLED_BYTES" => "0"
+      }
+
+      assert Enum.sort(Config.delivery_settings(env, "/nonexistent.toml")) ==
+               [max_spooled_bytes: 0, tmp_dir: dir]
+
+      assert Config.delivery_settings(%{}, "/nonexistent.toml") == []
+    end
+
+    test "gives nil for settings the library refuses, and loading names them" do
+      toml = "[url]\nallow_unsigned = true\n[delivery]\nmax_buffered_bytes = -1"
+
+      assert Config.delivery_settings(%{"IPS_CONFIG_TOML" => toml}, "/x.toml") == nil
+
+      assert error(fn -> Config.load!(%{"IPS_CONFIG_TOML" => toml}, "/x.toml") end) =~
+               "delivery: invalid value for :max_buffered_bytes"
+    end
+  end
+
   describe "options!/1" do
     test "rejects unknown sections" do
       assert error(fn ->

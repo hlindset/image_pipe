@@ -123,14 +123,15 @@ restart or redeploy.
 
 Originals from HTTP and S3 sources are written to a temporary file while
 they download and while requests use them, in the `image_pipe` directory
-under the system temporary directory (see `System.tmp_dir/0`). Local files
+under `tmp_dir`, which defaults to the system temporary directory (see
+[slow clients](deployment.md#slow-clients) to change it). Local files
 are read where they are. Only the user running ImagePipe can open that
 directory. When that path is a symlink, a file, or another user's directory,
 those originals are held in memory instead, up to `max_body_bytes` each. The
 first request that can't use the directory logs a warning naming it. With the
 [default Logger](telemetry.md#logging-with-the-default-logger) attached, each
 request whose original is held in memory has `staging=memory` on its line. On
-a host shared with other users, set `TMPDIR` to a directory of your own.
+a host shared with other users, set `tmp_dir` to a directory of your own.
 
 ## Writing entries
 
@@ -279,9 +280,9 @@ an hour old:
 
 - In the cache's `root`, during its startup scan and every 24 hours while
   the instance runs.
-- In the `image_pipe` directory under the system temporary directory
-  (`TMPDIR`, or `/tmp`), where originals are staged while they download,
-  when the `:image_pipe` application starts and every 24 hours after.
+- In the `image_pipe` directory under `tmp_dir`, which holds staged
+  originals and spool files, when the `:image_pipe` application starts and
+  every 24 hours after.
 
 The cache records the metadata format it last checked in a
 `.metadata-version` file in `root`. It reads every metadata file only when

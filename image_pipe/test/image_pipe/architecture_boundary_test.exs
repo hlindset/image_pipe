@@ -67,6 +67,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     ImagePipe.Plug => "lib/image_pipe/plug.ex",
     ImagePipe.Presets => "lib/image_pipe/presets.ex",
     ImagePipe.Representation => "lib/image_pipe/representation.ex",
+    ImagePipe.Settings => "lib/image_pipe/settings.ex",
     ImagePipe.Response => "lib/image_pipe/response.ex",
     ImagePipe.Source => "lib/image_pipe/source.ex",
     ImagePipe.Telemetry => "lib/image_pipe/telemetry.ex",
@@ -250,9 +251,9 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
 
     assert_boundary_deps(application, [
       ImagePipe.Cache,
-      ImagePipe.Delivery,
       ImagePipe.Execution,
       ImagePipe.Output,
+      ImagePipe.Settings,
       ImagePipe.Source,
       ImagePipe.SrgbProfile
     ])

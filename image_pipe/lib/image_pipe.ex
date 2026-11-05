@@ -40,6 +40,7 @@ defmodule ImagePipe do
       ImagePipe.Representation,
       ImagePipe.Response,
       ImagePipe.Security,
+      ImagePipe.Settings,
       ImagePipe.Source,
       ImagePipe.Telemetry,
       ImagePipe.Transform,
@@ -48,6 +49,7 @@ defmodule ImagePipe do
     exports: [Plug, Result]
 
   alias ImagePipe.Config
+  alias ImagePipe.Delivery.Budget
 
   @doc """
   Builds the configuration that `ImagePipe.Plug` mounts, instances, and
@@ -361,6 +363,32 @@ defmodule ImagePipe do
   @spec cache_stats(atom()) :: %{optional(:output) => map(), optional(:originals) => map()}
   def cache_stats(name) when is_atom(name),
     do: ImagePipe.Cache.stats(Config.fetch_configured!(name).options)
+
+  @doc """
+  Reports what responses hold for slow clients across the VM, and the
+  limits from `ImagePipe.Settings`:
+
+    * `:buffered_bytes` and `:max_buffered_bytes` - bytes held in memory.
+    * `:spooled_bytes` and `:max_spooled_bytes` - bytes in spool files in
+      `tmp_dir`.
+
+  A held count can pass its limit by up to one chunk per response. See
+  [slow clients](deployment.md#slow-clients).
+  """
+  @spec delivery_stats() :: %{
+          buffered_bytes: non_neg_integer(),
+          max_buffered_bytes: non_neg_integer(),
+          spooled_bytes: non_neg_integer(),
+          max_spooled_bytes: non_neg_integer()
+        }
+  def delivery_stats do
+    %{
+      buffered_bytes: Budget.held(:memory),
+      max_buffered_bytes: Budget.limit(:memory),
+      spooled_bytes: Budget.held(:spool),
+      max_spooled_bytes: Budget.limit(:spool)
+    }
+  end
 
   # An instance name stands for the configuration the running instance
   # published. It raises when the instance isn't running.

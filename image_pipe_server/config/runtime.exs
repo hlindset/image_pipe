@@ -6,6 +6,16 @@ if config_env() != :test do
   config :image_pipe_server, tracing: tracing.enabled?
   if tracing.sdk != [], do: config(:opentelemetry, tracing.sdk)
 
+  # The library applies these when it starts, before the server reads its
+  # configuration.
+  case ImagePipeServer.Config.delivery_settings(
+         System.get_env(),
+         ImagePipeServer.Application.default_config_path()
+       ) do
+    nil -> :ok
+    settings -> config(:image_pipe, settings)
+  end
+
   # Dependencies log while they start, before the server applies the
   # configuration, so the log settings apply here too.
   case ImagePipeServer.Config.log_settings(
