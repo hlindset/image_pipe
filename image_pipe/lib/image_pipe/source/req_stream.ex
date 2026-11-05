@@ -2,6 +2,7 @@ defmodule ImagePipe.Source.ReqStream do
   @moduledoc false
 
   alias ImagePipe.Source.HTTP.PinnedTarget
+  alias ImagePipe.Source.HTTP.Pool
   alias ImagePipe.Source.Origin
   alias ImagePipe.Source.ReqSanitizer
   alias ImagePipe.Source.Response
@@ -266,12 +267,23 @@ defmodule ImagePipe.Source.ReqStream do
     req_options
     |> request_options(runtime_opts)
     |> Req.new()
+    |> named_pool(addresses)
     |> ReqStep.attach()
     |> Req.Request.append_request_steps(
       conditional_headers: &put_conditional_headers(&1, previous)
     )
     |> PinnedTarget.attach(addresses, Keyword.fetch!(runtime_opts, :deadline))
   end
+
+  # A pinned request names its pool per address when it connects. An
+  # unpinned one, such as an S3 fetch, names it here. Requests to a test plug
+  # don't use Finch.
+  defp named_pool(%Req.Request{options: %{plug: _plug}} = request, _addresses), do: request
+
+  defp named_pool(%Req.Request{adapter: Req.Finch} = request, nil),
+    do: Req.merge(request, finch: Pool.named(request.options.finch))
+
+  defp named_pool(request, _addresses), do: request
 
   # With `into: :self`, Finch sends the response to the process that made the
   # request, from a process linked to it. When no pooled connection frees up

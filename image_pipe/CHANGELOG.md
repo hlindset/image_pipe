@@ -20,6 +20,11 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Requests to HTTP and S3 origins no longer queue, one at a time across the
+  whole server, before using their connection pool. This saves about 40 µs
+  per fetch, which shows most with fast origins and many concurrent
+  requests. Against a local origin, a fetch took about 25% less time, and
+  about 40% less with 8 fetches running at once.
 - A watermark asset whose origin answers a revalidation with `304` is no
   longer downloaded again in full for the next new variant. Its bytes,
   already held in memory, are reused.
