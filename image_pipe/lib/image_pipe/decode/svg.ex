@@ -74,7 +74,21 @@ if Code.ensure_loaded?(ImagePipe.SVG) do
       config
       |> fonts()
       |> then(&%{fonts: &1.fingerprint, fallback_family: config.fallback_family})
-      |> Map.merge(Map.take(SVG.versions(), [:resvg, :render]))
+      |> Map.merge(versions())
+    end
+
+    # Every request's cache key carries these, and the loaded NIF can't
+    # change them, so they're read from it once.
+    defp versions do
+      case :persistent_term.get({__MODULE__, :versions}, nil) do
+        nil ->
+          versions = Map.take(SVG.versions(), [:resvg, :render])
+          :persistent_term.put({__MODULE__, :versions}, versions)
+          versions
+
+        versions ->
+          versions
+      end
     end
 
     @spec decode(Decode.seekable(), Spec.t(), keyword()) ::
