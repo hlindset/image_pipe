@@ -435,6 +435,9 @@ defmodule ImagePipe.Cache do
   defp entry_lookup_stop_metadata({:hit, %Entry{body: %ImagePipe.Cache.File{size: size}}}),
     do: %{result: :ok, cache: :hit, bytes: size}
 
+  defp entry_lookup_stop_metadata({:hit, %Entry{body: body}}) when is_binary(body),
+    do: %{result: :ok, cache: :hit, bytes: byte_size(body)}
+
   defp entry_lookup_stop_metadata({:hit, _record}), do: %{result: :ok, cache: :hit}
   defp entry_lookup_stop_metadata({:miss, %Key{}}), do: %{result: :ok, cache: :miss}
 

@@ -10,7 +10,7 @@ defmodule ImagePipe.API.CacheHitBodyWireTest do
 
   @path "/w=12/format=png/src/beach.jpg"
 
-  setup do
+  setup ctx do
     root =
       Path.join(
         System.tmp_dir!(),
@@ -33,7 +33,11 @@ defmodule ImagePipe.API.CacheHitBodyWireTest do
             options: [root: sources, root_id: "hit-body"]
           ]
         ],
-        cache: [root: cache_root, max_size_bytes: 50_000_000],
+        cache: [
+          root: cache_root,
+          max_size_bytes: 50_000_000,
+          max_remembered_bytes: Map.get(ctx, :max_remembered_bytes, 64 * 1024 * 1024)
+        ],
         telemetry_prefix: prefix
       )
 
@@ -42,8 +46,24 @@ defmodule ImagePipe.API.CacheHitBodyWireTest do
     %{opts: opts, cache_root: cache_root, prefix: prefix}
   end
 
+  test "a repeated hit sends the same bytes and headers from memory", ctx do
+    _miss = request(:get, ctx.opts)
+    disk = request(:get, ctx.opts)
+    _kept = request(:get, ctx.opts)
+
+    # Behind the cache's back, so only a body read from disk would be gone.
+    delete_bodies(ctx.cache_root)
+
+    memory = request(:get, ctx.opts)
+    assert memory.status == 200
+    assert memory.resp_body == disk.resp_body
+    assert memory.resp_headers == disk.resp_headers
+  end
+
   # The third request reads the entry from memory, so it has no descriptor
-  # open on the body when it's deleted.
+  # open on the body when it's deleted. Bodies kept in memory would be sent
+  # from there.
+  @tag max_remembered_bytes: 0
   test "a remembered entry whose body is deleted is generated again", ctx do
     first = request(:get, ctx.opts)
     assert first.status == 200
@@ -61,6 +81,7 @@ defmodule ImagePipe.API.CacheHitBodyWireTest do
 
   # The body goes between the lookup and the send. The handler runs in the
   # request process, which is the test's.
+  @tag max_remembered_bytes: 0
   test "a remembered body evicted after its lookup is generated again", ctx do
     first = request(:get, ctx.opts)
     _hit = request(:get, ctx.opts)
@@ -86,6 +107,7 @@ defmodule ImagePipe.API.CacheHitBodyWireTest do
     assert bodies(ctx.cache_root) != []
   end
 
+  @tag max_remembered_bytes: 0
   test "a run whose remembered body is deleted renders the image again", ctx do
     name = Caches.instance(ctx.opts)
 
@@ -125,6 +147,7 @@ defmodule ImagePipe.API.CacheHitBodyWireTest do
   # A remembered hit trusts the cache's own record that its body exists, so
   # a HEAD answers from memory. The next GET finds the body gone and
   # generates it again.
+  @tag max_remembered_bytes: 0
   test "a HEAD for a remembered entry doesn't read its body", ctx do
     first = request(:get, ctx.opts)
     _hit = request(:get, ctx.opts)

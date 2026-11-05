@@ -98,6 +98,8 @@ defmodule ImagePipeServer.Stats do
     entries: "Entries the cache stores.",
     remembered_entries: "Entries whose metadata the cache keeps in memory.",
     max_remembered_entries: "The most entries whose metadata the cache keeps in memory.",
+    remembered_bytes: "Bytes of bodies the cache keeps in memory.",
+    max_remembered_bytes: "The most bytes of bodies the cache keeps in memory.",
     counting?: "1 until the cache has counted the entries on disk at startup.",
     refused: "1 when another node owns the cache's root, so this node doesn't use it.",
     available: "0 when the cache didn't report its bytes and entries within a second.",

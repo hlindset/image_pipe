@@ -13,6 +13,12 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `max_spooled_bytes` when `/tmp` is a `tmpfs`, where spool files use
   memory. `/stats` and `/metrics` report the bytes held in memory and in
   spool files.
+- `[cache] output.max_remembered_bytes` sets how many bytes of recently
+  served bodies of 64 KB or less the cache keeps in memory (64 MB by
+  default), and sends a kept body without reading its file. Set it to `0`
+  when the cache's `root` is on a `tmpfs`, which already holds the files
+  in memory. `/stats` and `/metrics`
+  report `remembered_bytes` and `max_remembered_bytes`.
 
 ### Changed
 

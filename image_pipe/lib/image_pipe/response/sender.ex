@@ -166,7 +166,11 @@ defmodule ImagePipe.Response.Sender do
       end
   end
 
-  def send_body(%Plug.Conn{method: "HEAD"} = conn, body), do: send_resp(conn, 200, body)
+  def send_body(%Plug.Conn{method: "HEAD"} = conn, body) do
+    conn
+    |> put_resp_header("content-length", Integer.to_string(IO.iodata_length(body)))
+    |> send_resp(200, "")
+  end
 
   def send_body(conn, body) do
     Summary.add_bytes(body)

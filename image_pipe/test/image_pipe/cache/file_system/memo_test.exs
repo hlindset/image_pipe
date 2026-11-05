@@ -153,6 +153,84 @@ defmodule ImagePipe.Cache.FileSystem.MemoTest do
     assert Memo.limit(root) == 7
   end
 
+  describe "bodies" do
+    test "a repeated hit keeps a small body in memory", %{opts: opts, admission: admission} do
+      key = key("c")
+      assert :ok = put_entry(key, "body", [], opts)
+      assert {:hit, _entry} = get(key, opts)
+      assert {:hit, %{body: "body"}} = get(key, opts)
+      _ = :sys.get_state(admission)
+
+      # Behind the cache's back, so only a read from disk would miss.
+      {:ok, paths} = FileSystem.paths(key, opts)
+      {:ok, metadata} = Store.metadata(key, opts)
+      File.rm!(Path.join(paths.dir, metadata.body_filename))
+
+      assert {:hit, %{body: "body"}} = get(key, opts)
+    end
+
+    test "forgetting an entry drops its body", %{opts: opts, root: root, admission: admission} do
+      key = key("d")
+      assert :ok = put_entry(key, "body", [], opts)
+      assert {:hit, _entry} = get(key, opts)
+      assert {:hit, _entry} = get(key, opts)
+      _ = :sys.get_state(admission)
+      assert {Memo.body(root, key.hash), Memo.body_bytes(root)} == {"body", 4}
+
+      {:ok, metadata} = Store.metadata(key, opts)
+      GenServer.cast(admission, {:swept, [{key.hash, metadata.body_filename}]})
+      _ = :sys.get_state(admission)
+      assert {Memo.body(root, key.hash), Memo.body_bytes(root)} == {nil, 0}
+    end
+
+    test "a body that raced a change to its entry isn't kept", %{root: root} do
+      key = String.duplicate("6", 64)
+      epoch = Memo.epoch(root, key)
+      Memo.forget(root, [key])
+
+      Memo.keep_body(root, key, epoch, "stale")
+      assert Memo.body(root, key) == nil
+
+      Memo.keep_body(root, key, Memo.epoch(root, key), "current")
+      assert Memo.body(root, key) == "current"
+    end
+
+    @tag options: [max_remembered_bytes: 10]
+    test "bodies stay within max_remembered_bytes", %{root: root} do
+      for n <- 1..3 do
+        key = Base.encode16(<<n::256>>, case: :lower)
+        Memo.keep_body(root, key, Memo.epoch(root, key), "1234")
+      end
+
+      assert Memo.body_bytes(root) == 8
+      assert Memo.max_body_bytes(root) == 10
+    end
+
+    test "a body over 64 KB isn't kept", %{root: root} do
+      key = String.duplicate("5", 64)
+      Memo.keep_body(root, key, Memo.epoch(root, key), :binary.copy("x", 65_537))
+      assert {Memo.body(root, key), Memo.body_bytes(root)} == {nil, 0}
+    end
+
+    @tag options: [max_remembered_bytes: 0]
+    test "max_remembered_bytes: 0 keeps no bodies", %{
+      opts: opts,
+      root: root,
+      admission: admission
+    } do
+      key = key("e")
+      assert :ok = put_entry(key, "body", [], opts)
+      assert {:hit, _entry} = get(key, opts)
+      assert {:hit, %{body: "body"}} = get(key, opts)
+      _ = :sys.get_state(admission)
+      assert Memo.body(root, key.hash) == nil
+    end
+
+    test "the default keeps 64 MB of bodies", %{root: root} do
+      assert Memo.max_body_bytes(root) == 64 * 1024 * 1024
+    end
+  end
+
   defp get(key, opts), do: FileSystem.get(key, opts)
 
   defp key(digit), do: %Key{hash: String.duplicate(digit, 64), data: []}

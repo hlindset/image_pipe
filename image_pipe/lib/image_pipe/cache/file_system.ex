@@ -77,6 +77,8 @@ defmodule ImagePipe.Cache.FileSystem do
     end
   end
 
+  defp materialize(%{body: body} = entry) when is_binary(body), do: {:hit, entry}
+
   defp materialize(entry) do
     with {:ok, file} <- CacheFile.ensure_open(entry.body) do
       try do

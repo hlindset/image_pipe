@@ -320,6 +320,10 @@ a repeated hit reads only the body file from disk. The process holds one
 entry's metadata for each 50 KB of `max_size_bytes`, from 1,000 to 50,000
 entries, at about 1.1 KB each: about 22 MB for a 1 GB cache, and at most
 about 55 MB. Set `max_remembered_entries` to change the number of entries.
+The process also keeps the bodies of recently served entries of 64 KB or
+less, up to `max_remembered_bytes`, 64 MB by default. Once a body is kept, a
+hit sends it without reading a file. Set it to `0` when `root` is on a memory-backed file
+system such as `tmpfs`, where those bodies would be held in memory twice.
 This memory isn't counted against `max_size_bytes`. A restart empties it. A
 request with [debug headers](debug_headers.md) reads its metadata from disk.
 

@@ -82,12 +82,22 @@ defmodule ImagePipe.Cache.RecentTable do
   @samples 5
   @tries 16
 
-  # Forgets the least recently used row of a few random hash slots. A table
-  # has about as many slots as rows, and about a third are empty.
-  defp evict(table) do
-    case sample(table, :ets.info(table, :size), @samples, @tries, []) do
-      [] -> :ets.delete(table, :ets.first(table))
-      rows -> :ets.delete(table, rows |> Enum.min_by(&elem(&1, 2)) |> elem(0))
+  defp evict(table), do: :ets.delete(table, least_used(table))
+
+  # The key of the least recently used row of a few random hash slots, or
+  # nil for an empty table. A table has about as many slots as rows, and
+  # about a third are empty.
+  @spec least_used(atom()) :: term() | nil
+  def least_used(table) do
+    case :ets.info(table, :size) do
+      0 ->
+        nil
+
+      size ->
+        case sample(table, size, @samples, @tries, []) do
+          [] -> :ets.first(table)
+          rows -> rows |> Enum.min_by(&elem(&1, 2)) |> elem(0)
+        end
     end
   end
 

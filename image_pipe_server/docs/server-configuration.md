@@ -358,12 +358,13 @@ table leaves out, from `AWS_WEB_IDENTITY_TOKEN_FILE`, `AWS_ROLE_ARN`,
 
 ### `[cache]`
 
-`output` caches processed images on the local filesystem. It needs `root` and `max_size_bytes`. `vary_on` names request headers and cookies whose values select separate processed copies (see [Vary](../../image_pipe/docs/cdn-http-cache.md#vary)). See [caching processed images](../../image_pipe/docs/caching-processed-images.md). `max_remembered_originals` is how many originals the server remembers in memory, with or without a cache: about 1 KB for each local file and 1.4 KB for each image from an origin. It defaults to one for each 50 KB of `output.max_size_bytes`, at least 10,000 and at most 200,000. See [originals and processed images](../../image_pipe/docs/caching-and-freshness.md#originals-and-processed-images) for what happens when an original is forgotten. `output.max_remembered_entries` is how many recently served entries the cache keeps in memory, about 1.1 KB each. It defaults to one for each 50 KB of `output.max_size_bytes`, at least 1,000 and at most 50,000.
+`output` caches processed images on the local filesystem. It needs `root` and `max_size_bytes`. `vary_on` names request headers and cookies whose values select separate processed copies (see [Vary](../../image_pipe/docs/cdn-http-cache.md#vary)). See [caching processed images](../../image_pipe/docs/caching-processed-images.md). `max_remembered_originals` is how many originals the server remembers in memory, with or without a cache: about 1 KB for each local file and 1.4 KB for each image from an origin. It defaults to one for each 50 KB of `output.max_size_bytes`, at least 10,000 and at most 200,000. See [originals and processed images](../../image_pipe/docs/caching-and-freshness.md#originals-and-processed-images) for what happens when an original is forgotten. `output.max_remembered_entries` is how many recently served entries the cache keeps in memory, about 1.1 KB each. It defaults to one for each 50 KB of `output.max_size_bytes`, at least 1,000 and at most 50,000. `output.max_remembered_bytes` is how many bytes of recently served bodies of 64 KB or less the cache keeps in memory. Set it to `0` when `output.root` is on a `tmpfs`, where those bodies would be held in memory twice.
 
 | Key | Type | Default |
 | --- | --- | --- |
 | `output.max_size_bytes` | integer > 0 | required |
 | `output.max_remembered_entries` | integer > 0 |  |
+| `output.max_remembered_bytes` | integer ≥ 0 | `67108864` |
 | `output.root` | string (absolute path) | required |
 | `output.max_body_bytes` | integer ≥ 0 |  |
 | `vary_on` | array of `{ header = … }` or `{ cookie = … }` (string) |  |

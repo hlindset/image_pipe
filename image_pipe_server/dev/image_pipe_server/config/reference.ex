@@ -57,7 +57,10 @@ defmodule ImagePipeServer.Config.Reference do
         "for what happens when an original is forgotten. " <>
         "`output.max_remembered_entries` is how many recently served entries the cache " <>
         "keeps in memory, about 1.1 KB each. It defaults to one for each 50 KB of " <>
-        "`output.max_size_bytes`, at least 1,000 and at most 50,000.",
+        "`output.max_size_bytes`, at least 1,000 and at most 50,000. " <>
+        "`output.max_remembered_bytes` is how many bytes of recently served bodies of " <>
+        "64 KB or less the cache keeps in memory. Set it to `0` when `output.root` is on a " <>
+        "`tmpfs`, where those bodies would be held in memory twice.",
     processing:
       "Defaults and limits for every image the server processes. The limits on " <>
         "originals, intermediate images, and results are described in " <>

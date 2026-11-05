@@ -318,7 +318,8 @@ defmodule ImagePipe do
       #=>   output: %{bytes: 812_345_678, entries: 5120, max_bytes: 1_073_741_824,
       #=>             counting?: false, hits: 9120, misses: 1310, read_errors: 0,
       #=>             write_errors: 0, remembered_entries: 3100,
-      #=>             max_remembered_entries: 21_474, available: true, refused: false},
+      #=>             max_remembered_entries: 21_474, remembered_bytes: 41_943_040,
+      #=>             max_remembered_bytes: 67_108_864, available: true, refused: false},
       #=>   originals: %{entries: 4800, max_entries: 21_474}
       #=> }
 
@@ -353,6 +354,8 @@ defmodule ImagePipe do
     * `:remembered_entries` and `:max_remembered_entries` - the entries the
       cache keeps in memory, and its `max_remembered_entries` (see
       [Cache process and restarts](cache.md#cache-process-and-restarts)).
+    * `:remembered_bytes` and `:max_remembered_bytes` - the bytes of bodies
+      the cache keeps in memory, and its `max_remembered_bytes`.
 
   The `:originals` entry has `:entries`, the originals the instance
   remembers, and `:max_entries`, its `max_remembered_originals` (see
