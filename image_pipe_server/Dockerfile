@@ -197,8 +197,11 @@ COPY --from=build /src/image_pipe_server/_build/prod/rel/image_pipe_server /app
 COPY --from=build /opt/image_pipe/cache /opt/image_pipe/cache
 
 # Everything the release writes goes to /tmp, so the root filesystem can be
-# read-only; mount cache directories as volumes.
+# read-only; mount cache directories as volumes. A set TZ stops glibc from
+# checking /etc/localtime on every local-time conversion, such as a log
+# line's timestamp.
 ENV LANG=C.UTF-8 \
+    TZ=:/etc/localtime \
     TMPDIR=/tmp \
     RELEASE_TMP=/tmp \
     ERL_CRASH_DUMP=/tmp/erl_crash.dump \

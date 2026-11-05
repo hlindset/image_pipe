@@ -561,7 +561,7 @@ defmodule ImagePipe.Execution.SourceCache do
   end
 
   defp check_staged_size!(:file, io, size) do
-    case :file.read_file_info(io) do
+    case :file.read_file_info(io, time: :posix) do
       {:ok, info} when elem(info, 1) == size -> :ok
       _invalid -> raise Source.StreamError, reason: :invalid_body
     end
