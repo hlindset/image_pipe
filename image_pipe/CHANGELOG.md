@@ -7,6 +7,12 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- A cache hit on a recently served entry no longer checks its body file
+  before sending it. This saves a file system call on every such hit: a
+  HEAD hit took about half the time, and GET hits gained 3–11% in
+  throughput. A GET whose body was deleted still generates the image again,
+  and a HEAD answers from memory. A body changed in place is now sent even
+  if its size changed, and a shorter one ends the response early.
 - **Breaking:** `client_presets` refuses a pipeline preset (one with several
   groups) at startup. It answered `400` with any signed URL that had group
   options. Remove pipeline presets from `client_presets`.

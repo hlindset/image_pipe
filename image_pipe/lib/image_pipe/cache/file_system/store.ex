@@ -389,29 +389,23 @@ defmodule ImagePipe.Cache.FileSystem.Store do
 
   # A hit reads the entry from the memo when it's there: the decoded entry,
   # without its debug facts, and the body file's name, size, and cost. The
-  # body is stat'ed rather than opened, since delivery sends it by path. A
-  # remembered entry whose body is gone or changed is read again from disk,
-  # so the memo never turns a hit into anything a read from disk wouldn't.
+  # body isn't opened or stat'ed, since delivery sends it by path. Every
+  # reader handles a body evicted since: a send fails before any header and
+  # looks the entry up again, and an open is a miss.
   defp read_entry(paths, false, decode), do: read_stored(paths, decode)
 
   defp read_entry(paths, true, decode) do
     case Memo.get(paths.root, paths.hash) do
-      {entry, hit} -> read_remembered(paths, decode, entry, hit)
+      {entry, hit} -> read_remembered(paths, entry, hit)
       nil -> read_stored(paths, decode)
     end
   end
 
-  defp read_remembered(paths, decode, entry, hit) do
+  defp read_remembered(paths, entry, hit) do
     path = Path.join(paths.dir, hit.body_filename)
 
-    case CacheFile.remembered(path, hit.body_byte_size, paths.root, paths.hash) do
-      {:ok, file} ->
-        {:hit, %{entry | body: file}, hit}
-
-      :gone ->
-        Memo.drop(paths.root, paths.hash)
-        read_stored(paths, decode)
-    end
+    {:hit,
+     %{entry | body: CacheFile.remembered(path, hit.body_byte_size, paths.root, paths.hash)}, hit}
   end
 
   defp read_stored(paths, decode) do
