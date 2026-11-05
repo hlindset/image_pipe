@@ -17,22 +17,17 @@ defmodule AdmissionHitsBench do
     File.mkdir_p!(root)
 
     try do
-      descriptors = Enum.map(1..count, &put_entry(root, &1))
       registry = FileSystem.registry_name(root)
       {:ok, _} = Registry.start_link(keys: :unique, name: registry)
 
-      {:ok, pid} =
-        Admission.start_link(
-          Store.admission_options(
-            [
-              root: root,
-              max_size_bytes: count * 1_000,
-              sketch_width: 4_096,
-              doorkeeper_cardinality: count
-            ],
-            registry
-          )
-        )
+      # The store writes only through a running Admission, so one admits the
+      # fixture entries and stops. A second one then scans them, timed.
+      writer = start_admission(root, registry, count)
+      :ok = Admission.await_scan(writer, :infinity)
+      descriptors = Enum.map(1..count, &put_entry(root, &1))
+      :ok = GenServer.stop(writer)
+
+      pid = start_admission(root, registry, count)
 
       {scan_us, :ok} = :timer.tc(fn -> Admission.await_scan(pid, :infinity) end)
       sample = descriptors |> Enum.shuffle() |> Stream.cycle() |> Enum.take(@hits)
@@ -55,6 +50,23 @@ defmodule AdmissionHitsBench do
     after
       File.rm_rf!(root)
     end
+  end
+
+  defp start_admission(root, registry, count) do
+    {:ok, pid} =
+      Admission.start_link(
+        Store.admission_options(
+          [
+            root: root,
+            max_size_bytes: count * 100_000,
+            sketch_width: 4_096,
+            doorkeeper_cardinality: count
+          ],
+          registry
+        )
+      )
+
+    pid
   end
 
   defp put_entry(root, n) do
