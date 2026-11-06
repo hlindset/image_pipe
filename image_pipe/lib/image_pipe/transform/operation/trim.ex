@@ -96,32 +96,30 @@ defmodule ImagePipe.Transform.Operation.Trim do
     far_x = max(0, (left + width - 1) * @preview_shrink - @strip_margin)
     far_y = max(0, (top + height - 1) * @preview_shrink - @strip_margin)
 
-    [
-      {:near, {0, 0, near_x, image_height}, :x},
-      {:near, {0, 0, image_width, near_y}, :y},
-      {:far, {far_x, 0, image_width - far_x, image_height}, :x},
-      {:far, {0, far_y, image_width, image_height - far_y}, :y}
-    ]
-    |> Task.async_stream(&edge(image, &1, background, threshold), timeout: :infinity)
-    |> Enum.map(fn {:ok, result} -> result end)
-    |> case do
-      [{:ok, left}, {:ok, top}, {:ok, right}, {:ok, bottom}] ->
-        {:ok, {left, top, right - left, bottom - top}}
-
-      results ->
-        case Enum.find(results, &(not match?({:ok, _edge}, &1))) do
-          :unclear -> find_trim(image, background, threshold)
-          {:error, _reason} = error -> error
-        end
+    with {:ok, left} <- near_edge(image, {0, 0, near_x, image_height}, :x, background, threshold),
+         {:ok, top} <- near_edge(image, {0, 0, image_width, near_y}, :y, background, threshold),
+         {:ok, right} <-
+           far_edge(
+             image,
+             {far_x, 0, image_width - far_x, image_height},
+             :x,
+             background,
+             threshold
+           ),
+         {:ok, bottom} <-
+           far_edge(
+             image,
+             {0, far_y, image_width, image_height - far_y},
+             :y,
+             background,
+             threshold
+           ) do
+      {:ok, {left, top, right - left, bottom - top}}
+    else
+      :unclear -> find_trim(image, background, threshold)
+      {:error, _reason} = error -> error
     end
   end
-
-  # Thin strips keep few of libvips' threads busy, so the four run at once.
-  defp edge(image, {:near, area, axis}, background, threshold),
-    do: near_edge(image, area, axis, background, threshold)
-
-  defp edge(image, {:far, area, axis}, background, threshold),
-    do: far_edge(image, area, axis, background, threshold)
 
   # The left or top edge of the content in a strip that starts at the border.
   defp near_edge(image, {x, y, width, height} = area, axis, background, threshold) do
