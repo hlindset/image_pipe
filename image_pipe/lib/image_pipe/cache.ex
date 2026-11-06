@@ -34,6 +34,7 @@ defmodule ImagePipe.Cache do
   alias ImagePipe.Cache.FileSystem.Store
   alias ImagePipe.Cache.Key
   alias ImagePipe.Cache.Lookups
+  alias ImagePipe.Cache.MemoryLimit
   alias ImagePipe.Cache.OutputWork
   alias ImagePipe.Cache.RecentTable
   alias ImagePipe.Cache.Sink
@@ -105,19 +106,35 @@ defmodule ImagePipe.Cache do
   # named after it, so an unchanged local file is hashed once rather than on
   # every request. Unless set, the table holds one record for each 50 KB the
   # output cache may store, so it doesn't forget originals whose processed
-  # images are still cached, from 10,000 to 200,000 records. A record takes
-  # about 1 KB for a local file and 1.4 KB for an origin image, so at most
-  # about 280 MB. A second table keeps the bytes of its recently used
-  # watermark assets (`WatermarkBytes`).
+  # images are still cached, from 10,000 to 200,000 records. A second table
+  # keeps the bytes of its recently used watermark assets (`WatermarkBytes`).
   @spec put_source_records(keyword(), atom()) :: keyword()
   def put_source_records(options, instance) do
     options
     |> Keyword.put(:source_records, Module.concat(instance, SourceRecords))
     |> Keyword.put(:watermark_bytes, Module.concat(instance, WatermarkBytes))
     |> Keyword.put_new_lazy(:max_remembered_originals, fn ->
-      max_size_bytes = get_in(options, [:cache, :max_size_bytes]) || 0
-      max_size_bytes |> div(50_000) |> max(10_000) |> min(200_000)
+      remembered_originals(
+        get_in(options, [:cache, :max_size_bytes]) || 0,
+        MemoryLimit.bytes()
+      )
     end)
+  end
+
+  @doc false
+  # A record takes about 1 KB for a local file and 1.4 KB for an origin
+  # image, so at most about 280 MB. With a memory limit, there is at most one
+  # record for each 20 KB of it, so above the 10,000-record floor the records
+  # fit in 7% of the limit, and with the remembered entries in about 10%.
+  @spec remembered_originals(non_neg_integer(), pos_integer() | nil) :: pos_integer()
+  def remembered_originals(max_size_bytes, memory_limit) do
+    by_memory = if memory_limit, do: div(memory_limit, 20_000), else: 200_000
+
+    max_size_bytes
+    |> div(50_000)
+    |> min(by_memory)
+    |> max(10_000)
+    |> min(200_000)
   end
 
   @doc false

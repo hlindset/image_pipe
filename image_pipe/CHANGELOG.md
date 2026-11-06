@@ -21,6 +21,14 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- In a container with a memory limit, the defaults of
+  `max_remembered_originals` and a file system cache's
+  `max_remembered_entries` are lowered to at most one original for each
+  20 KB of the limit and one entry for each 50 KB, still at least 10,000
+  originals and 1,000 entries. Together they take at most about 10% of the
+  limit, instead of up to 350 MB whatever the limit. The limit is read from
+  the cgroup memory limit. A value you set is kept.
+
 - A cache hit on a recently served entry no longer checks its body file
   before sending it. This saves a file system call on every such hit: a
   HEAD hit took about half the time, and GET hits gained 3–11% in

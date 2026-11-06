@@ -297,13 +297,17 @@ count:
   for an image from an origin, up to `max_remembered_originals`: at most
   about 280 MB by default. See
   [originals and processed images](caching-and-freshness.md#originals-and-processed-images).
-- The metadata of recently served cache entries, about 1.1 KB each, up to
+- The metadata of recently served cache entries, about 1.4 KB each, up to
   the cache's `max_remembered_entries` (see `ImagePipe.Cache.FileSystem`):
-  at most about 55 MB by default. See
+  at most about 70 MB by default. See
   [Cache process and restarts](cache.md#cache-process-and-restarts).
 - The bodies of recently served cache entries of 64 KB or less, up to the
   cache's `max_remembered_bytes` (see `ImagePipe.Cache.FileSystem`): 64 MB
   by default.
+
+In a container with a memory limit, the defaults of `max_remembered_originals`
+and `max_remembered_entries` take at most about 10% of the limit, but never
+less than their minimums of 10,000 originals and 1,000 entries, about 15 MB.
 
 libvips also keeps its recent operations and their images in an operation
 cache, 100 operations by default. Each request decodes its original again, so

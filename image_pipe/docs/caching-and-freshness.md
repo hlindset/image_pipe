@@ -40,7 +40,9 @@ each original's content hash in memory to find its processed images,
 together with the origin's cache headers or a local file's size and
 timestamps. It remembers one original for each 50 KB of the processed-image
 cache's size, at least 10,000 and at most 200,000, and forgets originals
-that weren't used recently first. The limit is `max_remembered_originals` in
+that weren't used recently first. In a container with a memory limit, an
+instance remembers at most one original for each 20 KB of that limit, still
+at least 10,000. Set the number with `max_remembered_originals` in
 `ImagePipe.config/1`, or
 [`[cache] max_remembered_originals`](../../image_pipe_server/docs/server-configuration.md#cache)
 on the server.
