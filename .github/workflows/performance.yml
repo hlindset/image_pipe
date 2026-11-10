@@ -268,7 +268,7 @@ jobs:
           # builds only up to ubuntu24 and compiles from source otherwise, so
           # name the release. Remove once mise maps ubuntu26 itself.
           echo "MISE_ERLANG_PRECOMPILED_OS=${ImageOS/ubuntu/ubuntu-}.04" >> "$GITHUB_ENV"
-      - uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
+      - uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d # v5.2.4
         with:
           install_args: erlang elixir rust
       - name: Install Hex and Rebar
@@ -362,7 +362,7 @@ jobs:
           # builds only up to ubuntu24 and compiles from source otherwise, so
           # name the release. Remove once mise maps ubuntu26 itself.
           echo "MISE_ERLANG_PRECOMPILED_OS=${ImageOS/ubuntu/ubuntu-}.04" >> "$GITHUB_ENV"
-      - uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
+      - uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d # v5.2.4
         with:
           install_args: erlang elixir rust
       - name: Install Hex and Rebar
