@@ -593,4 +593,112 @@ defmodule ImagePipe.Source.S3Test do
     assert {:ok, resolved} = S3.resolve(source, opts, [])
     assert S3.fetch(resolved, opts, []) == {:error, {:source, :credentials_unavailable}}
   end
+
+  describe "virtual-host addressing" do
+    test "requests the object from the bucket's own host" do
+      plug = fn conn ->
+        send(self(), {:s3_request, conn.host, conn.req_headers, conn.request_path})
+        Plug.Conn.send_resp(conn, 200, "image bytes")
+      end
+
+      config =
+        Source.validate_config!(
+          sources: [
+            s3: [
+              adapter: S3,
+              match: [scheme: "s3"],
+              options: [
+                default: [
+                  region: "eu-west-1",
+                  endpoint: "https://s3-accelerate.amazonaws.com",
+                  addressing: :virtual_host,
+                  credentials: {:static, access_key_id: "A", secret_access_key: "S"},
+                  req_options: [plug: plug]
+                ]
+              ]
+            ]
+          ]
+        )
+
+      source = %Object{scheme: "s3", scope: "tenant-a", key: "images/cat one.jpg"}
+
+      assert {:ok, resolved} = Source.resolve(source, config, [])
+      assert {:ok, %Response{} = response} = Source.fetch(resolved, config, max_body_bytes: 20)
+      assert Enum.join(response.stream) == "image bytes"
+
+      assert_receive {:s3_request, host, headers, request_path}
+      assert host == "tenant-a.s3-accelerate.amazonaws.com"
+      assert request_path == "/images/cat%20one.jpg"
+      assert {"authorization", authorization} = List.keyfind(headers, "authorization", 0)
+      assert authorization =~ "/eu-west-1/s3/aws4_request"
+    end
+
+    test "keeps the endpoint's port" do
+      plug = fn conn ->
+        send(self(), {:s3_request, conn.host, conn.port})
+        Plug.Conn.send_resp(conn, 200, "image bytes")
+      end
+
+      assert {:ok, opts} =
+               S3.validate_options(
+                 default: [
+                   region: "us-east-1",
+                   endpoint: "http://minio.test:9000",
+                   addressing: :virtual_host,
+                   credentials: {:static, access_key_id: "A", secret_access_key: "S"},
+                   req_options: [plug: plug]
+                 ]
+               )
+
+      source = %Object{scheme: "s3", scope: "tenant-a", key: "cat.jpg"}
+
+      assert {:ok, resolved} = S3.resolve(source, opts, [])
+      assert {:ok, %Response{}} = S3.fetch(resolved, opts, max_body_bytes: 20)
+      assert_receive {:s3_request, "tenant-a.minio.test", 9000}
+    end
+
+    test "a bucket name that can't be a host name is not found" do
+      assert {:ok, opts} =
+               S3.validate_options(
+                 default: [
+                   region: "us-east-1",
+                   endpoint: "https://s3.amazonaws.com",
+                   addressing: :virtual_host,
+                   credentials: {:static, access_key_id: "A", secret_access_key: "S"}
+                 ]
+               )
+
+      for bucket <- ["tenant_a", "-tenant", "tenant-", "a..b", "a:1", String.duplicate("a", 64)] do
+        source = %Object{scheme: "s3", scope: bucket, key: "cat.jpg"}
+        assert S3.resolve(source, opts, []) == {:error, {:source, :invalid_object}}
+      end
+
+      source = %Object{scheme: "s3", scope: "tenant_a", key: "cat.jpg"}
+      path_opts = Keyword.update!(opts, :default, &Keyword.put(&1, :addressing, :path))
+      assert {:ok, %Resolved{}} = S3.resolve(source, path_opts, [])
+    end
+
+    test "configuration rejects listed buckets and endpoints it can't address" do
+      default = [
+        region: "us-east-1",
+        endpoint: "https://s3.amazonaws.com",
+        addressing: :virtual_host,
+        credentials: {:static, access_key_id: "A", secret_access_key: "S"}
+      ]
+
+      assert {:error, {:invalid_source_config, _reason}} =
+               S3.validate_options(default: default, buckets: %{"tenant_a" => []})
+
+      assert {:ok, _opts} =
+               S3.validate_options(
+                 default: default,
+                 buckets: %{"tenant_a" => [addressing: :path], "tenant-b" => []}
+               )
+
+      for endpoint <- ["http://127.0.0.1:9000", "http://[::1]:9000"] do
+        assert {:error, {:invalid_source_config, _reason}} =
+                 S3.validate_options(default: Keyword.put(default, :endpoint, endpoint))
+      end
+    end
+  end
 end

@@ -24,6 +24,7 @@ defmodule ImagePipe.Source.S3 do
     :aws_sigv4
   ]
   @signed_header_names ["authorization", "host", "x-amz-content-sha256", "x-amz-security-token"]
+  @dns_name ~r/\A[a-z0-9]+(?:-+[a-z0-9]+)*(?:\.[a-z0-9]+(?:-+[a-z0-9]+)*)*\z/
   @connection_keys [
     :receive_timeout,
     :fetch_timeout,
@@ -46,8 +47,25 @@ defmodule ImagePipe.Source.S3 do
                        doc: """
                        Base URL of the S3 API, such as \
                        `"https://s3.us-east-1.amazonaws.com"`, with no path, query, or \
-                       fragment. Objects are requested path-style, as \
-                       `<endpoint>/<bucket>/<key>`.
+                       fragment.
+                       """
+                     ],
+                     addressing: [
+                       type: {:in, [:path, :virtual_host]},
+                       default: :path,
+                       doc: """
+                       Where the bucket name goes in an object's URL. `:path` requests \
+                       `<endpoint>/<bucket>/<key>`. `:virtual_host` puts the bucket in \
+                       front of the endpoint's host, as \
+                       `https://<bucket>.<endpoint host>/<key>`, which \
+                       [S3 Transfer Acceleration](serving-from-s3.md#use-s3-transfer-acceleration) \
+                       and some S3-compatible stores require. `:virtual_host` needs an \
+                       endpoint with a host name, not an IP address, and bucket names \
+                       that are DNS names of up to 63 lowercase letters, digits, \
+                       hyphens, and dots. A request for any other bucket answers `404`, \
+                       and listing one under `:buckets` is a configuration error. A \
+                       wildcard TLS certificate, such as Amazon S3's, doesn't cover a \
+                       bucket name with a dot.
                        """
                      ],
                      credentials: [
@@ -108,7 +126,8 @@ defmodule ImagePipe.Source.S3 do
                      pool_size: [
                        type: :pos_integer,
                        doc: """
-                       Maximum number of open HTTP/1.1 connections to the endpoint. Each \
+                       Maximum number of open HTTP/1.1 connections to the endpoint, or \
+                       to each bucket's host with `addressing: :virtual_host`. Each \
                        connection carries one download at a time, so further downloads from \
                        the same endpoint wait for a free connection, up to `pool_timeout`. A bucket with a different `pool_size` \
                        or `connect_timeout` connects through a pool of its own. The default \
@@ -225,7 +244,8 @@ defmodule ImagePipe.Source.S3 do
       )
       when is_binary(bucket) and bucket != "" and is_binary(key) and key != "" and
              (is_binary(revision) or is_nil(revision)) do
-    with {:ok, config} <- bucket_config(bucket, opts) do
+    with {:ok, config} <- bucket_config(bucket, opts),
+         :ok <- addressable_bucket(bucket, config) do
       endpoint = Keyword.fetch!(config, :endpoint)
 
       identity = [
@@ -244,6 +264,7 @@ defmodule ImagePipe.Source.S3 do
       fetch =
         [
           endpoint: endpoint,
+          addressing: Keyword.fetch!(config, :addressing),
           bucket: bucket,
           key: key,
           revision: revision,
@@ -329,7 +350,7 @@ defmodule ImagePipe.Source.S3 do
   defp validate_buckets(buckets, default) when is_map(buckets) do
     Enum.reduce_while(buckets, {:ok, %{}}, fn
       {bucket, opts}, {:ok, acc} when is_binary(bucket) and bucket != "" and is_list(opts) ->
-        case validate_bucket(default, opts) do
+        case validate_bucket(bucket, default, opts) do
           {:ok, config} -> {:cont, {:ok, Map.put(acc, bucket, config)}}
           {:error, reason} -> {:halt, {:error, reason}}
         end
@@ -342,10 +363,11 @@ defmodule ImagePipe.Source.S3 do
   defp validate_buckets(_buckets, _default),
     do: {:error, {:invalid_source_config, :invalid_bucket_config}}
 
-  defp validate_bucket(default, opts) do
+  defp validate_bucket(bucket, default, opts) do
     merged = Keyword.merge(default, opts)
 
     with {:ok, config} <- validate_config(merged),
+         :ok <- validate_bucket_name(bucket, config),
          {:ok, _explicit_policy} <-
            CacheSettings.validate(
              Keyword.put(config, :cache_policy, Keyword.get(opts, :cache_policy, []))
@@ -358,8 +380,45 @@ defmodule ImagePipe.Source.S3 do
 
   defp validate_config(opts) do
     case NimbleOptions.validate(opts, @config_schema) do
-      {:ok, validated} -> {:ok, remove_nil_credentials(validated)}
+      {:ok, validated} -> validated |> remove_nil_credentials() |> validate_addressing()
       {:error, error} -> {:error, {:invalid_source_config, Exception.message(error)}}
+    end
+  end
+
+  # A bucket name can't go in front of an IP address.
+  defp validate_addressing(config) do
+    host = URI.parse(Keyword.fetch!(config, :endpoint)).host
+
+    with :virtual_host <- Keyword.fetch!(config, :addressing),
+         {:ok, _address} <- :inet.parse_address(String.to_charlist(host)) do
+      {:error,
+       {:invalid_source_config,
+        "addressing: :virtual_host needs an endpoint with a host name, got: #{inspect(host)}"}}
+    else
+      _named_host_or_path -> {:ok, config}
+    end
+  end
+
+  defp validate_bucket_name(bucket, config) do
+    case addressable_bucket(bucket, config) do
+      :ok ->
+        :ok
+
+      {:error, _reason} ->
+        {:error,
+         {:invalid_source_config,
+          "addressing: :virtual_host needs a bucket name that is a DNS name, got: #{inspect(bucket)}"}}
+    end
+  end
+
+  # With virtual-host addressing the bucket name becomes part of the request's
+  # host, and bucket names come from request URLs.
+  defp addressable_bucket(bucket, config) do
+    if Keyword.fetch!(config, :addressing) == :path or
+         (byte_size(bucket) <= 63 and String.match?(bucket, @dns_name)) do
+      :ok
+    else
+      {:error, {:source, :invalid_object}}
     end
   end
 
@@ -485,13 +544,18 @@ defmodule ImagePipe.Source.S3 do
     revision = Keyword.get(fetch, :revision)
 
     IO.iodata_to_binary([
-      endpoint,
-      "/",
-      encode_path_segment(bucket),
+      bucket_url(Keyword.fetch!(fetch, :addressing), endpoint, bucket),
       "/",
       encode_key(key),
       revision_query(revision)
     ])
+  end
+
+  defp bucket_url(:path, endpoint, bucket), do: [endpoint, "/", encode_path_segment(bucket)]
+
+  defp bucket_url(:virtual_host, endpoint, bucket) do
+    [scheme, authority] = String.split(endpoint, "://", parts: 2)
+    [scheme, "://", bucket, ".", authority]
   end
 
   defp encode_key(key) do

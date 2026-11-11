@@ -7,6 +7,11 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- An S3 bucket's new `addressing: :virtual_host` setting requests objects
+  from `<bucket>.<endpoint host>` instead of `<endpoint>/<bucket>`, for
+  S3 Transfer Acceleration and stores that need the bucket name in the
+  host. See
+  [Use S3 Transfer Acceleration](docs/serving-from-s3.md#use-s3-transfer-acceleration).
 - The `:image_pipe` application environment sets where slow clients'
   spool files and downloaded originals go (`tmp_dir`) and how much slow
   clients may hold in memory and in spool files (`max_buffered_bytes` and

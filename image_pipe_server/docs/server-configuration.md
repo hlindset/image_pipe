@@ -276,6 +276,7 @@ Elixir only: `req_options`, `address_resolver`.
 | --- | --- | --- |
 | `region` | string | required |
 | `endpoint` | string | required |
+| `addressing` | `"path"` or `"virtual_host"` | `"path"` |
 | `receive_timeout` | integer ≥ 0 | `5000` |
 | `fetch_timeout` | integer > 0 | `30000` |
 | `connect_timeout` | integer ≥ 0 | `5000` |
