@@ -5,6 +5,8 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-11-12
+
 ### Added
 
 - An S3 bucket's new `addressing: :virtual_host` setting requests objects
@@ -1483,7 +1485,8 @@ First release of ImagePipe, with image processing powered by
   delivery, request safety limits, and processing concurrency. Observe requests
   through telemetry, logging, and tracing.
 
-[Unreleased]: https://github.com/hlindset/image_pipe/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/hlindset/image_pipe/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/hlindset/image_pipe/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/hlindset/image_pipe/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/hlindset/image_pipe/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/hlindset/image_pipe/compare/v0.3.0...v0.4.0
