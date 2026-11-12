@@ -110,6 +110,10 @@ docker build -f image_pipe_server/Dockerfile --build-arg IMAGE_VISION=$vision -t
 image_pipe_server/test/container/smoke.sh $tag ${variant:-base}
 """
 
+[tasks."libvips:macos"]
+description = "Build libvips for local development on an Apple silicon Mac, apart from Homebrew, and print the mise.local.toml settings that point vix at it."
+run = "scripts/build-macos-libvips.sh"
+
 [tasks."precommit:fiddle"]
 description = "Library checks plus the fiddle verify suite"
 depends = ["precommit"]
