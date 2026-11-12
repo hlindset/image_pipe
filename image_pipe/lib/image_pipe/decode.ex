@@ -25,7 +25,6 @@ defmodule ImagePipe.Decode do
   alias Image.Options.Open, as: ImageOpenOptions
   alias ImagePipe.Decode.HeaderDimensions
   alias ImagePipe.Decode.SourceFormat
-  alias ImagePipe.Decode.Streaming
   alias ImagePipe.Decode.WebpFrames
   alias ImagePipe.Format.Detector
   alias ImagePipe.Plan.Spec
@@ -51,8 +50,12 @@ defmodule ImagePipe.Decode do
           | {:decode, term()}
           | {:input_limit, term()}
           | {:page_out_of_range, non_neg_integer(), pos_integer()}
+  # The header opens sequentially, as the decode does, so a decode without
+  # load options reuses the header open.
+  @header_options [access: :sequential, fail_on: :error]
+
   @type input() ::
-          Source.Resolved.t() | Source.Response.t() | {:download, pid(), binary()} | seekable()
+          Source.Resolved.t() | Source.Response.t() | seekable()
 
   @typedoc "A fetched source body that every decode can reopen."
   @type seekable() :: {:path, Path.t()} | {:buffer, binary()}
@@ -89,9 +92,6 @@ defmodule ImagePipe.Decode do
   if @svg_available do
     def svg_material(config), do: [svg: ImagePipe.Decode.SVG.identity(config)]
   end
-
-  @doc "Returns whether a JPEG or PNG prefix opens successfully with the matching decoder."
-  defdelegate streamable_source?(prefix), to: Streaming, as: :eligible?
 
   @doc """
   Fetches and decodes a source, then calls `fun` with its `Transform.State`
@@ -283,7 +283,7 @@ defmodule ImagePipe.Decode do
          :ok <- validate_container_frames(peek, input, opts),
          :ok <- verify_file_loader(detected, input) |> wrap_decode_error(),
          {:ok, header_image} <-
-           open_seekable_input(input, header_options(input), opts) |> wrap_decode_error(),
+           open_seekable_input(input, @header_options, opts) |> wrap_decode_error(),
          frames = page_count(header_image),
          :ok <- validate_frames(frames, opts) |> wrap_input_limit_error(),
          {:ok, source_format, resolution} <-
@@ -343,7 +343,6 @@ defmodule ImagePipe.Decode do
   @chunk_bytes 65_536
 
   defp chunks({:path, path}), do: File.stream!(path, @chunk_bytes)
-  defp chunks({:download, download, _prefix}), do: Source.Download.stream(download)
 
   defp chunks({:buffer, binary}) do
     Stream.unfold(binary, fn
@@ -447,7 +446,6 @@ defmodule ImagePipe.Decode do
     %{w: max(1.0, orig_w / loaded_w), h: max(1.0, orig_h / loaded_h)}
   end
 
-  defp input({:download, _pid, _prefix} = input), do: {:ok, input}
   defp input({kind, _body} = input) when kind in [:path, :buffer], do: {:ok, input}
   defp input(%Source.Response{} = response), do: seekable_input(response)
 
@@ -471,8 +469,6 @@ defmodule ImagePipe.Decode do
 
   defp peek_bytes({:buffer, binary}) when is_binary(binary),
     do: {:ok, binary_part(binary, 0, min(byte_size(binary), @peek_bytes))}
-
-  defp peek_bytes({:download, _download, prefix}), do: {:ok, prefix}
 
   defp peek_bytes({:path, path}) do
     case File.open(path, [:read, :binary, :raw]) do
@@ -538,13 +534,6 @@ defmodule ImagePipe.Decode do
   defp open_input({:path, path}, decode_options), do: Image.open(path, decode_options)
   defp open_input({:buffer, binary}, decode_options), do: open_buffer(binary, decode_options)
 
-  defp open_input({:download, download, prefix}, decode_options) do
-    case Keyword.fetch!(decode_options, :access) do
-      :random -> open_buffer(prefix, decode_options)
-      :sequential -> Streaming.open(download, decode_options)
-    end
-  end
-
   defp open_buffer(binary, decode_options) do
     with {:ok, vips_opts} <- ImageOpenOptions.validate_options(decode_options) do
       VipsImage.new_from_buffer(binary, vips_opts)
@@ -609,14 +598,8 @@ defmodule ImagePipe.Decode do
     |> wrap_decode_error()
   end
 
-  # A download's header comes from its buffered prefix, which can't be decoded
-  # in full. A path or buffer opens sequentially, as its decode does, so a
-  # decode without load options reuses the header open.
-  defp header_options({:download, _download, _prefix}), do: [access: :random, fail_on: :error]
-  defp header_options(_input), do: [access: :sequential, fail_on: :error]
-
   defp reopen(input, header_image, decode_options, opts) do
-    if decode_options == header_options(input),
+    if decode_options == @header_options,
       do: {:ok, header_image},
       else: input |> open_seekable_input(decode_options, opts) |> wrap_decode_error()
   end
@@ -695,7 +678,6 @@ defmodule ImagePipe.Decode do
   end
 
   defp source_byte_size({:buffer, binary}), do: byte_size(binary)
-  defp source_byte_size({:download, _download, _prefix}), do: nil
 
   defp source_byte_size({:path, path}) do
     case RawFile.stat(path, time: :posix) do

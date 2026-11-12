@@ -52,7 +52,6 @@ defmodule ImagePipe.Telemetry.Trace.Handler do
     # a processing pool job's priority: :normal or :low
     :priority,
     # a later pool turn for a request that already held one
-    :continuation,
     :operation,
     :index,
     :operation_count,

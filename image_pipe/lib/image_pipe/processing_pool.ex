@@ -30,9 +30,7 @@ defmodule ImagePipe.ProcessingPool do
               Most requests waiting for a turn. A request that finds the queue full \
               fails with `{:processing, :overloaded}`, unless it has normal priority \
               and a low-priority request is waiting. Then the newest waiting \
-              low-priority request fails instead. With `0`, requests never wait. \
-              The encode of an image decoded while its original downloaded is \
-              a second turn for its request, and isn't counted or turned away.
+              low-priority request fails instead. With `0`, requests never wait.
               """
             ],
             queue_timeout: [
@@ -176,26 +174,8 @@ defmodule ImagePipe.ProcessingPool do
 
   def within(pool, owner, notification, config, fun) do
     case acquire(pool, owner, notification, config) do
-      {:ok, token, context, _deadline} ->
+      {:ok, token, context} ->
         RequestContext.within(context, fn -> invoke_and_release(pool, token, fun) end)
-
-      {:error, _} = error ->
-        error
-    end
-  end
-
-  @doc false
-  # Like `within/5`, but returns `{:ok, result, deadline}` with the turn's
-  # processing deadline, which a later turn for the same request continues
-  # with through the `:processing_continuation` config key. Without a pool
-  # there is no deadline.
-  def within_turn(nil, _owner, _notification, _config, fun), do: {:ok, fun.(), nil}
-
-  def within_turn(pool, owner, notification, config, fun) do
-    case acquire(pool, owner, notification, config) do
-      {:ok, token, context, deadline} ->
-        result = RequestContext.within(context, fn -> invoke_and_release(pool, token, fun) end)
-        {:ok, result, deadline}
 
       {:error, _} = error ->
         error
@@ -209,8 +189,7 @@ defmodule ImagePipe.ProcessingPool do
     call(
       pool,
       {:acquire, owner, notification, RequestContext.capture(), Telemetry.telemetry_opts(config),
-       Keyword.get(config, :processing_priority, :normal), now(),
-       Keyword.get(config, :processing_continuation)}
+       Keyword.get(config, :processing_priority, :normal), now()}
     )
   end
 
@@ -272,7 +251,7 @@ defmodule ImagePipe.ProcessingPool do
        limits: limits,
        jobs: %{},
        owners: %{},
-       queues: %{continuation: :queue.new(), normal: :queue.new(), low: :queue.new()},
+       queues: %{normal: :queue.new(), low: :queue.new()},
        active: 0,
        low_active: 0
      }}
@@ -289,39 +268,8 @@ defmodule ImagePipe.ProcessingPool do
     {:reply, stats, state}
   end
 
-  # A continuation is a later turn for a request that already held one, such
-  # as the encode after an overlapped decode. It keeps that turn's processing
-  # deadline, waits in its own queue that is served first, in order, and is
-  # never turned away as overloaded. Overlap never runs for low priority, so
-  # it has normal priority.
   def handle_call(
-        {:acquire, owner, notification, context, config, priority, _requested_at, deadline},
-        from,
-        state
-      )
-      when is_integer(deadline) do
-    span =
-      Events.start(
-        config,
-        :admission,
-        context,
-        Map.merge(counts(state), %{priority: priority, continuation: true})
-      )
-
-    if now() >= deadline do
-      Events.stop(span, :timeout)
-      {:reply, {:error, {:processing, :timeout}}, state}
-    else
-      job =
-        new_job(from, {owner, notification, context, config, priority}, span, deadline, deadline)
-
-      queued? = not admissible?(state, priority)
-      {:noreply, enqueue_or_admit(track(state, job), job.token, job, queued?)}
-    end
-  end
-
-  def handle_call(
-        {:acquire, owner, notification, context, config, priority, requested_at, nil},
+        {:acquire, owner, notification, context, config, priority, requested_at},
         from,
         state
       ) do
@@ -332,7 +280,7 @@ defmodule ImagePipe.ProcessingPool do
         config,
         :admission,
         context,
-        Map.merge(counts(state), %{priority: priority, continuation: false})
+        Map.put(counts(state), :priority, priority)
       )
 
     expired? = now() >= requested_at + state.limits.queue_timeout
@@ -349,7 +297,7 @@ defmodule ImagePipe.ProcessingPool do
 
       true ->
         deadline = requested_at + state.limits.queue_timeout
-        job = new_job(from, {owner, notification, context, config, priority}, span, deadline, nil)
+        job = new_job(from, {owner, notification, context, config, priority}, span, deadline)
         {:noreply, enqueue_or_admit(track(state, job), job.token, job, queued?)}
     end
   end
@@ -373,8 +321,8 @@ defmodule ImagePipe.ProcessingPool do
   def handle_info({:deadline, token, phase, deadline}, state) do
     case Map.fetch(state.jobs, token) do
       {:ok, %{phase: :queued, deadline: ^deadline} = job} when phase == :queued ->
-        GenServer.reply(job.from, {:error, {:processing, expiry(job)}})
-        {:noreply, state |> complete(token, expiry(job)) |> drain()}
+        GenServer.reply(job.from, {:error, {:processing, :queue_timeout}})
+        {:noreply, state |> complete(token, :queue_timeout) |> drain()}
 
       {:ok, %{phase: :active, deadline: ^deadline, result: nil} = job} when phase == :active ->
         send(job.notification, {:processing_timeout, job.worker})
@@ -421,17 +369,11 @@ defmodule ImagePipe.ProcessingPool do
 
   defp enqueue_or_admit(state, token, job, true) do
     job = %{job | timer: timer(token, :queued, job.deadline)}
-    queues = Map.update!(state.queues, job.queue, &:queue.in(token, &1))
+    queues = Map.update!(state.queues, job.priority, &:queue.in(token, &1))
     put_job(%{state | queues: queues}, token, job)
   end
 
-  defp new_job(
-         from,
-         {owner, notification, context, config, priority},
-         span,
-         deadline,
-         continuation
-       ) do
+  defp new_job(from, {owner, notification, context, config, priority}, span, deadline) do
     {worker, _tag} = from
 
     %{
@@ -447,18 +389,12 @@ defmodule ImagePipe.ProcessingPool do
       span: span,
       phase: :queued,
       deadline: deadline,
-      continuation: continuation,
-      queue: if(continuation, do: :continuation, else: priority),
       timer: nil,
       result: nil
     }
   end
 
   defp track(state, job), do: %{state | owners: Map.put(state.owners, job.owner_ref, job.token)}
-
-  # A continuation's queued deadline is its processing deadline.
-  defp expiry(%{continuation: nil}), do: :queue_timeout
-  defp expiry(_continuation), do: :timeout
 
   # A low-priority request takes a free slot only under its own limit.
   defp admissible?(state, :normal), do: state.active < state.limits.max_concurrency
@@ -495,9 +431,9 @@ defmodule ImagePipe.ProcessingPool do
         Map.put(counts(state), :priority, job.priority)
       )
 
-    deadline = job.continuation || now() + state.limits.processing_timeout
+    deadline = now() + state.limits.processing_timeout
     Process.link(job.worker)
-    GenServer.reply(job.from, {:ok, token, Events.context(span), deadline})
+    GenServer.reply(job.from, {:ok, token, Events.context(span)})
 
     job = %{
       job
@@ -526,18 +462,17 @@ defmodule ImagePipe.ProcessingPool do
             state |> admit(token, job) |> drain()
 
           false ->
-            GenServer.reply(job.from, {:error, {:processing, expiry(job)}})
-            state |> complete(token, job.result || expiry(job)) |> drain()
+            GenServer.reply(job.from, {:error, {:processing, :queue_timeout}})
+            state |> complete(token, job.result || :queue_timeout) |> drain()
         end
     end
   end
 
-  # Strict priority: continuations first, then normal waiters, and a
-  # low-priority waiter only when no normal one is waiting.
+  # Strict priority: normal waiters first, and a low-priority waiter only when
+  # no normal one is waiting.
   defp next_waiter(state) do
     cond do
       not admissible?(state, :normal) -> nil
-      not :queue.is_empty(state.queues.continuation) -> :continuation
       not :queue.is_empty(state.queues.normal) -> :normal
       not :queue.is_empty(state.queues.low) and admissible?(state, :low) -> :low
       true -> nil
@@ -556,7 +491,7 @@ defmodule ImagePipe.ProcessingPool do
       state
       | jobs: jobs,
         owners: Map.delete(state.owners, job.owner_ref),
-        queues: Map.update!(state.queues, job.queue, &:queue.delete(token, &1)),
+        queues: Map.update!(state.queues, job.priority, &:queue.delete(token, &1)),
         active: state.active - if(job.phase == :active, do: 1, else: 0),
         low_active:
           state.low_active - if(job.phase == :active and job.priority == :low, do: 1, else: 0)
@@ -573,11 +508,8 @@ defmodule ImagePipe.ProcessingPool do
   defp cancel_job(state, token, %{phase: :active} = job),
     do: put_job(state, token, %{job | result: job.result || :cancelled})
 
-  defp counts(state), do: %{active: state.active, queued: queued(state)}
-  defp queued(state), do: :queue.len(state.queues.continuation) + waiting(state)
+  defp counts(state), do: %{active: state.active, queued: waiting(state)}
 
-  # The requests `max_queue` limits. Continuations held a turn already, so
-  # they wait on top of it.
   defp waiting(state), do: :queue.len(state.queues.normal) + :queue.len(state.queues.low)
   # A worker finishing after its deadline, before the timer fires, times out
   # as if the timer had fired, including the notification its owner waits on.

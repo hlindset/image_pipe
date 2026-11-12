@@ -213,13 +213,7 @@ defmodule ImagePipe.Execution do
   end
 
   defp acquire(context, record) do
-    case SourceCache.acquire(
-           context.source,
-           context.input_key,
-           record,
-           preparation(context),
-           context.config
-         ) do
+    case SourceCache.acquire(context.source, context.input_key, record, context.config) do
       {:ok, acquisition} ->
         {:ok, current(context, acquisition)}
 
@@ -230,14 +224,6 @@ defmodule ImagePipe.Execution do
 
   defp current(context, acquisition),
     do: represent(%{context | acquisition: acquisition, stale?: false})
-
-  # An overlapped decode would start before watermark assets are available.
-  defp preparation(%Context{request: request, policy: policy}) do
-    case Enum.any?(request.groups, &(&1.watermark != nil)) do
-      true -> nil
-      false -> {request, policy}
-    end
-  end
 
   # Prepare owns its source lease; callers close it after their conditional gate
   # and output consumption. Output owns leases acquired later by open/1.
@@ -383,7 +369,6 @@ defmodule ImagePipe.Execution do
            context.source,
            context.input_key,
            context.acquisition.record,
-           preparation(context),
            context.config
          ) do
       {:ok, acquisition} ->
@@ -516,13 +501,6 @@ defmodule ImagePipe.Execution do
     end
   end
 
-  # The encode of an overlapped decode continues that turn's deadline, at the
-  # front of the pool's queue.
-  defp continuation(config, %{processing_deadline: deadline}) when is_integer(deadline),
-    do: Keyword.put(config, :processing_continuation, deadline)
-
-  defp continuation(config, _acquisition), do: config
-
   # Where the stream spools output a slow client hasn't read yet. Without a
   # private staging directory, it keeps pace with the client instead.
   defp spool_path do
@@ -534,35 +512,15 @@ defmodule ImagePipe.Execution do
     end
   end
 
-  # An overlapped preparation that failed answers with its error, without
-  # waiting for another processing slot.
-  defp generate(%Context{acquisition: %{processing: {:error, _reason} = error}}, _, _, _),
-    do: error
-
   defp generate(%Context{request: %{output: %{terminal: :image}}} = context, inputs, session, key) do
     config = context.config
 
     build =
-      case context.acquisition.processing do
-        # An overlapped preparation that found a skipped source leaves the
-        # completed source to be streamed unchanged.
-        processing when processing in [nil, {:ok, :skipped}] ->
-          Processing.build_fun(
-            context.request,
-            decode_input(context),
-            context.policy,
-            config,
-            inputs
-          )
-
-        result ->
-          Processing.resume_fun(result, context.acquisition.source_bytes, config)
-      end
+      Processing.build_fun(context.request, decode_input(context), context.policy, config, inputs)
 
     session = Keyword.put(session, :spool_path, spool_path())
 
-    with {:ok, stream} <-
-           Delivery.stream(build, key, continuation(config, context.acquisition), session) do
+    with {:ok, stream} <- Delivery.stream(build, key, config, session) do
       output = output(context, {:stream, stream}, :miss, nil)
       {:ok, %Output{output | degraded?: degraded?(stream.resolved_output)}}
     end
