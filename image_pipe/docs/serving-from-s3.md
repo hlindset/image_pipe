@@ -43,9 +43,12 @@ credentials = { provider = "instance_role" }
 
 <!-- tabs-close -->
 
-For other S3-compatible stores, set `endpoint` to their API URL. Objects are
-requested path-style, as `<endpoint>/<bucket>/<key>`. Image URLs name an
-object after `src/` as `s3://bucket/key`:
+For other S3-compatible stores, set `endpoint` to their API URL. By default,
+objects are requested path-style, as `<endpoint>/<bucket>/<key>`. For a store
+that needs the bucket name in the host, turn on virtual-host addressing with
+`addressing`, shown under
+[Use S3 Transfer Acceleration](#use-s3-transfer-acceleration). Image URLs
+name an object after `src/` as `s3://bucket/key`:
 
 ```text
 /w=400/src/s3://my-bucket/photos/beach.jpg
@@ -264,6 +267,53 @@ endpoint = "https://s3.us-east-1.amazonaws.com"
 <!-- tabs-close -->
 
 Other buckets then answer `404`.
+
+## Use S3 Transfer Acceleration
+
+To download from a bucket with
+[Transfer Acceleration](https://docs.aws.amazon.com/AmazonS3/latest/userguide/transfer-acceleration.html)
+turned on, set `endpoint` to the accelerate endpoint and turn on virtual-host
+addressing with `addressing`. Requests then go to
+`<bucket>.s3-accelerate.amazonaws.com`. `region` stays the bucket's own
+region:
+
+<!-- tabs-open -->
+
+### Plug
+
+```elixir
+options: [
+  default: [
+    region: "eu-west-1",
+    endpoint: "https://s3-accelerate.amazonaws.com",
+    addressing: :virtual_host,
+    credentials: {:provider, ImagePipe.Source.S3.InstanceRole, []}
+  ]
+]
+```
+
+### image_pipe_server
+
+```toml
+[sources.media]
+adapter = "s3"
+match = { scheme = "s3" }
+region = "eu-west-1"
+endpoint = "https://s3-accelerate.amazonaws.com"
+addressing = "virtual_host"
+credentials = { provider = "instance_role" }
+```
+
+<!-- tabs-close -->
+
+For IPv6, use `https://s3-accelerate.dualstack.amazonaws.com`. To accelerate
+only some buckets, give those buckets the two settings under
+[`buckets`](#serve-only-some-buckets).
+
+Transfer Acceleration doesn't work for a bucket with a dot in its name.
+
+Switching a bucket to the accelerate endpoint changes its `endpoint`, so its
+cached images are processed again on their next request.
 
 ## Fetch credentials at startup
 
