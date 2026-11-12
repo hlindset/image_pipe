@@ -26,7 +26,6 @@ defmodule ImagePipe.Application do
     children = [
       ImagePipe.SrgbProfile,
       {Task.Supervisor, name: ImagePipe.ProcessingPool.Tasks},
-      {DynamicSupervisor, name: ImagePipe.Source.Downloads, strategy: :one_for_one},
       {DynamicSupervisor, name: ImagePipe.Source.HTTP.Pools, strategy: :one_for_one},
       ImagePipe.Source.HTTP.PinnedPools,
       ImagePipe.Source.HTTP.DnsCache,

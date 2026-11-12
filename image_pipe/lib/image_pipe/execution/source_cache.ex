@@ -2,7 +2,7 @@ defmodule ImagePipe.Execution.SourceCache do
   @moduledoc false
   alias ImagePipe.Cache
   alias ImagePipe.Cache.Work
-  alias ImagePipe.Execution.{Acquisition, Overlap, Staging}
+  alias ImagePipe.Execution.{Acquisition, Staging}
   alias ImagePipe.Execution.Staging.Resources
   alias ImagePipe.MaterialDigest
   alias ImagePipe.RawFile
@@ -40,17 +40,17 @@ defmodule ImagePipe.Execution.SourceCache do
   def status(record, source, config),
     do: CacheState.status(Record.state(record, source.cache_semantics), now(config))
 
-  def acquire(source, key, previous, preparation, config) do
+  def acquire(source, key, previous, config) do
     case Source.validation_mode(source, config) do
       :local ->
-        acquire_local(source, key, previous, preparation, config)
+        acquire_local(source, key, previous, config)
 
       :exclusive ->
-        acquire_locked(source, key, previous, preparation, config)
+        acquire_locked(source, key, previous, config)
 
       {:shared, adapter} ->
         cohort = validation_cohort(source, previous, adapter, config)
-        acquire_locked(source, key, previous, preparation, config, cohort)
+        acquire_locked(source, key, previous, config, cohort)
     end
   end
 
@@ -69,23 +69,22 @@ defmodule ImagePipe.Execution.SourceCache do
          source,
          key,
          %Record{origin: %Source.Origin{}} = previous,
-         preparation,
          config
        ) do
     case validated_on_every_use?(previous, source) do
       true ->
         case check_unchanged(source, previous, config) do
           {:ok, _acquisition} = result -> result
-          :changed -> acquire_locked(source, key, previous, preparation, config)
+          :changed -> acquire_locked(source, key, previous, config)
         end
 
       false ->
-        acquire_locked(source, key, previous, preparation, config)
+        acquire_locked(source, key, previous, config)
     end
   end
 
-  defp acquire_local(source, key, previous, preparation, config),
-    do: acquire_locked(source, key, previous, preparation, config)
+  defp acquire_local(source, key, previous, config),
+    do: acquire_locked(source, key, previous, config)
 
   # A changed or failed stat must be observed again while holding the lease,
   # before staging new bytes or invalidating an existing record.
@@ -109,7 +108,7 @@ defmodule ImagePipe.Execution.SourceCache do
 
   # `cohort` is the validation cohort this request may share a validation
   # with, or nil.
-  defp acquire_locked(source, key, previous, preparation, config, cohort \\ nil) do
+  defp acquire_locked(source, key, previous, config, cohort \\ nil) do
     cohort = if is_nil(previous), do: download_cohort(source, config), else: cohort
 
     coordinate(
@@ -128,7 +127,7 @@ defmodule ImagePipe.Execution.SourceCache do
         result =
           case status(record, source, config) do
             :fresh -> {:ok, %Acquisition{record: record}}
-            _validate -> fetch(source, key, record, preparation, config, lease)
+            _validate -> fetch(source, key, record, config, lease)
           end
 
         if is_nil(previous), do: share_download(coordination, result, source)
@@ -137,7 +136,6 @@ defmodule ImagePipe.Execution.SourceCache do
       work_opts(source, config, cohort)
     )
     |> waited()
-    |> finish_overlap()
   end
 
   defp complete_validation(
@@ -183,20 +181,19 @@ defmodule ImagePipe.Execution.SourceCache do
 
   # Downloads the original of `record`, a current record whose bytes this
   # request needs, sharing the download with other requests for it.
-  def input(source, key, record, preparation, config) do
+  def input(source, key, record, config) do
     coordinate(
       storable?(record, source) and staged?(source),
       key,
       fn coordination, _outcome ->
         lease = if coordination, do: coordination
-        result = fetch(source, key, nil, preparation, config, lease, record)
+        result = fetch(source, key, nil, config, lease, record)
         share_download(coordination, result, source)
         result
       end,
       work_opts(source, config, download_cohort(source, config))
     )
     |> waited()
-    |> finish_overlap()
   end
 
   # A request waits for another one's work on the same source only when that
@@ -223,11 +220,9 @@ defmodule ImagePipe.Execution.SourceCache do
        when is_reference(lease) do
     with true <- storable?(record, source),
          [_ | _] = waiting <- Work.sharing(lease) do
-      shared = %{acquisition | processing: nil, processing_deadline: nil}
-
       values =
         for pid <- waiting,
-            {:ok, copy} <- [shared_copy(shared, response, pid)],
+            {:ok, copy} <- [shared_copy(acquisition, response, pid)],
             into: %{},
             do: {pid, {:ok, copy}}
 
@@ -284,27 +279,16 @@ defmodule ImagePipe.Execution.SourceCache do
   defp waited(:timeout), do: {:error, {:source, :receive_timeout}}
   defp waited(result), do: result
 
-  # Processing that overlapped the download is awaited after the source's work
-  # is released, so requests waiting for the same source don't wait for it too.
-  defp finish_overlap({:ok, %Acquisition{processing: overlap} = acquisition}) do
-    {processing, deadline} = Overlap.finish(overlap)
-    {:ok, %{acquisition | processing: processing, processing_deadline: deadline}}
-  end
-
-  defp finish_overlap(result), do: result
-
   # `lease` is this request's lease on the source's work, or nil.
   # `release_unstored/4` lets its waiters go when the response may not be
   # stored. `known` is a
   # current record whose bytes are needed again, for another variant. A local
   # original whose evidence still matches it isn't rehashed.
-  defp fetch(source, key, previous, preparation, config, lease, known \\ nil) do
+  defp fetch(source, key, previous, config, lease, known \\ nil) do
     Telemetry.span(config, [:source, :stage], %{}, fn ->
-      preparation = if is_nil(previous), do: preparation
-
       stage = fn response ->
         release_unstored(lease, response, source, config)
-        stage(response, source, preparation, config, known)
+        stage(response, source, config, known)
       end
 
       result = fetch_response(source, previous, config, stage)
@@ -423,7 +407,6 @@ defmodule ImagePipe.Execution.SourceCache do
   defp stage(
          %Response{path: original} = response,
          %{cache_semantics: %{copy?: false}} = source,
-         _preparation,
          config,
          known
        )
@@ -440,12 +423,11 @@ defmodule ImagePipe.Execution.SourceCache do
           )
 
     case RawFile.stat(original) do
-      {:ok, %File.Stat{size: size}} ->
+      {:ok, %File.Stat{}} ->
         {:ok,
          %Acquisition{
            record: record,
-           response: %Response{path: original, origin: response.origin},
-           source_bytes: size
+           response: %Response{path: original, origin: response.origin}
          }}
 
       {:error, _reason} ->
@@ -457,7 +439,7 @@ defmodule ImagePipe.Execution.SourceCache do
   end
 
   # Without a private staging directory, the original is buffered in memory.
-  defp stage(response, source, preparation, config, _known) do
+  defp stage(response, source, config, _known) do
     dir = Staging.dir()
     path = Staging.temporary_path(dir)
 
@@ -474,10 +456,10 @@ defmodule ImagePipe.Execution.SourceCache do
           path -> File.stream!(path, 65_536)
         end
 
-      {body, digest, size, processing, buffered} =
+      {body, digest, buffered} =
         case lease do
           :unavailable -> spool_buffer(stream, config[:max_body_bytes], :dir)
-          _ref -> spool(stream, path, response, preparation, config)
+          _ref -> spool(stream, path, config)
         end
 
       record = Record.new(source, digest, response.origin, now(config))
@@ -488,8 +470,6 @@ defmodule ImagePipe.Execution.SourceCache do
          record: record,
          response: prepared,
          lease: lease,
-         source_bytes: size,
-         processing: processing,
          buffered: buffered
        }}
     rescue
@@ -512,19 +492,13 @@ defmodule ImagePipe.Execution.SourceCache do
   defp staged_response({:buffer, bytes}, _path, origin),
     do: %Response{stream: [bytes], origin: origin}
 
-  defp spool(stream, path, response, preparation, config) do
+  defp spool(stream, path, config) do
     case :file.open(path, [:read, :write, :binary, :exclusive, :raw]) do
       {:ok, io} ->
         _result = RawFile.set_mode(path, 0o600)
 
-        overlap = Overlap.start(response, preparation, config, path)
-
         try do
-          spool_file(stream, io, config[:max_body_bytes], overlap)
-        catch
-          kind, reason ->
-            Overlap.close(overlap)
-            :erlang.raise(kind, reason, __STACKTRACE__)
+          spool_file(stream, io, config[:max_body_bytes])
         after
           :file.close(io)
         end
@@ -535,29 +509,26 @@ defmodule ImagePipe.Execution.SourceCache do
   end
 
   # Network messages are often a few KiB, so they're written to the file in
-  # batches of `@spool_batch` bytes. A decode that may read the file as it
-  # grows needs every byte as it arrives, since the origin can pause between
-  # messages, so then each message is written at once.
+  # batches of `@spool_batch` bytes.
   @spool_batch 65_536
 
-  defp spool_file(stream, io, limit, overlap) do
-    initial = {:file, 0, :crypto.hash_init(:sha256), overlap, {[], 0}}
+  defp spool_file(stream, io, limit) do
+    initial = {:file, 0, :crypto.hash_init(:sha256), {[], 0}}
 
-    {body, size, hash, overlap, pending} =
-      Source.reduce_body(stream, initial, fn bytes, {body, size, hash, overlap, pending} ->
+    {body, size, hash, pending} =
+      Source.reduce_body(stream, initial, fn bytes, {body, size, hash, pending} ->
         next_size = size + byte_size(bytes)
         check_size!(next_size, limit)
         hash = :crypto.hash_update(hash, bytes)
-        {body, overlap, pending} = append(body, io, bytes, next_size, overlap, pending)
-        {body, next_size, hash, overlap, pending}
+        {body, pending} = append(body, io, bytes, next_size, pending)
+        {body, next_size, hash, pending}
       end)
 
     body = flush(body, io, pending)
-    overlap = if match?({:buffer, _}, body), do: Overlap.cancel(overlap), else: overlap
     check_staged_size!(body, io, size)
     buffered = if body != :file, do: :write
 
-    {finish_body(body), :crypto.hash_final(hash), size, Overlap.complete(overlap), buffered}
+    {finish_body(body), :crypto.hash_final(hash), buffered}
   end
 
   defp check_staged_size!(:file, io, size) do
@@ -569,24 +540,18 @@ defmodule ImagePipe.Execution.SourceCache do
 
   defp check_staged_size!({:buffer, _bytes}, _io, _size), do: :ok
 
-  defp observe(:file, overlap, io, size), do: Overlap.observe(overlap, io, size)
-  defp observe({:buffer, _}, overlap, _io, _size), do: Overlap.cancel(overlap)
-
   # `pending` holds the bytes not yet written, newest first, and how many
   # bytes the file holds.
-  defp append(:file, io, bytes, size, overlap, {chunks, written}) do
+  defp append(:file, io, bytes, size, {chunks, written}) do
     chunks = [bytes | chunks]
 
-    if size - written >= @spool_batch or Overlap.reading?(overlap) do
-      body = flush(:file, io, {chunks, written})
-      {body, observe(body, overlap, io, size), {[], size}}
-    else
-      {:file, overlap, {chunks, written}}
-    end
+    if size - written >= @spool_batch,
+      do: {flush(:file, io, {chunks, written}), {[], size}},
+      else: {:file, {chunks, written}}
   end
 
-  defp append({:buffer, reversed}, _io, bytes, _size, overlap, pending),
-    do: {{:buffer, [bytes | reversed]}, overlap, pending}
+  defp append({:buffer, reversed}, _io, bytes, _size, pending),
+    do: {{:buffer, [bytes | reversed]}, pending}
 
   defp flush(:file, _io, {[], _written}), do: :file
 
@@ -613,15 +578,15 @@ defmodule ImagePipe.Execution.SourceCache do
 
   # `reason` says why the original isn't staged to a file.
   defp spool_buffer(stream, limit, reason) do
-    {bytes, size, hash} =
+    {bytes, _size, hash} =
       Source.reduce_body(stream, {[], 0, :crypto.hash_init(:sha256)}, fn bytes,
                                                                          {acc, size, hash} ->
         check_size!(size + byte_size(bytes), limit)
         {[bytes | acc], size + byte_size(bytes), :crypto.hash_update(hash, bytes)}
       end)
 
-    {{:buffer, bytes |> Enum.reverse() |> IO.iodata_to_binary()}, :crypto.hash_final(hash), size,
-     nil, reason}
+    {{:buffer, bytes |> Enum.reverse() |> IO.iodata_to_binary()}, :crypto.hash_final(hash),
+     reason}
   end
 
   defp unchanged?(%Record{origin: %{headers: %{"etag" => same}}}, %{headers: %{"etag" => same}}),

@@ -267,12 +267,9 @@ Span. Emitted for requests that generate an image under a
 
 - Start metadata: `:active` and `:queued` (integer), the pool's jobs before
   this request, and `:priority` (atom), `:normal` or `:low`, the request's
-  [priority](processing/request.md#priority). `:continuation` (boolean) is
-  `true` for the second turn of a request whose original was decoded while
-  it downloaded (see [deadlines](processing-controls.md#deadlines)).
+  [priority](processing/request.md#priority).
 - Stop metadata: `:result` (atom), one of `:admitted`, `:overloaded`,
-  `:queue_timeout`, `:cancelled`, `:worker_down`, or `:unavailable`, or
-  `:timeout` when a second turn's deadline passes while it waits.
+  `:queue_timeout`, `:cancelled`, `:worker_down`, or `:unavailable`.
 
 ### `[:processing, :execute]`
 
@@ -752,10 +749,9 @@ The default Logger logs `:error` at `:warning`.
 
 Span. Wraps computing the image into memory. A JPEG, WebP, or AVIF output
 that no earlier step computed is computed in `[:encode]` while it is
-encoded. The exceptions are a progressive JPEG, an output with a quality
-search, and a request that started processing before the original finished
-downloading. Any other generated image is computed in this span at least
-once, at the latest just before encoding.
+encoded. The exceptions are a progressive JPEG and an output with a quality
+search. Any other generated image is computed in this span at least once, at
+the latest just before encoding.
 
 - Start metadata: none.
 - Stop metadata:
@@ -773,10 +769,9 @@ Where the span nests depends on why the image is computed:
   `[:transform, :operation]`.
 - When EXIF orientation, rotation, or flips are applied: directly in
   `[:transform, :execute]`.
-- Just before encoding a PNG, a progressive JPEG, an output with a quality
-  search (`autoquality` or `max_bytes`), or the output of a request that
-  started processing before the original finished downloading: in the
-  request span, or in `[:processing, :execute]` under a processing pool.
+- Just before encoding a PNG, a progressive JPEG, or an output with a quality
+  search (`autoquality` or `max_bytes`): in the request span, or in
+  `[:processing, :execute]` under a processing pool.
 
 ### `[:transform, :detect]`
 

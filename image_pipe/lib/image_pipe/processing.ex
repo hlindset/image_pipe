@@ -127,38 +127,6 @@ defmodule ImagePipe.Processing do
     end
   end
 
-  def resume_fun({:ok, prepared}, bytes, config), do: build_prepared(prepared, bytes, config)
-
-  def prepare_download(request, source, policy, config) do
-    started = System.monotonic_time(:microsecond)
-
-    Decode.with_image(
-      source,
-      request,
-      config,
-      fn state, geometry ->
-        decode_us = System.monotonic_time(:microsecond) - started
-        # The source closes when this callback returns, before the encode.
-        prepare_pixels(state, geometry, request, policy, config, %{}, decode_us, false)
-      end,
-      {policy.skip_formats, fn _format, _chunks -> {:ok, :skipped} end}
-    )
-  end
-
-  defp build_prepared(prepared, bytes, config) do
-    geometry = prepared.geometry
-    geometry = %{geometry | debug_facts: Map.put(geometry.debug_facts, :source_bytes, bytes)}
-    prepared = %{prepared | geometry: geometry}
-
-    fn pump ->
-      try do
-        produce_prepared(prepared, config, pump)
-      after
-        Keyword.get(config, :on_bracket_exit, fn -> :ok end).()
-      end
-    end
-  end
-
   # `watermark_inputs` are the request's watermark asset bytes, or the
   # deferred reads that produce them (see with_watermarks/2).
   def build_fun(%Spec{} = request, source, policy, config, watermark_inputs) do
@@ -206,16 +174,12 @@ defmodule ImagePipe.Processing do
 
   defp produce_stream(state, geometry, request, policy, config, inputs, pump, decode_us) do
     with {:ok, prepared} <-
-           prepare_pixels(state, geometry, request, policy, config, inputs, decode_us, true) do
+           prepare_pixels(state, geometry, request, policy, config, inputs, decode_us) do
       produce_prepared(prepared, config, pump)
     end
   end
 
-  # An overlapped preparation never has watermarks (Execution starts it only
-  # without them), so prepare_download/4 passes no inputs.
-  # `encode_ahead?` is whether the encode runs while the source is still
-  # open, so it may read the source instead of a buffered copy.
-  defp prepare_pixels(state, geometry, request, policy, config, inputs, decode_us, encode_ahead?) do
+  defp prepare_pixels(state, geometry, request, policy, config, inputs, decode_us) do
     shrink = state.decode_shrink
     operations = Executor.operation_names(request)
 
@@ -237,7 +201,7 @@ defmodule ImagePipe.Processing do
          {:ok, %State{} = state} <-
            materialize_for_delivery(
              %State{state | image: clamped},
-             encode_ahead? and Encoder.encode_ahead?(resolved_output)
+             Encoder.encode_ahead?(resolved_output)
            ) do
       {:ok,
        %Prepared{

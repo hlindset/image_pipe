@@ -64,9 +64,31 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   24-megapixel PNG with an alpha channel to JPEG took about 180 ms instead
   of 235 ms. Requests that resize the image, or that use `autoquality` or
   `max-bytes`, take as long as before, and the output is unchanged.
+- A large JPEG or PNG original from an HTTP or S3 source is decoded once its
+  download has finished, instead of while it downloads. The first request
+  for a 10.7 MB JPEG took about 790 ms instead of 540 ms from an origin
+  sending about 20 MB/s, and about 5.4 s instead of 5.1 s from one sending
+  about 2 MB/s. Requests answered from the cache, originals of 1 MB or less,
+  and other formats take as long as before.
+
+### Removed
+
+- **Breaking:** `[:processing, :admission]` no longer has `:continuation` in
+  its start metadata or `:timeout` as a `:result`. Under a
+  [processing pool](docs/processing-controls.md), every request now takes
+  one turn. Remove `:continuation` from telemetry handlers and metric tags
+  that read it, and `:timeout` from handlers that match the event's
+  `:result`.
 
 ### Fixed
 
+- Requests that each decode a large JPEG or PNG original from a slow origin
+  no longer stop image processing. Before, ten such requests at once hung,
+  and so did every other request that processed an image.
+- Under a [processing pool](docs/processing-controls.md), a request no
+  longer holds a slot while its large JPEG or PNG original downloads. Before,
+  slow origins could fill the pool: with two slots held by 5-second
+  downloads, an unrelated 8 ms request waited 3.6 s.
 - Requests to HTTP and S3 origins no longer queue, one at a time across the
   whole server, before using their connection pool. This saves about 40 µs
   per fetch, which shows most with fast origins and many concurrent

@@ -187,12 +187,11 @@ defmodule ImagePipe.Execution.Watermarks do
     end
   end
 
-  # No preparation: the overlapped decode belongs to the main source. A
-  # revalidation without a body (a 304) keeps the byte identity, so the bytes
-  # remembered for it still apply.
+  # A revalidation without a body (a 304) keeps the byte identity, so the
+  # bytes remembered for it still apply.
   defp acquire(watermark, record, config) do
     with {:ok, acquisition} <-
-           SourceCache.acquire(watermark.source, watermark.input_key, record, nil, config) do
+           SourceCache.acquire(watermark.source, watermark.input_key, record, config) do
       watermark = %{watermark | record: acquisition.record}
 
       case acquisition.response do
@@ -210,7 +209,7 @@ defmodule ImagePipe.Execution.Watermarks do
 
   defp open(watermark, config) do
     with {:ok, acquisition} <-
-           SourceCache.input(watermark.source, watermark.input_key, watermark.record, nil, config) do
+           SourceCache.input(watermark.source, watermark.input_key, watermark.record, config) do
       leased_bytes(watermark, acquisition, config)
     end
   end

@@ -287,7 +287,6 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Source.CachePolicy,
       ImagePipe.Source.CacheSettings,
       ImagePipe.Source.CacheState,
-      ImagePipe.Source.Download,
       ImagePipe.Source.Origin,
       ImagePipe.Source.Record,
       ImagePipe.Source.CacheSemantics,
