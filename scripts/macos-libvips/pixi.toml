@@ -1,0 +1,28 @@
+# The build tools and libraries scripts/build-macos-libvips.sh builds libvips
+# with, from conda-forge. The libraries match the packages
+# .github/workflows/elixir.yml installs for the CI build.
+[workspace]
+name = "libvips-macos"
+channels = ["conda-forge"]
+platforms = ["osx-arm64"]
+
+[dependencies]
+meson = "*"
+ninja = "*"
+pkg-config = "*"
+glib = "*"
+zlib = "*"
+expat = "*"
+libjpeg-turbo = "*"
+libpng = "*"
+libwebp = "*"
+libtiff = "*"
+libheif = "*"
+librsvg = "*"
+pango = "*"
+lcms2 = "*"
+libjxl = "*"
+libcgif = "*"
+libexif = "*"
+libimagequant = "*"
+libhwy = "*"
