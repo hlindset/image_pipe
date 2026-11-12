@@ -40,7 +40,8 @@ defmodule ImagePipeServer.Config.Reference do
         "setting lets the server answer URLs without a signature, and the server logs a " <>
         "warning at startup. Set it only for a server that nothing outside a private " <>
         "network can reach. `client_presets` names presets from `[processing] presets` " <>
-        "that a client may add to a signed URL without a new signature. See " <>
+        "that a client may add to a signed URL without a new signature. Listing a " <>
+        "pipeline preset, one with several groups, stops the server at startup. See " <>
         "[letting clients choose a preset](../../image_pipe/docs/signing-urls.md#let-clients-choose-a-preset).",
     sources: nil,
     cache:
@@ -52,12 +53,15 @@ defmodule ImagePipeServer.Config.Reference do
         "`max_remembered_originals` is how many originals the server remembers in memory, " <>
         "with or without a cache: about 1 KB for each local file and 1.4 KB for each " <>
         "image from an origin. It defaults to one for each 50 KB of `output.max_size_bytes`, " <>
-        "at least 10,000 and at most 200,000. See [originals and processed images]" <>
+        "at least 10,000 and at most 200,000. In a container with a memory limit, it " <>
+        "defaults to at most one for each 20 KB of that limit, still at least 10,000. " <>
+        "See [originals and processed images]" <>
         "(../../image_pipe/docs/caching-and-freshness.md#originals-and-processed-images) " <>
         "for what happens when an original is forgotten. " <>
         "`output.max_remembered_entries` is how many recently served entries the cache " <>
         "keeps in memory, about 1.4 KB each. It defaults to one for each 50 KB of " <>
-        "`output.max_size_bytes`, at least 1,000 and at most 50,000. " <>
+        "`output.max_size_bytes`, or of the container's memory limit when that is " <>
+        "smaller, at least 1,000 and at most 50,000. " <>
         "`output.max_remembered_bytes` is how many bytes of recently served bodies of " <>
         "64 KB or less the cache keeps in memory. Set it to `0` when `output.root` is on a " <>
         "`tmpfs`, where those bodies would be held in memory twice.",

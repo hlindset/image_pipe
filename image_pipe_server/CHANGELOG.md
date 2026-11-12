@@ -5,6 +5,8 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-11-12
+
 ### Added
 
 - `[delivery]` sets where slow clients' spool files and downloaded
@@ -19,9 +21,49 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   when the cache's `root` is on a `tmpfs`, which already holds the files
   in memory. `/stats` and `/metrics`
   report `remembered_bytes` and `max_remembered_bytes`.
+- An S3 source's new `addressing = "virtual_host"` setting requests objects
+  from `<bucket>.<endpoint host>` instead of `<endpoint>/<bucket>`, for S3
+  Transfer Acceleration and stores that need the bucket name in the host.
+  See
+  [Use S3 Transfer Acceleration](https://github.com/hlindset/image_pipe/blob/v0.7.0/image_pipe/docs/serving-from-s3.md#use-s3-transfer-acceleration).
 
 ### Changed
 
+- Uses `image_pipe`
+  [0.7.0](https://github.com/hlindset/image_pipe/blob/v0.7.0/image_pipe/CHANGELOG.md).
+- In a container with a memory limit, the defaults of `[cache]
+  max_remembered_originals` and `output.max_remembered_entries` are lowered
+  to at most one original for each 20 KB of the limit and one entry for each
+  50 KB, still at least 10,000 originals and 1,000 entries. Together they
+  take at most about 10% of the limit, instead of up to 350 MB whatever the
+  limit. A value you set is kept.
+- A large JPEG or PNG original from an HTTP or S3 source is decoded once its
+  download has finished, instead of while it downloads. The first request
+  for a 10.7 MB JPEG took about 790 ms instead of 540 ms from an origin
+  sending about 20 MB/s. Requests answered from the cache, originals of 1 MB
+  or less, and other formats take as long as before.
+- Below 8x, JPEG shrink-on-load leaves the resize at least a 2x reduction,
+  as libvips' `thumbnail` does: a 2–4x downscale decodes at full size, and a
+  4–8x one shrinks by 2 instead of 4. These downscales are sharper and alias
+  less, and take longer, since the decode reads up to four times as many
+  pixels. Downscales of 8x and more, and CMYK JPEG sources,
+  are unchanged. Output of 2–8x downscales of other JPEGs differs slightly
+  from earlier releases.
+- A cache hit on a recently served entry no longer checks its body file
+  before sending it, which makes such hits faster. A GET whose body file was
+  deleted generates the image again, and a body file changed in place is
+  sent even if its size changed.
+- Requests with the default `keep_copyright = true` take less time when the
+  source has EXIF metadata. A 300-pixel-wide JPEG from a camera photo with
+  40 KB of EXIF took about 50 ms instead of about 70 ms.
+- With `verify = "stat"`, a local file whose stat matches the one recorded
+  for its path is checked with one stat call instead of one per directory.
+- A JPEG made from an image with an alpha channel is encoded without first
+  copying the image in memory. Converting a 24-megapixel PNG with an alpha
+  channel to JPEG took about 180 ms instead of 235 ms.
+- **Breaking:** `[url] client_presets` refuses a pipeline preset (one with
+  several groups) at startup. It answered `400` with any signed URL that had
+  group options. Remove pipeline presets from `client_presets`.
 - The release no longer keeps idle schedulers for file work spinning
   (`+sbwtdio none` instead of `very_short`). In benchmarks on 2 CPUs with
   one or two concurrent clients, the server used up to 26% less CPU per
@@ -36,6 +78,12 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - A `bind` or `health_bind` written as a shortened IPv4 address, such as
     `10.0.5`, which was read as `10.0.0.5`. Write all four numbers.
 
+### Removed
+
+- **Breaking:** The `image_pipe.processing.admission` trace span no longer
+  has a `continuation` attribute, and its result in traces and logs is never
+  `timeout`. Update queries and alerts that read them.
+
 ### Fixed
 
 - The startup warmup no longer applies `[processing] request_defaults`, so a
@@ -43,9 +91,61 @@ Releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   server starts listening. A slow watermark origin held the listener closed
   for four fetch timeouts. The warmup also gives up after five seconds and
   logs a warning.
+- Requests that each decode a large JPEG or PNG original from a slow origin
+  no longer stop image processing. Before, ten such requests at once hung,
+  and so did every other request that processed an image.
+- Under a `[pool]`, a request no longer holds a slot while its large JPEG or
+  PNG original downloads. Before, slow origins could fill the pool.
+- Requests to HTTP and S3 origins no longer queue, one at a time across the
+  whole server, before using their connection pool. Against a local origin,
+  a fetch took about 25% less time.
+- A client preset works on a signed URL that names presets in its first
+  group: the client's presets apply first and the signed ones after them,
+  instead of answering `400` "duplicate option". The client's `preset=`
+  segment also no longer counts toward the 64 option segments a URL may
+  have.
+- A client preset named twice, such as `preset=poster,poster/`, is accepted
+  instead of answering `403`. A client preset that isn't in
+  `client_presets` logs the reason `client preset not allowed` instead of
+  `invalid signature`. The response is still `403` with the body
+  `invalid signature`.
+- An `unset` in a preset that a later layer writes again counts as never
+  written, as the preset docs say: `/preset=nowidth/w=200` with
+  `nowidth = "w=unset"` resolves like `/w=200`. Before, the unset still
+  removed options that depend on it, such as a default `enlarge`.
+- A watermark asset whose origin answers a revalidation with `304` is no
+  longer downloaded again in full for the next new variant.
+- While an S3 credential provider is failing and no valid credentials are
+  held, it is called again at most every five seconds rather than for every
+  request.
+- When a new original can't be staged in a file (a full or unwritable
+  `[delivery] tmp_dir`), requests for other sizes of it share the copy held in memory,
+  instead of downloading it again one after another.
+- While a cache write larger than 256 MiB (or a twentieth of
+  `output.max_size_bytes`, if that's smaller) is in progress, other cache writes are
+  stored instead of dropped.
+- An image whose embedded ICC profile has a sound header but tag data that
+  LittleCMS can't use is served as if it had no profile, instead of failing
+  with `415` or `422`.
+- With the default `[processing] keep_copyright = true`, an output whose source has no
+  copyright or artist no longer carries a 180–190-byte EXIF block. When a
+  copyright is kept, the EXIF `ColorSpace` of an sRGB result is sRGB rather
+  than Uncalibrated.
+- An output that keeps the source's metadata (`meta=keep`, or
+  `[processing] strip_metadata = false`) sets an XMP `tiff:Orientation` to `1`, as it
+  already did for the EXIF orientation tag. Before, XMP readers such as
+  Adobe apps turned the delivered image again.
+- When the server's image processing is killed outright, it restarts with
+  its cache instead of stopping the server.
 
 ### Security
 
+- **Breaking:** A URL may name at most 16 presets, counting each repeat,
+  every group, and a client's presets written before `sig=`. A URL with more
+  answers `400` before fetching the source. Before, a URL that repeated a
+  preset containing an `unset` thousands of times took seconds of CPU, and
+  with `client_presets` any client could send one. Combine presets that a
+  URL names together into fewer definitions.
 - The release bundles Bandit 1.14.1 and ssl_verify_fun 1.1.9, so
   vulnerability scanners no longer flag the image. Neither problem affected
   the server:
@@ -1058,7 +1158,8 @@ First release of the standalone ImagePipe server.
 - Choose a base image or a vision image with bundled face and object detection
   models.
 
-[Unreleased]: https://github.com/hlindset/image_pipe/compare/image_pipe_server-v0.6.0...HEAD
+[Unreleased]: https://github.com/hlindset/image_pipe/compare/image_pipe_server-v0.7.0...HEAD
+[0.7.0]: https://github.com/hlindset/image_pipe/compare/image_pipe_server-v0.6.0...image_pipe_server-v0.7.0
 [0.6.0]: https://github.com/hlindset/image_pipe/compare/image_pipe_server-v0.5.0...image_pipe_server-v0.6.0
 [0.5.0]: https://github.com/hlindset/image_pipe/compare/image_pipe_server-v0.4.0...image_pipe_server-v0.5.0
 [0.4.0]: https://github.com/hlindset/image_pipe/compare/image_pipe_server-v0.3.0...image_pipe_server-v0.4.0
